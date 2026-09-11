@@ -131,23 +131,42 @@ void MAIN start() {
       feat->eps = min(feat->eps + 0.01f * current_eps, 0.0f);
 
       asv->final_ips = max(asv->final_ips, new_ps);
+    // Patch for my_asv custom ASV wrapper:
+    //  1. Never allow delivered pressure to drop below set EPAP.
+    //  2. Soften the IPAP -> EPAP transition at the moment of cycling
+    //     (ease-out curve: zero slope right at cycle, steeper later).
     } else { // Exhaling
       if (tr->current.ti >= 0.7f) {
         current_eps = max(0.0f, current_eps - (asv->final_ips - vauto_ps) * 0.25f);
-        if (tr->st_just_started) { feat->eps = -current_eps; }
-        else {
+
+        // --- FIX 1: never push the PS floor below EPAP (0 in this space). ---
+        if (tr->st_just_started) {
+          feat->eps = 0.0f; // was: -current_eps
+        } else {
           float eps1 = remap01c(tr->current.volume / tr->current.volume_max, 0.10f, 0.7f);
           eps1 = sqrtf(eps1);
           eps1 = min(eps1, remap01c(tr->current.te, max(1.2f, tr->recent.te * 0.8f), max(0.4f, tr->recent.te * 0.4f)));
-          feat->eps = max(feat->eps, -current_eps * eps1);
+          // clamp the resulting floor at 0 so it can approach but never cross EPAP
+          feat->eps = max(0.0f, max(feat->eps, -current_eps * eps1));
         }
       }
-      float new_ps1 = ps1*ps1 * 0.75f + 0.25f * ps1;
+
+      // --- FIX 2: ease-out shape instead of the old ps1^2*0.75+0.25*ps1 curve.
+      // Slope at ps1=1 (moment of cycling) is 0 -> smooth start of the fall.
+      // Slope increases as ps1 -> 0 -> most of the descent happens later in
+      // exhale, not immediately at the cycle point.
+      float d = 1.0f - ps1;
+      float new_ps1 = 1.0f - d * d; // equivalent to ps1*(2.0f - ps1)
+
       new_ps = remap(new_ps1, 0.0f, 1.0f, feat->eps, asv->final_ips);
 
       if (tr->st_pre_trigger > 0) { feat->ips_fa = min(tr->st_pre_trigger, 2) * 0.2f; };
       if (*flow_compensated <= 0.0f) { feat->ips_fa = 0.0f; }
       new_ps += feat->ips_fa;
+
+      // --- FIX 1 (belt-and-suspenders): hard clamp the final value too, in
+      // case ips_fa or rounding ever pushes new_ps slightly negative.
+      new_ps = max(new_ps, 0.0f);
     }
 
     new_ps = *cmd_ps + (new_ps - ps); // Correction for the bizarre way VAuto handles the *cmd_ps fvar
