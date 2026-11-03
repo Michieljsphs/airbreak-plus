@@ -57,6 +57,18 @@ affected image. Changing the input image, including selecting another
 
 Each patcher's `--help` lists available options and defaults.
 
+### Graphical editor
+
+`patch-airsense-gui.bat` (Windows, no console) or `python python/patch_config_gui.py`
+opens a window for the Air 10 `patch-airsense.config`. Patches are grouped by
+phase and read from `patch-airsense.py`, so the list always matches the patcher.
+Ticking a patch also ticks the patches it requires; unticking one unticks the
+patches that depend on it. Options that differ from the built-in default are
+shown bold. Save writes only those options; other patcher options already in
+the file are kept, but comments are not. The Patch firmware section saves the
+options and runs the patcher on a chosen image, showing its output. Needs only
+Python with tkinter.
+
 ## Precedence
 
 Lowest to highest; applies to both wrappers and Python entry points:
@@ -132,4 +144,5 @@ The Air 10 option list is available through `patch-airsense.py --help`.
 [Air 10 patching guide](guide/patching.md),
 [Air11 patching guide](guide/as11/patching.md),
 [Air 10 configuration example](../patch-airsense.config.example),
-[Air11 configuration example](../patch-airsense-s11.config.example).
+[Air11 configuration example](../patch-airsense-s11.config.example),
+[Air 10 options window](../python/patch_config_gui.py).
