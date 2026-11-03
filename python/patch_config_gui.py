@@ -9,12 +9,15 @@ Hovering a patch shows its entry from docs/guide/patching.md and the linked feat
 and the custom settings menu items it adds. The counter above the patches shows how many of the reclaimed
 Reminder variables (the menu slots) and labels the selected patches use; both are read from the patcher.
 Patch saves the config and runs patch-airsense.py INPUT OUTPUT PATCH --overwrite, with its output in the
-log. The input and output paths are remembered in ~/.airbreak_patch_gui.json.
+log. Flash device does over SWD what docs/guide/flashing.md does in the OpenOCD telnet console: each
+button runs OpenOCD once with tcl/airsense.cfg and one of its commands (dump, flash_new, ...), either a
+Windows openocd.exe or run-ocd.sh in WSL. The paths and choices are remembered in ~/.airbreak_patch_gui.json.
 Needs only Python with tkinter (included in the Windows installer). Start it with patch-airsense-gui.bat
 (no console) or python python/patch_config_gui.py.
 """
 import argparse
 from copy import copy
+import glob
 import importlib.util
 import inspect
 import json
@@ -22,6 +25,7 @@ import os
 import queue
 import re
 import shlex
+import shutil
 import subprocess
 import sys
 import textwrap
@@ -42,6 +46,17 @@ CONFIG_FILE = os.path.join(REPO, LOCAL_FILES["air10"])
 SETTINGS_FILE = os.path.join(os.path.expanduser("~"), ".airbreak_patch_gui.json")
 HEADER = "# Written by python/patch_config_gui.py: only options that differ from the built-in defaults."
 DEFAULT_OUTPUT = os.path.join(REPO, "build", "stm32-patched.bin")
+DEFAULT_BACKUP = os.path.join(REPO, "stm32.bin")   # where docs/guide/openocd.md has the stock dump
+FLASH_SIZE = 0x100000   # flash_new and dump work on the whole 1 MB flash
+OPENOCD_GLOBS = (   # Windows installs of OpenOCD, newest version first within each
+    r"C:\Program Files*\OpenOCD*\bin\openocd.exe",
+    r"C:\Program Files*\xpack-openocd*\bin\openocd.exe",
+    os.path.expanduser(r"~\AppData\Roaming\xPacks\@xpack-dev-tools\openocd\*\.content\bin\openocd.exe"),
+    os.path.expanduser(r"~\ModusToolbox\tools_*\openocd\bin\openocd.exe"),
+    r"C:\VSCode_OnethinxPack_Windows\tools_*\openocd\bin\openocd.exe",
+    r"C:\Program Files*\Cypress\*\openocd\bin\openocd.exe",
+    r"C:\Program Files*\Infineon\*\openocd\bin\openocd.exe",
+)
 GUIDE_DIR = os.path.join(REPO, "docs", "guide")
 PATCHING_DOC = os.path.join(GUIDE_DIR, "patching.md")
 P = None   # patch-airsense.py, loaded by main()
@@ -236,6 +251,28 @@ def load_settings():
         return {}
 
 
+WSL_TOOLS_HINT = "WSL needs openocd and usbutils: sudo apt install openocd usbutils (docs/guide/wsl_setup.md)."
+LOG_HINTS = (   # output -> what to do about it, shown when the command ends
+    ("openocd: command not found", WSL_TOOLS_HINT),
+    ("lsusb: command not found", WSL_TOOLS_HINT),
+    ("Error: open failed", "OpenOCD found no adapter: check the programmer's USB cable and driver, or in WSL "
+     "that usbipd shares it (docs/guide/openocd.md)."),
+)
+
+
+def find_openocd():
+    """openocd on the PATH, else a known Windows install; empty when none is found."""
+    found = shutil.which("openocd")
+    if found:
+        return found
+    if os.name == "nt":
+        for pattern in OPENOCD_GLOBS:
+            hits = sorted(glob.glob(pattern), reverse=True)
+            if hits:
+                return os.path.normpath(hits[0])
+    return ""
+
+
 def python_exe():
     """python.exe, also when started through pythonw.exe, so the child has a console-less pipe-friendly stdout."""
     exe = sys.executable
@@ -261,6 +298,9 @@ class App(tk.Tk):
         self.saved_tokens = None  # options in the config file, None when it could not be read
         self.loading = False
         self.proc = None
+        self.done = ""          # log text when the running command succeeds
+        self.flashing = False   # the running command writes the device flash: ask before stopping it
+        self.hints = []         # LOG_HINTS matched by the running command's output
         self.lines = queue.Queue()
 
         bold = tkfont.nametofont("TkDefaultFont").copy()
@@ -333,8 +373,10 @@ class App(tk.Tk):
             side="left", fill="x", expand=True, padx=(6, 0))
 
         settings = load_settings()
-        patch = ttk.LabelFrame(bottom, text="Patch firmware", padding=8)
-        patch.pack(fill="x")
+        sections = ttk.Frame(bottom)   # left: patch an image, right: flash it to the device
+        sections.pack(fill="x")
+        patch = ttk.LabelFrame(sections, text="Patch firmware", padding=8)
+        patch.pack(side="left", fill="both", expand=True)
         patch.columnconfigure(1, weight=1)
         self.infile = tk.StringVar(value=settings.get("input", ""))
         self.outfile = tk.StringVar(value=settings.get("output") or DEFAULT_OUTPUT)
@@ -352,6 +394,54 @@ class App(tk.Tk):
         self.stop_btn = ttk.Button(actions, text="Stop", command=self.stop, state="disabled")
         self.stop_btn.pack(side="left", padx=(6, 0))
         ttk.Checkbutton(actions, text="Verbose (per-patch details)", variable=self.verbose).pack(side="left", padx=12)
+
+        flash = ttk.LabelFrame(sections, text="Flash device (SWD, OpenOCD)", padding=8)
+        flash.pack(side="left", fill="both", expand=True, padx=(8, 0))
+        flash.columnconfigure(1, weight=1)
+        found = find_openocd()
+        self.ocd_mode = tk.StringVar(value=settings.get("ocd_mode") or ("windows" if found else "wsl"))
+        self.ocd_path = tk.StringVar(value=settings.get("ocd_path") or found)
+        self.ocd_interface = tk.StringVar(value=settings.get("ocd_interface") or "stlink")
+        self.flash_file = tk.StringVar(value=settings.get("flash_file") or self.outfile.get())
+        self.backup = tk.StringVar(value=settings.get("backup") or DEFAULT_BACKUP)
+        ttk.Label(flash, text="OpenOCD:").grid(row=0, column=0, sticky="w", pady=(0, 4))
+        mode = ttk.Frame(flash)
+        mode.grid(row=0, column=1, columnspan=2, sticky="w", padx=6, pady=(0, 4))
+        for value, text in (("windows", "Windows openocd.exe"), ("wsl", "WSL (run-ocd.sh)")):
+            ttk.Radiobutton(mode, text=text, value=value, variable=self.ocd_mode,
+                            command=self.ocd_mode_changed).pack(side="left", padx=(0, 12))
+        ttk.Label(mode, text="Adapter:").pack(side="left")
+        ttk.Combobox(mode, textvariable=self.ocd_interface, values=("stlink", "jlink"), state="readonly",
+                     width=7).pack(side="left", padx=(4, 0))
+        ttk.Label(flash, text="openocd.exe:").grid(row=1, column=0, sticky="w", pady=(0, 4))
+        self.ocd_entry = ttk.Entry(flash, textvariable=self.ocd_path)
+        self.ocd_entry.grid(row=1, column=1, sticky="we", padx=6, pady=(0, 4))
+        self.ocd_browse = ttk.Button(flash, text="Browse...", command=self.browse_openocd)
+        self.ocd_browse.grid(row=1, column=2, pady=(0, 4))
+        for row, (label, var, saving) in enumerate((("Firmware:", self.flash_file, False),
+                                                    ("Backup (dump):", self.backup, True)), start=2):
+            ttk.Label(flash, text=label).grid(row=row, column=0, sticky="w", pady=(0, 4))
+            ttk.Entry(flash, textvariable=var).grid(row=row, column=1, sticky="we", padx=6, pady=(0, 4))
+            ttk.Button(flash, text="Browse...", command=lambda v=var, s=saving: self.browse(v, s)).grid(
+                row=row, column=2, pady=(0, 4))
+        ocd_actions = ttk.Frame(flash)
+        ocd_actions.grid(row=4, column=0, columnspan=3, sticky="w", pady=(8, 0))
+        self.ocd_buttons = []
+        for text, command, tip in (
+                ("Check device", self.ocd_check, "Connects and reports whether the device runs stock or patched "
+                 "firmware."),
+                ("Dump backup", self.ocd_dump, "Saves the whole 1 MB flash to the backup file (dump). Do this "
+                 "once on stock firmware before flashing: it is the only way to restore the device."),
+                ("Flash", self.ocd_flash, "Writes the firmware file to the device and verifies it (flash_new). "
+                 "Takes about 30 seconds; the device reboots afterwards."),
+                ("Verify", self.ocd_verify, "Compares the device flash with the firmware file "
+                 "(flash verify_bank)."),
+                ("Reset", self.ocd_reset, "Restarts the device (reset run).")):
+            button = ttk.Button(ocd_actions, text=text, command=command)
+            button.pack(side="left", padx=(0, 6))
+            Tooltip(button, lambda t=tip: wrap_lines(t))
+            self.ocd_buttons.append(button)
+        self.ocd_mode_changed()
 
         self.log = tk.Text(bottom, state="disabled", wrap="none", font=("Consolas", 10), height=10)
         self.log.pack(fill="both", expand=True, pady=(8, 0))
@@ -645,14 +735,16 @@ class App(tk.Tk):
         try:
             with open(SETTINGS_FILE, "w", encoding="utf-8") as f:
                 json.dump({"input": self.infile.get(), "output": self.outfile.get(),
-                           "verbose": self.verbose.get()}, f, indent=2)
+                           "verbose": self.verbose.get(), "ocd_mode": self.ocd_mode.get(),
+                           "ocd_path": self.ocd_path.get(), "ocd_interface": self.ocd_interface.get(),
+                           "flash_file": self.flash_file.get(), "backup": self.backup.get()}, f, indent=2)
         except OSError:
             pass
 
     def append(self, text, tag=None):
         if tag is None:
             tag = ("fail" if "[ERROR]" in text or ": error:" in text or "Error:" in text or text.startswith("Traceback")
-                   else "warn" if "[WARN]" in text or "[SKIP]" in text
+                   else "warn" if "[WARN]" in text or "[SKIP]" in text or text.startswith("Warn :")
                    else "pass" if "[OK]" in text else "")
         self.log.config(state="normal")
         self.log.insert("end", text + "\n", tag)
@@ -675,21 +767,160 @@ class App(tk.Tk):
             return
         self.save_settings()
         os.makedirs(os.path.dirname(os.path.abspath(outfile)), exist_ok=True)
-        self.append("=== Patching %s -> %s ===" % (infile, outfile))
+        self.run("Patching %s -> %s" % (infile, outfile),
+                 [python_exe(), "-u", PATCHER, infile, outfile, "PATCH", "--overwrite"] +
+                 (["-v"] if self.verbose.get() else []),
+                 "%s written" % outfile)
         for name in env_overrides():
             self.append("Note: %s from the environment overrides %s" % (name, os.path.basename(CONFIG_FILE)), "warn")
-        self.proc = subprocess.Popen(
-            [python_exe(), "-u", PATCHER, infile, outfile, "PATCH", "--overwrite"] + (["-v"] if self.verbose.get() else []),
-            stdin=subprocess.DEVNULL, stdout=subprocess.PIPE, stderr=subprocess.STDOUT, cwd=REPO,
-            env={**os.environ, "PYTHONIOENCODING": "utf-8"},
-            creationflags=getattr(subprocess, "CREATE_NO_WINDOW", 0))
+
+    def run(self, title, command, done, flashing=False):
+        """Runs a command with its output in the log; one at a time, all action buttons disabled meanwhile."""
+        self.append("=== %s ===" % title)
+        self.done, self.flashing, self.hints = done, flashing, []
+        try:
+            self.proc = subprocess.Popen(
+                command, stdin=subprocess.DEVNULL, stdout=subprocess.PIPE, stderr=subprocess.STDOUT, cwd=REPO,
+                env={**os.environ, "PYTHONIOENCODING": "utf-8"},
+                creationflags=getattr(subprocess, "CREATE_NO_WINDOW", 0))
+        except OSError as exc:
+            self.append("Could not start %s: %s" % (command[0], exc), "fail")
+            return
         threading.Thread(target=self.reader, args=(self.proc,), daemon=True).start()
-        self.patch_btn.config(state="disabled")
+        for button in [self.patch_btn] + self.ocd_buttons:
+            button.config(state="disabled")
         self.stop_btn.config(state="normal")
 
-    def stop(self):
+    def stop(self, ask=True):
         if self.proc and self.proc.poll() is None:
+            if self.flashing and ask and not messagebox.askyesno(
+                    TITLE, "Flashing is in progress. Stopping now can leave the device without working firmware "
+                    "until it is flashed again over SWD.\n\nStop anyway?", icon="warning"):
+                return
             self.proc.terminate()
+
+    def ocd_mode_changed(self):
+        state = "normal" if self.ocd_mode.get() == "windows" else "disabled"
+        self.ocd_entry.config(state=state)
+        self.ocd_browse.config(state=state)
+
+    def browse_openocd(self):
+        path = filedialog.askopenfilename(initialdir=os.path.dirname(self.ocd_path.get()) or None,
+                                          filetypes=[("OpenOCD", "openocd*.exe"), ("All files", "*.*")])
+        if path:
+            self.ocd_path.set(os.path.normpath(path))
+
+    def tcl_path(self, path):
+        """A file argument for the airsense.cfg commands: relative to the repo (OpenOCD runs there) when inside
+        it, otherwise absolute, converted to a WSL path in WSL mode. Braced for Tcl. None, after telling the
+        user, when WSL cannot reach the file."""
+        path = os.path.realpath(path)   # also expands 8.3 names such as MICHIE~1, which WSL does not know
+        try:
+            rel = os.path.relpath(path, REPO)
+        except ValueError:   # another drive
+            rel = os.pardir
+        if not rel.startswith(os.pardir):
+            path = rel
+        elif self.ocd_mode.get() == "wsl":
+            result = subprocess.run(["wsl.exe", "--exec", "wslpath", "-a", path.replace("\\", "/")],
+                                    capture_output=True, text=True,
+                                    creationflags=getattr(subprocess, "CREATE_NO_WINDOW", 0))
+            if result.returncode != 0 or not result.stdout.strip():
+                messagebox.showerror(TITLE, "WSL cannot reach %s. Move the file into the repository folder "
+                                     "or use Windows openocd.exe." % path)
+                return None
+            path = result.stdout.strip()
+        return "{%s}" % path.replace("\\", "/")
+
+    def openocd_command(self, commands):
+        """OpenOCD with tcl/airsense.cfg, which connects and reports the device state, then these commands and
+        shutdown. WSL mode goes through run-ocd.sh, which also attaches the adapter with usbipd."""
+        commands = list(commands) + ["shutdown"]
+        interface = self.ocd_interface.get()
+        if self.ocd_mode.get() == "wsl":
+            wsl = shutil.which("wsl.exe")
+            if not wsl:
+                messagebox.showerror(TITLE, "wsl.exe was not found; choose Windows openocd.exe instead.")
+                return None
+            args = [wsl, "--cd", REPO, "--exec", "bash", "run-ocd.sh", "--interface", interface]
+        else:
+            exe = self.ocd_path.get().strip()
+            if not os.path.isfile(exe):
+                messagebox.showerror(TITLE, "Choose openocd.exe (OpenOCD for Windows, e.g. the xPack build), "
+                                     "or use WSL.")
+                return None
+            args = [exe] + (["-f", "interface/stlink.cfg"] if interface == "stlink" else
+                            ["-f", "interface/jlink.cfg", "-c", "transport select swd"])
+            args += ["-f", "tcl/airsense.cfg"]
+        for command in commands:
+            args += ["-c", command]
+        return args
+
+    def run_openocd(self, title, commands, done, flashing=False):
+        command = self.openocd_command(commands)
+        if command:
+            self.save_settings()
+            self.run(title, command, done, flashing)
+
+    def flash_image(self):
+        """The firmware file to flash or verify, if it is a full 1 MB image."""
+        path = self.flash_file.get().strip()
+        if not os.path.isfile(path):
+            messagebox.showerror(TITLE, "Choose the firmware image (e.g. the patched output).")
+            return None
+        if os.path.getsize(path) != FLASH_SIZE:
+            messagebox.showerror(TITLE, "%s is %d bytes; a full 1 MB image (%d bytes) is needed."
+                                 % (path, os.path.getsize(path), FLASH_SIZE))
+            return None
+        return path
+
+    def ocd_check(self):
+        self.run_openocd("Checking device", [], "device checked")
+
+    def ocd_dump(self):
+        path = self.backup.get().strip()
+        if not path:
+            messagebox.showerror(TITLE, "Choose where the backup is written.")
+            return
+        if os.path.exists(path) and not messagebox.askyesno(
+                TITLE, "%s already exists. If it is your stock firmware dump, it is the only way to restore the "
+                "device.\n\nOverwrite it?" % path, icon="warning", default="no"):
+            return
+        os.makedirs(os.path.dirname(os.path.abspath(path)), exist_ok=True)
+        target = self.tcl_path(path)
+        if target:
+            self.run_openocd("Dumping device flash to %s" % path, ["dump %s" % target], "%s written" % path)
+
+    def ocd_flash(self):
+        path = self.flash_image()
+        if not path:
+            return
+        backup = self.backup.get().strip()
+        if not os.path.isfile(backup) and not messagebox.askyesno(
+                TITLE, "No backup found at %s.\n\nDumping the stock firmware before flashing is mandatory "
+                "(docs/guide/openocd.md): it is the only way to restore the device. Flash anyway?" % backup,
+                icon="warning", default="no"):
+            return
+        if not messagebox.askyesno(
+                TITLE, "Flash %s to the device?\n\nThis replaces the whole firmware and takes about 30 seconds. "
+                "Keep the device and the programmer connected until the log says Done." % path,
+                icon="warning", default="no"):
+            return
+        image = self.tcl_path(path)
+        if image:
+            self.run_openocd("Flashing %s" % path, ["flash_new %s" % image],
+                             "%s flashed and verified; the device reboots" % path, flashing=True)
+
+    def ocd_verify(self):
+        path = self.flash_image()
+        image = path and self.tcl_path(path)
+        if image:   # resume also after a mismatch, then report it
+            self.run_openocd("Verifying device flash against %s" % path,
+                             ["halt", "set r [catch {flash verify_bank 0 %s 0} msg]; resume; if {$r} {error $msg}"
+                              % image], "device flash matches %s" % path)
+
+    def ocd_reset(self):
+        self.run_openocd("Resetting device", ["reset run"], "device reset")
 
     def reader(self, proc):
         for raw in proc.stdout:
@@ -703,6 +934,7 @@ class App(tk.Tk):
                 if line is None:
                     self.finished()
                 else:
+                    self.hints += [hint for needle, hint in LOG_HINTS if needle in line and hint not in self.hints]
                     self.append(line)
         except queue.Empty:
             pass
@@ -711,11 +943,14 @@ class App(tk.Tk):
     def finished(self):
         code = self.proc.wait()
         if code == 0:
-            self.append("=== Done: %s written ===" % self.outfile.get().strip(), "pass")
+            self.append("=== Done: %s ===" % self.done, "pass")
         else:
             self.append("=== Failed (exit code %d) ===" % code, "fail")
-        self.proc = None
-        self.patch_btn.config(state="normal")
+        for hint in self.hints:
+            self.append(hint, "warn")
+        self.proc, self.flashing = None, False
+        for button in [self.patch_btn] + self.ocd_buttons:
+            button.config(state="normal")
         self.stop_btn.config(state="disabled")
 
     def on_close(self):
@@ -723,8 +958,12 @@ class App(tk.Tk):
             answer = messagebox.askyesnocancel(TITLE, "Save the changes to %s?" % os.path.basename(CONFIG_FILE))
             if answer is None or (answer and not self.save()):
                 return
+        if self.flashing and not messagebox.askyesno(
+                TITLE, "Flashing is in progress. Closing stops it and can leave the device without working "
+                "firmware.\n\nClose anyway?", icon="warning", default="no"):
+            return
         self.save_settings()
-        self.stop()
+        self.stop(ask=False)
         self.destroy()
 
     def report_callback_exception(self, exc, value, tb):
