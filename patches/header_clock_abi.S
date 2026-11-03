@@ -24,3 +24,12 @@ header_climate_enabled:
 header_climate_plate_coupling:
     .float 0.3
 .size header_climate_plate_coupling, . - header_climate_plate_coupling
+
+// Custom-settings coupling variable (raw = coupling * 100), shared with
+// tube_warmup; 0xffff uses the constant above.
+.align 1
+.global header_climate_coupling_var_id
+.type header_climate_coupling_var_id, %object
+header_climate_coupling_var_id:
+    .short 0xffff
+.size header_climate_coupling_var_id, . - header_climate_coupling_var_id

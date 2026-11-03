@@ -33,6 +33,7 @@ struct root_screen {
 extern const u16 header_clock_var_id;
 extern const u8 header_climate_enabled;
 extern const float header_climate_plate_coupling;
+extern const u16 header_climate_coupling_var_id;
 extern int variable_get_by_id(int var_id);
 extern struct root_screen *gui_root_screen_get(void);
 extern struct root_screen *gui_root_screen_init(struct root_screen *root);
@@ -73,8 +74,11 @@ static u16 current_climate(char *text)
     int plate_raw = variable_get_by_id(VAR_ID_HPT);
     int tube_raw = tube_present ? variable_get_by_id(VAR_ID_HTT) : ambient_raw;
 
+    float coupling = header_climate_coupling_var_id == 0xffffu ?
+        header_climate_plate_coupling :
+        variable_get_by_id(header_climate_coupling_var_id) * 0.01f;
     float ambient = ambient_raw * 0.1f;
-    float outlet = ambient + header_climate_plate_coupling * (plate_raw * 0.1f - ambient);
+    float outlet = ambient + coupling * (plate_raw * 0.1f - ambient);
     float vapour = saturation(outlet);
     float room = variable_get_by_id(VAR_ID_HAH) * 0.001f * saturation(ambient);
     if (vapour < room)

@@ -12,3 +12,18 @@
 tube_warmup_plate_coupling:
     .float 0.3
 .size tube_warmup_plate_coupling, . - tube_warmup_plate_coupling
+
+/* Custom-settings variables for the on/off switch and the coupling (raw =
+ * coupling * 100); 0xffff keeps the feature on with the constant above.
+ */
+.global tube_warmup_enable_var_id
+.type tube_warmup_enable_var_id, %object
+tube_warmup_enable_var_id:
+    .short 0xffff
+.size tube_warmup_enable_var_id, . - tube_warmup_enable_var_id
+
+.global tube_warmup_coupling_var_id
+.type tube_warmup_coupling_var_id, %object
+tube_warmup_coupling_var_id:
+    .short 0xffff
+.size tube_warmup_coupling_var_id, . - tube_warmup_coupling_var_id

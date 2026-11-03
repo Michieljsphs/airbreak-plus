@@ -482,6 +482,14 @@ class ASFirmwarePatches(CompiledPayloadMixin):
             request, owner, self.custom_g8_reclaimed,
             self.custom_g8_claims, 8)
 
+    def custom_claim_free_g8_var(self, candidates, owner):
+        """Claim the first unclaimed reclaimed g[8] candidate, or return None."""
+        for request in candidates:
+            vid = self.asf.resolve_var_id(request)
+            if vid in self.custom_g8_reclaimed and vid not in self.custom_g8_claims:
+                return self.custom_claim_g8_var(request, owner)
+        return None
+
     def custom_claim_g4_var(self, request, owner=None):
         """Claim one exact reclaimed g[4] variable and return its UART name."""
         return self._custom_claim_var(
@@ -1490,6 +1498,45 @@ class ASFirmwarePatches(CompiledPayloadMixin):
         addr = self._write_payload_u16('target_rh', 'target_rh_var_id', vid)
         self._custom_detail('Target RH: %s var_id=0x%04X at 0x%08X' % (var, vid, addr))
 
+    def custom_patch_settings_tube_warmup(self):
+        """Expose the Tube Warm-up plate coupling and switch in Accessories."""
+        # Runs after the fixed-name features and uses what they leave: a label
+        # string for each setting and, for the switch, a free on/off slot. The
+        # coupling comes first; at 1.00 it also releases the cap almost at once.
+        dep = self.asf.find_var_table_index(4, 'RGT')
+        hint = 'build without e.g. --patch-st-ibr and --patch-autoepap to add it'
+        if not self.custom_string_pool:
+            self._custom_detail('Warm-up Factor: no free label string; ' + hint)
+            return
+
+        # Raw value is the coupling * 100: 0.10-1.00 in steps of 0.05.
+        coupling = self.custom_claim_g4_var('RDH', 'tube_warmup_coupling')
+        label = self.redefine_fw_string(-1, {0: 'Warm-up Factor'}, 'tube_warmup_coupling_label')
+        self.redefine_g4_var(coupling, 0x0007, 0, dep, label,
+                             30, 100, 10, 2, 100, 5, self.asf.str_id_empty)
+        self.custom_menu_add('accessories', coupling, self.CUSTOM_MENU_MODE_BITS)
+        vid = self.asf.resolve_var_id(coupling)
+        addr = self._write_payload_u16('tube_warmup', 'tube_warmup_coupling_var_id', vid)
+        self._custom_detail('Warm-up Factor: %s var_id=0x%04X at 0x%08X' % (coupling, vid, addr))
+        if 'header_clock' in self.applied_payloads:
+            addr = self._write_payload_u16('header_clock', 'header_climate_coupling_var_id', vid)
+            self._custom_detail('Header climate coupling var_id=0x%04X at 0x%08X' % (vid, addr))
+
+        enable = None
+        if self.custom_string_pool:
+            enable = self.custom_claim_free_g8_var(
+                ('RXW', 'RSA', 'RPF', 'RPW', 'RPO', 'RPH', 'RXM', 'RXH'), 'tube_warmup_enable')
+        if enable is None:
+            self._custom_detail('Tube Warm-up switch: no free label string or on/off slot; ' + hint)
+            return
+        label = self.redefine_fw_string(-1, {0: 'Tube Warm-up'}, 'tube_warmup_enable_label')
+        self.redefine_g8_var(enable, 0x0007, 0, dep, label, 1,
+                             2, 0, 0x00000003, self.asf.str_id_off_on_base, 0)
+        self.custom_menu_add('accessories', enable, self.CUSTOM_MENU_MODE_BITS)
+        vid = self.asf.resolve_var_id(enable)
+        addr = self._write_payload_u16('tube_warmup', 'tube_warmup_enable_var_id', vid)
+        self._custom_detail('Tube Warm-up: %s var_id=0x%04X at 0x%08X' % (enable, vid, addr))
+
     def custom_patch_settings_collect_features(self):
         """Return active custom-settings feature functions."""
         feature_patches = (
@@ -1504,6 +1551,8 @@ class ASFirmwarePatches(CompiledPayloadMixin):
             ('backlight_adapt', self.custom_patch_settings_backlight),
             ('target_rh', self.custom_patch_settings_target_rh),
             ('header_clock', self.custom_patch_settings_header_clock),
+            # Last: its switch claims a g[8] slot left free by the features above.
+            ('tube_warmup', self.custom_patch_settings_tube_warmup),
         )
         active = self.applied_payloads | self.enabled_custom_settings_features
         return [feature for source, feature in feature_patches if source in active]
