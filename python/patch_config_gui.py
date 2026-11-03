@@ -124,7 +124,9 @@ def patch_docs():
 
 def menu_resources():
     """Which custom settings menu resources each patch uses, read from the patcher source:
-    {option: {"g8": [vars], "g4": [vars], "labels": [texts]}} and the pool size of each resource."""
+    {option: {"g8": [vars], "g4": [vars], "labels": [texts], "free_g8": (candidates, labels) or None}} and the
+    pool size of each resource. free_g8 is a setting that takes the first unclaimed on/off variable of the
+    candidates, if any is left (Tube Warm-up); the labels after that claim are only used with it."""
     patches = P.ASFirmwarePatches
     pools = {"labels": None}   # reclaimed string IDs: the count depends on the firmware
     reclaim = inspect.getsource(patches.custom_patch_settings_reclaim_reminders)
@@ -134,9 +136,13 @@ def menu_resources():
     resources = {}
     for source, method in re.findall(r"\('(\w+)', self\.(\w+)\)", collect):
         body = inspect.getsource(getattr(patches, method))
-        used = {"g8": re.findall(r"custom_claim_g8_var\('(\w+)'", body),
+        free = re.search(r"custom_claim_free_g8_var\(\s*\(([^)]*)\)", body)
+        fixed, optional = (body[:free.start()], body[free.start():]) if free else (body, "")
+        label = r"redefine_fw_string\(-1, \{0: '([^']*)'"
+        used = {"g8": re.findall(r"custom_claim_g8_var\('(\w+)'", fixed),
                 "g4": re.findall(r"custom_claim_g4_var\('(\w+)'", body),
-                "labels": re.findall(r"redefine_fw_string\(-1, \{0: '([^']*)'", body)}
+                "labels": re.findall(label, fixed),
+                "free_g8": (re.findall(r"'(\w+)'", free.group(1)), re.findall(label, optional)) if free else None}
         for spec in P.iter_patch_specs():   # the patch that activates this feature
             if spec.method == "patch_" + source or "add('%s')" % source in inspect.getsource(getattr(patches, spec.method)):
                 resources[spec.option] = used
@@ -294,6 +300,8 @@ class App(tk.Tk):
             self.usage[key] = ttk.Label(usage)
             self.usage[key].pack(side="left", padx=(0, 24))
             Tooltip(self.usage[key], lambda k=key: self.usage_text(k))
+        self.usage_note = ttk.Label(usage, foreground="#b36b00")   # settings dropped for lack of a free slot
+        self.usage_note.pack(side="left")
         Tooltip(usage, lambda: self.usage_text(None))
 
         columns = [ttk.Frame(inner) for _ in range(2)]   # one LabelFrame per patch phase, in two columns
@@ -407,19 +415,35 @@ class App(tk.Tk):
             parts.append(wrap("Custom settings menu (with --patch-custom-settings): %s%s" % (
                 "uses " + counts if counts else "shows stock menu items, uses no reclaimed slots",
                 "; adds " + ", ".join(used["labels"]) if used["labels"] else "")))
+            if used["free_g8"]:
+                candidates, labels = used["free_g8"]
+                parts.append(wrap("%s takes a free on/off setting (%s) left by the other patches, and is left out "
+                                  "when none is free." % (", ".join(labels) or "One setting", ", ".join(candidates))))
         if page:
             parts.append("More: " + os.path.relpath(page, REPO).replace(os.sep, "/"))
         return "\n\n".join(parts)
 
     def menu_usage(self, values):
-        """Reclaimed slots and labels used by the selected patches; None without custom settings."""
+        """Reclaimed slots and labels used by the selected patches, plus the labels of settings left out for lack
+        of a free on/off variable; None without custom settings. Free claims follow the fixed ones, like in the
+        patcher, where those features run last."""
         if not values.get("patch-custom-settings"):
             return None
         used = {key: [] for key, _ in SLOTS}
-        for option, resources in self.resources.items():
-            if values.get(option) is not False:
-                for key in used:
-                    used[key] += resources[key]
+        used["omitted"] = []
+        selected = [resources for option, resources in self.resources.items() if values.get(option) is not False]
+        for resources in selected:
+            for key, _ in SLOTS:
+                used[key] += resources[key]
+        for resources in selected:
+            if resources["free_g8"]:
+                candidates, labels = resources["free_g8"]
+                free = [var for var in candidates if var not in used["g8"]]
+                if free:
+                    used["g8"].append(free[0])
+                    used["labels"] += labels
+                else:
+                    used["omitted"] += labels
         return used
 
     def usage_text(self, key):
@@ -448,6 +472,8 @@ class App(tk.Tk):
             over = pool is not None and len(used[key]) > pool
             self.usage[key].config(text="%s: %d%s" % (label, len(used[key]), " / %d" % pool if pool else ""),
                                    foreground="#b00020" if over else "")
+        omitted = used["omitted"] if used else []
+        self.usage_note.config(text="Left out, no free on/off setting: " + ", ".join(omitted) if omitted else "")
 
     def current(self):
         """option -> value as the patcher takes it: True/False, or the percentage of a patch with a value.
