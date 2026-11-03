@@ -130,19 +130,24 @@ Warm-up restarts after the tube controller has been idle for a minute, for
 example between therapy sessions. A hot water chamber, such as after a stock
 Warm-up, ends it immediately.
 
-The humidity output comes from the device's own humidifier model, run
-backwards. Stock sets the plate temperature from the moisture the air needs:
-`duty = k0 + k1 × flow × ΔAH` and `plate = k3 + k4 × duty`, with flow in L/min
-and ΔAH in g/m³. Tube Warm-up solves this for ΔAH at the current plate
-temperature and flow, using the calibration `k0`-`k4` the device loads at boot,
-and adds it to the moisture already in the room air. The coefficients are read
-at runtime, so each device uses its own. Below `k3` the model has no answer;
-the added moisture then tapers linearly to zero at ambient.
+The stock humidifier is open loop. It sets the heater duty from the moisture
+the air needs, `duty = k0 + k1 × flow × ΔAH` with flow in L/min and ΔAH in
+g/m³, using a calibration the device loads at boot, and only limits the plate
+near 63-68 °C. The duty says what the water would evaporate once warm; while
+the water is still heating it evaporates less, which is the dry start.
 
-Stock only runs the model at 8 L/min or more. Below that, or when the device
-has no usable calibration, the chamber outlet is instead assumed saturated at
-`ambient + 0.3 × (plate − ambient)`, never drier than the room. The `0.3` is
-the constant in `patches/tube_warmup_abi.S` and has not been calibrated.
+Tube Warm-up therefore estimates the moisture the chamber adds to the room air
+as the smaller of two upper bounds:
+
+| Bound | Estimate | Holds |
+|-------|----------|-------|
+| Plate | the saturation humidity gained from `ambient` to `ambient + 0.3 × (plate − ambient)`; nothing while the plate is at room temperature | while the water heats |
+| Heater power | `(duty − k0) / (k1 × flow)`, with the measured duty `HPM` and average blower flow `AFL` | once the water is warm |
+
+`k0` and `k1` are read at runtime, so each device uses its own calibration.
+Stock only runs its model at 8 L/min or more; below that, or without a usable
+calibration, only the plate bound applies. The `0.3` is the constant in
+`patches/tube_warmup_abi.S` and has not been calibrated.
 
 With custom settings, clinical **Accessories** contains:
 
@@ -160,8 +165,8 @@ used; for example, without ST iBR and AutoEPAP:
 make build/stm32-plus.bin AIR10_PATCH_ARGS='--patch-st-ibr n --patch-autoepap n --patch-tube-warmup y'
 ```
 
-Warm-up Factor scales the moisture the model adds: 1.00 uses the model as is,
-lower values hold the tube back longer. It does not change the 0.3 fallback.
+Warm-up Factor scales the estimated added moisture: 1.00 uses the estimate as
+is, lower values hold the tube back longer.
 Builds before the model used this setting as the coupling (0.10-1.00, default
 0.30); check it after updating, since a stored value below 0.50 is out of the
 new range. Warm-up Factor is added first. The
@@ -193,12 +198,10 @@ humidifier attached; Home keeps the clock.
 
 The device has no humidity sensor in the air path, so the RH value is
 estimated in the same way as [Tube Warm-up](#tube-warm-up): the room air plus
-the moisture the stock humidifier model adds at the current plate temperature
-and flow, divided by the saturation humidity at the tube temperature. With
-Tube Warm-up and custom settings, **Warm-up Factor** scales the added moisture.
-Out of therapy, below 8 L/min or without calibration, it falls back to air
-saturated at `ambient + 0.3 × (plate − ambient)`, with the `0.3` in
-`patches/header_clock_abi.S`. Treat the value as a guide to the trend, not a
+the smaller of the plate and heater-power bounds on the added moisture,
+divided by the saturation humidity at the tube temperature. With Tube Warm-up
+and custom settings, **Warm-up Factor** scales the added moisture. The plate
+bound's `0.3` is in `patches/header_clock_abi.S`. Treat the value as a guide to the trend, not a
 measurement; it has not been checked against a hygrometer.
 
 With custom settings, clinical **Configuration** gets a **Climate** switch

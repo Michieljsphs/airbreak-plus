@@ -1,10 +1,10 @@
 .syntax unified
 .thumb
 
-/* Fallback for when the stock humidity model can't run (low flow or no
- * calibration): fraction of the plate's rise above ambient assumed for the
- * chamber outlet's saturation temperature. Lower values hold the tube back
- * longer. Keep in step with header_climate_plate_coupling.
+/* Plate bound of the chamber estimate (humidity_model.h): fraction of the
+ * plate's rise above ambient over which the chamber adds saturation humidity.
+ * Lower values hold the tube back longer. Keep in step with
+ * header_climate_plate_coupling.
  */
 .section .rodata.tube_warmup_abi, "a", %progbits
 .align 2
@@ -15,7 +15,7 @@ tube_warmup_plate_coupling:
 .size tube_warmup_plate_coupling, . - tube_warmup_plate_coupling
 
 /* Custom-settings variables for the on/off switch and the factor applied to
- * the stock model's added moisture (raw = factor * 100); 0xffff keeps the
+ * the estimated added moisture (raw = factor * 100); 0xffff keeps the
  * feature on with a factor of 1.
  */
 .global tube_warmup_enable_var_id
