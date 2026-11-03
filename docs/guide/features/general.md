@@ -143,6 +143,31 @@ default, has no menu setting, and requires font repacking (on by default).
 Enable **Clock** in clinical **Configuration** to replace the Home and active
 therapy-screen titles with the device time in 24-hour `HH:MM` format.
 
+## Header Climate
+
+This optional readout (SX567 firmware) replaces the therapy-screen title with
+the climate values, for example `27° 41° 85%`:
+
+| Field | Source |
+|-------|--------|
+| Tube temperature | Measured `HTT`; `--` without a heated tube |
+| Humidifier plate temperature | Measured `HPT` |
+| Relative humidity | Estimated at the tube temperature |
+
+Temperatures follow the device's °C/°F setting. The readout appears only with a
+humidifier attached; Home keeps the clock.
+
+The device has no humidity sensor in the air path, so the RH value is
+estimated in the same way as [Tube Warm-up](#tube-warm-up). The air leaving
+the water chamber is assumed saturated at
+`ambient + coupling × (plate − ambient)`, and never drier than the room. The
+coupling is `0.3` in `patches/header_clock_abi.S`. Treat the value as a guide
+to the trend, not a measurement; it has not been calibrated against device logs.
+
+Enable it with `--patch-header-climate y` or `PATCH_HEADER_CLIMATE=1`. It is off
+by default, needs the header clock patch (on by default), and is independent
+of the **Clock** setting.
+
 ## Keep Backlight
 
 Hold the dial for three seconds to toggle screen keep-awake.

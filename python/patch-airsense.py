@@ -2889,6 +2889,17 @@ class ASFirmwarePatches(CompiledPayloadMixin):
         self.applied_payloads.add('header_clock')
         return PatchOutcome.ok(None, self._payload_detail('header_clock', len(data), flash))
 
+    def patch_header_climate(self):
+        """Show tube and plate temperatures and estimated RH in the therapy headers."""
+        if 'header_clock' not in self.applied_payloads:
+            return PatchOutcome.skip("header clock payload not installed")
+        if not self.asf.cdx_ver.startswith('SX567-'):
+            return PatchOutcome.skip("unsupported CDX version %s" % self.asf.cdx_ver)
+        elf_path = self._require_versioned_artifact('header_clock', 'elf')
+        address = self._elf_symbol_addr(elf_path, 'header_climate_enabled')
+        self.asf.write_u8(address - self.asf.FLASH_BASE, 1)
+        return PatchOutcome.ok("Climate readout enabled at 0x%08X" % address)
+
     def patch_backlight_adapt(self):
         """improved backlight response to ambient light"""
         if self.asf.cdx_ver in ('SX584-0204', 'SX584-0205'):
@@ -3251,6 +3262,9 @@ PATCH_PHASES = (
                   True, 'enable_keep_backlight'),
         PatchSpec('patch-header-clock', 'Add a clock to the Home and therapy-screen headers.',
                   True, 'patch_header_clock'),
+        PatchSpec('patch-header-climate',
+                  'Show tube and plate temperatures and estimated RH in the therapy-screen header.',
+                  False, 'patch_header_climate'),
         PatchSpec('patch-target-rh',
                   'Set target RH (default: 85%, y: 85%, n: disabled); custom settings adds a 70-100% menu control.',
                   85.0, 'patch_target_rh', value_type=target_rh_value),
@@ -3319,6 +3333,7 @@ PATCH_DEPENDENCIES = {
     'patch-ivaps-settings': ('patch-custom-settings',),
     'patch-fw-graph': ('patch-fw-common-code',),
     'patch-graph-keep-screen-on': ('patch-fw-graph',),
+    'patch-header-climate': ('patch-header-clock',),
     'patch-fw-vauto-wrapper': ('patch-fw-common-code',),
     'patch-fw-squarewave': ('patch-fw-common-code', 'patch-fw-vauto-wrapper'),
 }
