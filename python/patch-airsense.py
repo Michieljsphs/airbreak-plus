@@ -1522,8 +1522,8 @@ class ASFirmwarePatches(CompiledPayloadMixin):
         """Expose the Tube Warm-up factor and switch in Accessories."""
         # Runs after the fixed-name features and uses what they leave: a label
         # string for each setting and, for the switch, a free on/off slot. The
-        # factor comes first; it scales the moisture the stock humidity model
-        # says the chamber adds, so 1.00 trusts the model as is.
+        # factor comes first; it scales the estimated moisture the chamber
+        # adds, so 1.00 uses the estimate as is.
         dep = self.asf.find_var_table_index(4, 'RGT')
         hint = 'build without e.g. --patch-st-ibr and --patch-autoepap to add it'
         if not self.custom_string_pool:

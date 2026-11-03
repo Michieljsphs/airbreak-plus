@@ -56,10 +56,9 @@ static int display_temp(int raw, int fahrenheit)
 }
 
 /* Tube and plate temperatures and the estimated RH at the tube temperature,
- * using the same chamber estimate as tube_warmup: the room air plus the
- * moisture the stock humidity model adds at this plate temperature and flow.
- * Without flow or calibration, outlet air saturated at ambient + coupling *
- * (plate - ambient), never drier than the room.
+ * using the same chamber estimate as tube_warmup (humidity_model.h): the room
+ * air plus the smaller of the plate and heater-power bounds on the moisture
+ * the chamber adds.
  */
 static u16 current_climate(char *text)
 {
@@ -77,7 +76,9 @@ static u16 current_climate(char *text)
     humidity_coeffs_read(&coeffs);
     float outlet = humidity_outlet(&coeffs,
                                    plate_raw * 0.1f, ambient_raw * 0.1f,
-                                   variable_get_by_id(VAR_ID_HAH) * 0.001f, factor,
+                                   variable_get_by_id(VAR_ID_HAH) * 0.001f,
+                                   variable_get_by_id(VAR_ID_HPM) * 0.01f,
+                                   variable_get_by_id(VAR_ID_AFL) * 0.01f, factor,
                                    header_climate_plate_coupling);
     int rh = (int)(100.0f * outlet / ah_sat(tube_raw * 0.1f) + 0.5f);
     if (rh > 100)

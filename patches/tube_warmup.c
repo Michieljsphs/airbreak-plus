@@ -2,11 +2,12 @@
  *
  * The stock climate controller drives the tube toward HTS as soon as therapy
  * starts, long before the plate has heated the water, so early air is warm and
- * dry. While the plate warms, cap the tube setpoint where the moisture the stock
- * humidity model says the chamber adds gives the target RH, and let that model
- * aim for HTS so the plate keeps heating at full demand. The cap ends once it reaches HTS, the
- * plate stops rising, or the warm-up time limit expires.
+ * dry. While the plate warms, cap the tube setpoint where the estimated moisture
+ * the chamber adds (humidity_model.h) gives the target RH, and let the stock
+ * model aim for HTS so the plate keeps heating at full demand. The cap ends once
+ * it reaches HTS, the plate stops rising, or the warm-up time limit expires.
  */
+#include "s10_vars.h"
 #include "humidity_model.h"
 
 typedef unsigned char u8;
@@ -71,7 +72,7 @@ static int enabled(void)
            variable_get_by_id(tube_warmup_enable_var_id);
 }
 
-/* Scales the moisture the stock model says the chamber adds. */
+/* Scales the estimated moisture the chamber adds. */
 static float factor(void)
 {
     if (tube_warmup_factor_var_id == 0xffffu)
@@ -146,7 +147,9 @@ float start(struct obj *inputs)
     }
 
     float outlet = humidity_outlet(&s->coeffs, plate, ambient,
-                                   call_f(sensors, SENSOR_AMBIENT_RH), factor(),
+                                   call_f(sensors, SENSOR_AMBIENT_RH),
+                                   variable_get_by_id(VAR_ID_HPM) * 0.01f,
+                                   variable_get_by_id(VAR_ID_AFL) * 0.01f, factor(),
                                    tube_warmup_plate_coupling);
     float limit = humidity_model_temperature(outlet, call_f(inputs, INPUT_TARGET_RH),
                                              ambient, set);

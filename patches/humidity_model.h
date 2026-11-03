@@ -1,31 +1,35 @@
 #ifndef HUMIDITY_MODEL_H
 #define HUMIDITY_MODEL_H
 
-/* The stock humidifier model, run backwards.
+/* Estimate of the moisture the humidifier chamber adds.
  *
- * Stock sets the plate from the moisture the air needs: duty = k0 + k1 * flow
- * * dAH, plate = k3 + k4 * duty, with flow in L/min and dAH in g/m3. Solving
- * for dAH gives the moisture the chamber adds at the current plate temperature,
- * using the device's own calibration; below k3 the same line is extended down
- * to where it reaches zero. Stock only runs the model at 8 L/min or
- * more; below that, and without usable coefficients, the outlet air is taken
- * as saturated at a fixed share of the plate's rise above ambient.
+ * The stock humidifier is open loop: it sets the heater duty from the moisture
+ * the air needs, duty = k0 + k1 * flow * dAH (+ k2 * (plate - ambient)), with
+ * flow in L/min and dAH in g/m3, capped at 0.85 and limited near a 63-68 degC
+ * plate. k3 + k4 * duty is only a low-plate threshold for full power. The
+ * duty says what the water would evaporate once warm; while the water heats
+ * it evaporates less, which is the dry start.
+ *
+ * Two upper bounds are therefore combined:
+ * - plate: the chamber adds at most the saturation humidity gained between
+ *   ambient and ambient + coupling * (plate - ambient), so water no warmer
+ *   than the room adds nothing;
+ * - power: the measured heater duty, through the stock calibration, can add
+ *   at most (duty - k0) / (k1 * flow) g/m3.
+ * The smaller one holds during warm-up (plate) and at steady state (power).
+ * Flow is the average blower flow (AFL), not the instantaneous flow, which
+ * swings with every breath. Stock only runs its model at 8 L/min or more;
+ * below that, or without usable calibration, only the plate bound applies.
  */
-
-enum {
-    /* Climate signal the stock controller reads as flow, L/s. */
-    HUMIDITY_SIGNAL_FLOW = 0xa2,
-};
 
 #define HUMIDITY_MIN_FLOW 8.0f
 
 struct humidity_coeffs {
-    float k0, k1, k3, k4;
+    float k0, k1;
 };
 
-extern float climate_signal_get(int id);
-extern void humidity_model_coefficients_get(void *unused, float *k0, float *k1,
-                                            float *k2, float *k3, float *k4);
+extern int humidity_model_coefficients_get(void *unused, float *k0, float *k1,
+                                           float *k2, float *k3, float *k4);
 
 /* Stock saturation absolute humidity, g/m3. */
 static inline float ah_sat(float t)
@@ -33,33 +37,33 @@ static inline float ah_sat(float t)
     return 4.61f + t * (0.436f + t * (0.00122f + t * 0.000427f));
 }
 
-/* Leaves k1 at zero when the coefficients can't be inverted. */
+/* Leaves k1 at zero when the calibration is missing or unusable. */
 static inline void humidity_coeffs_read(struct humidity_coeffs *c)
 {
-    float k2;
-    /* The getter writes nothing when the calibration is missing. */
+    float k2, k3, k4;
+    c->k0 = 0.0f;
     c->k1 = 0.0f;
-    humidity_model_coefficients_get(0, &c->k0, &c->k1, &k2, &c->k3, &c->k4);
-    if (!(c->k4 > 0.0f && c->k3 >= 20.0f && c->k3 <= 63.0f))
+    if (!humidity_model_coefficients_get(0, &c->k0, &c->k1, &k2, &k3, &k4) ||
+            !(c->k1 > 0.0f && c->k0 > -1.0f && c->k0 < 1.0f))
         c->k1 = 0.0f;
 }
 
 /* Absolute humidity leaving the chamber, g/m3: the room air plus factor times
- * the moisture the model adds, or the coupling estimate without usable
- * coefficients or flow. Never drier than the room.
+ * the smaller of the plate and heater-power bounds on the added moisture.
+ * duty is the measured humidifier heater duty, 0..1, and flow the average
+ * blower flow in L/min.
  */
 static inline float humidity_outlet(const struct humidity_coeffs *c, float plate,
-                                    float ambient, float room_rh, float factor,
-                                    float coupling)
+                                    float ambient, float room_rh, float duty,
+                                    float flow, float factor, float coupling)
 {
     float room = room_rh * ah_sat(ambient);
-    float flow = c->k1 > 0.0f ? climate_signal_get(HUMIDITY_SIGNAL_FLOW) * 60.0f : 0.0f;
-    if (!(flow >= HUMIDITY_MIN_FLOW)) {
-        float sat = ah_sat(ambient + coupling * (plate - ambient));
-        return sat > room ? sat : room;
+    float added = ah_sat(ambient + coupling * (plate - ambient)) - ah_sat(ambient);
+    if (c->k1 > 0.0f && flow >= HUMIDITY_MIN_FLOW) {
+        float powered = (duty - c->k0) / (c->k1 * flow);
+        if (powered < added)
+            added = powered;
     }
-    float duty = (plate - c->k3) / c->k4;
-    float added = ((duty < 1.0f ? duty : 1.0f) - c->k0) / (c->k1 * flow);
     return room + factor * (added > 0.0f ? added : 0.0f);
 }
 
