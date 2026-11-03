@@ -110,10 +110,85 @@ Without this patch, the stock 85% target remains unchanged.
 The percentage is a target, not a measurement of humidity at the mask.
 Higher targets increase condensation risk; 100% targets saturation.
 
+## Tube Warm-up
+
+At the start of therapy, the heated tube normally reaches its temperature
+within minutes, while the humidifier plate takes much longer to heat the water.
+Until then the air is warm but dry. This optional patch (SX567-0401 only) holds
+the tube back while the humidifier warms up.
+
+During warm-up, the tube setpoint is capped at the temperature where the
+estimated humidity output gives the target RH (85%, or the
+[Target Humidity](#target-humidity) setting). The humidity model keeps aiming
+for the full tube temperature, so the plate heats at full demand. The cap
+follows the plate up and ends when it reaches the tube temperature setting,
+when the plate stops rising (less than 0.2 °C per minute), or after 60
+minutes. It applies only to Auto climate control with a heated tube and the
+humidifier active. It is never lower than the ambient temperature.
+
+Warm-up restarts after the tube controller has been idle for a minute, for
+example between therapy sessions. A hot water chamber, such as after a stock
+Warm-up, ends it immediately.
+
+The humidity output is estimated from the plate and ambient temperatures. The
+chamber outlet is assumed saturated at `ambient + coupling × (plate − ambient)`.
+Lower couplings hold the tube back longer; the default `0.3` has not yet been
+calibrated against device logs.
+
+With custom settings, clinical **Accessories** contains:
+
+| Setting | UART | Values | Default |
+|---------|------|--------|---------|
+| Tube Warm-up | first free on/off slot | Off, On | On |
+| Warm-up Factor | RDH | 0.10-1.00, step 0.05 (the coupling) | 0.30 |
+
+Each setting needs a label string, and the switch also an on/off variable,
+that no other installed feature uses. The `plus` image uses all of them, so
+build it without features you don't need. Each one frees what its own settings
+used; for example, without ST iBR and AutoEPAP:
+
+```
+make build/stm32-plus.bin AIR10_PATCH_ARGS='--patch-st-ibr n --patch-autoepap n --patch-tube-warmup y'
+```
+
+Warm-up Factor is added first; at 1.00 the cap releases almost at once. When
+only one label is free, Tube Warm-up stays on without a switch; with none, the
+coupling stays at its default. The build log reports what was added. Without
+custom settings, the coupling is the constant in `patches/tube_warmup_abi.S`.
+
+Enable it with `--patch-tube-warmup y` or `PATCH_TUBE_WARMUP=1`. It is off by
+default and requires font repacking (on by default).
+
 ## Header Clock
 
 Enable **Clock** in clinical **Configuration** to replace the Home and active
 therapy-screen titles with the device time in 24-hour `HH:MM` format.
+
+## Header Climate
+
+This optional readout (SX567 firmware) replaces the therapy-screen title with
+the climate values, for example `27° 41° 85%`:
+
+| Field | Source |
+|-------|--------|
+| Tube temperature | Measured `HTT`; `--` without a heated tube |
+| Humidifier plate temperature | Measured `HPT` |
+| Relative humidity | Estimated at the tube temperature |
+
+Temperatures follow the device's °C/°F setting. The readout appears only with a
+humidifier attached; Home keeps the clock.
+
+The device has no humidity sensor in the air path, so the RH value is
+estimated in the same way as [Tube Warm-up](#tube-warm-up). The air leaving
+the water chamber is assumed saturated at
+`ambient + coupling × (plate − ambient)`, and never drier than the room. With
+Tube Warm-up and custom settings, the coupling follows **Warm-up Factor**;
+otherwise it is `0.3` in `patches/header_clock_abi.S`. Treat the value as a guide
+to the trend, not a measurement; it has not been calibrated against device logs.
+
+Enable it with `--patch-header-climate y` or `PATCH_HEADER_CLIMATE=1`. It is off
+by default, needs the header clock patch (on by default), and is independent
+of the **Clock** setting.
 
 ## Keep Backlight
 
