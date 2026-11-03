@@ -70,8 +70,10 @@ the file are kept, but comments are not. Hovering a patch shows its entry from t
 items it adds. A counter shows how many of the menu slots reclaimed from the stock
 Reminders menu (9 on/off, 8 value; see [Custom settings](custom_settings.md)) and
 new labels the selection uses. The Patch firmware section saves the
-options and runs the patcher on a chosen image, showing its output. Needs only
-Python with tkinter.
+options and runs the patcher on a chosen image, showing its output. Its Build
+payloads button runs `make binaries`, through WSL on Windows (see
+[WSL2 setup](guide/wsl_setup.md)), which the compiled payloads need first.
+The window itself needs only Python with tkinter.
 
 ## Precedence
 

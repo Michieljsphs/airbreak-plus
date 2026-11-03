@@ -9,7 +9,8 @@ Hovering a patch shows its entry from docs/guide/patching.md and the linked feat
 and the custom settings menu items it adds. The counter above the patches shows how many of the reclaimed
 Reminder variables (the menu slots) and labels the selected patches use; both are read from the patcher.
 Patch saves the config and runs patch-airsense.py INPUT OUTPUT PATCH --overwrite, with its output in the
-log. The input and output paths are remembered in ~/.airbreak_patch_gui.json.
+log. The input and output paths are remembered in ~/.airbreak_patch_gui.json. Build payloads runs make
+binaries (through WSL on Windows) to compile the payloads the patcher loads from build/.
 Needs only Python with tkinter (included in the Windows installer). Start it with patch-airsense-gui.bat
 (no console) or python python/patch_config_gui.py.
 """
@@ -22,6 +23,7 @@ import os
 import queue
 import re
 import shlex
+import shutil
 import subprocess
 import sys
 import textwrap
@@ -236,6 +238,14 @@ def load_settings():
         return {}
 
 
+def build_command():
+    """make binaries, through WSL on Windows (docs/guide/wsl_setup.md); None when make is not available."""
+    if os.name == "nt":
+        wsl = shutil.which("wsl.exe")
+        return [wsl, "--cd", REPO, "--", "make", "binaries"] if wsl else None
+    return ["make", "binaries"] if shutil.which("make") else None
+
+
 def python_exe():
     """python.exe, also when started through pythonw.exe, so the child has a console-less pipe-friendly stdout."""
     exe = sys.executable
@@ -261,6 +271,8 @@ class App(tk.Tk):
         self.saved_tokens = None  # options in the config file, None when it could not be read
         self.loading = False
         self.proc = None
+        self.done = ""            # log text when the running command succeeds
+        self.build_hint = False   # the running patcher asked for make binaries
         self.lines = queue.Queue()
 
         bold = tkfont.nametofont("TkDefaultFont").copy()
@@ -349,6 +361,11 @@ class App(tk.Tk):
         actions.grid(row=2, column=0, columnspan=3, sticky="w", pady=(8, 0))
         self.patch_btn = ttk.Button(actions, text="Patch", command=self.patch)
         self.patch_btn.pack(side="left")
+        self.build_btn = ttk.Button(actions, text="Build payloads (make binaries)", command=self.build)
+        self.build_btn.pack(side="left", padx=(6, 0))
+        Tooltip(self.build_btn, lambda: wrap_lines(
+            "Compiles the payloads the patcher loads from build/ (graph, Custom VAuto, Tube Warm-up, ...). Needed "
+            "once, and again after changing patches/. Runs: %s" % " ".join(build_command() or ["make", "binaries"])))
         self.stop_btn = ttk.Button(actions, text="Stop", command=self.stop, state="disabled")
         self.stop_btn.pack(side="left", padx=(6, 0))
         ttk.Checkbutton(actions, text="Verbose (per-patch details)", variable=self.verbose).pack(side="left", padx=12)
@@ -675,16 +692,32 @@ class App(tk.Tk):
             return
         self.save_settings()
         os.makedirs(os.path.dirname(os.path.abspath(outfile)), exist_ok=True)
-        self.append("=== Patching %s -> %s ===" % (infile, outfile))
+        self.run("Patching %s -> %s" % (infile, outfile),
+                 [python_exe(), "-u", PATCHER, infile, outfile, "PATCH", "--overwrite"] +
+                 (["-v"] if self.verbose.get() else []),
+                 "%s written" % outfile)
         for name in env_overrides():
             self.append("Note: %s from the environment overrides %s" % (name, os.path.basename(CONFIG_FILE)), "warn")
+
+    def build(self):
+        """Builds the compiled payloads the patcher loads from build/ (make binaries)."""
+        command = build_command()
+        if command is None:
+            messagebox.showerror(TITLE, "make was not found. On Windows the payloads are built in WSL with make and "
+                                 "arm-none-eabi-gcc; see docs/guide/wsl_setup.md.")
+            return
+        self.run("Building payloads: %s" % " ".join(command[command.index("make"):]), command, "payloads built")
+
+    def run(self, title, command, done):
+        self.append("=== %s ===" % title)
+        self.done, self.build_hint = done, False
         self.proc = subprocess.Popen(
-            [python_exe(), "-u", PATCHER, infile, outfile, "PATCH", "--overwrite"] + (["-v"] if self.verbose.get() else []),
-            stdin=subprocess.DEVNULL, stdout=subprocess.PIPE, stderr=subprocess.STDOUT, cwd=REPO,
+            command, stdin=subprocess.DEVNULL, stdout=subprocess.PIPE, stderr=subprocess.STDOUT, cwd=REPO,
             env={**os.environ, "PYTHONIOENCODING": "utf-8"},
             creationflags=getattr(subprocess, "CREATE_NO_WINDOW", 0))
         threading.Thread(target=self.reader, args=(self.proc,), daemon=True).start()
-        self.patch_btn.config(state="disabled")
+        for button in (self.patch_btn, self.build_btn):
+            button.config(state="disabled")
         self.stop_btn.config(state="normal")
 
     def stop(self):
@@ -703,6 +736,7 @@ class App(tk.Tk):
                 if line is None:
                     self.finished()
                 else:
+                    self.build_hint |= "run make binaries" in line   # a payload in build/ is missing
                     self.append(line)
         except queue.Empty:
             pass
@@ -711,11 +745,14 @@ class App(tk.Tk):
     def finished(self):
         code = self.proc.wait()
         if code == 0:
-            self.append("=== Done: %s written ===" % self.outfile.get().strip(), "pass")
+            self.append("=== Done: %s ===" % self.done, "pass")
         else:
             self.append("=== Failed (exit code %d) ===" % code, "fail")
+        if self.build_hint:
+            self.append("Click 'Build payloads' to run make binaries, then Patch again.", "warn")
         self.proc = None
-        self.patch_btn.config(state="normal")
+        for button in (self.patch_btn, self.build_btn):
+            button.config(state="normal")
         self.stop_btn.config(state="disabled")
 
     def on_close(self):
