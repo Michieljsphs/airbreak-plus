@@ -1,1 +1,4 @@
 .gitarchive export-subst eol=lf
+# The build runs under Linux or WSL: keep LF in Windows checkouts too (core.autocrlf=true).
+* text=auto eol=lf
+*.bat text eol=crlf
