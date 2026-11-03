@@ -3383,6 +3383,7 @@ PATCH_DEPENDENCIES = {
     'patch-fw-graph': ('patch-fw-common-code',),
     'patch-graph-keep-screen-on': ('patch-fw-graph',),
     'patch-header-climate': ('patch-header-clock',),
+    'patch-tube-warmup': ('patch-font-repack',),
     'patch-fw-vauto-wrapper': ('patch-fw-common-code',),
     'patch-fw-squarewave': ('patch-fw-common-code', 'patch-fw-vauto-wrapper'),
 }
