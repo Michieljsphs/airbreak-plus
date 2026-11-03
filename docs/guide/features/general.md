@@ -110,6 +110,34 @@ Without this patch, the stock 85% target remains unchanged.
 The percentage is a target, not a measurement of humidity at the mask.
 Higher targets increase condensation risk; 100% targets saturation.
 
+## Tube Warm-up
+
+At the start of therapy, the heated tube normally reaches its temperature
+within minutes, while the humidifier plate takes much longer to heat the water.
+Until then the air is warm but dry. This optional patch (SX567-0401 only) holds
+the tube back while the humidifier warms up.
+
+During warm-up, the tube setpoint is capped at the temperature where the
+estimated humidity output gives the target RH (85%, or the
+[Target Humidity](#target-humidity) setting). The humidity model keeps aiming
+for the full tube temperature, so the plate heats at full demand. The cap
+follows the plate up and ends when it reaches the tube temperature setting,
+when the plate stops rising (less than 0.2 °C per minute), or after 60
+minutes. It applies only to Auto climate control with a heated tube and the
+humidifier active. It is never lower than the ambient temperature.
+
+Warm-up restarts after the tube controller has been idle for a minute, for
+example between therapy sessions. A hot water chamber, such as after a stock
+Warm-up, ends it immediately.
+
+The humidity output is estimated from the plate and ambient temperatures. The
+chamber outlet is assumed saturated at `ambient + coupling × (plate − ambient)`.
+The coupling is `0.3` in `patches/tube_warmup_abi.S`. Lower values hold the tube
+back longer; it has not yet been calibrated against device logs.
+
+Enable it with `--patch-tube-warmup y` or `PATCH_TUBE_WARMUP=1`. It is off by
+default, has no menu setting, and requires font repacking (on by default).
+
 ## Header Clock
 
 Enable **Clock** in clinical **Configuration** to replace the Home and active

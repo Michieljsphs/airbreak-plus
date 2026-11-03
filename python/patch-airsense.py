@@ -2094,6 +2094,37 @@ class ASFirmwarePatches(CompiledPayloadMixin):
         return PatchOutcome.ok('Climate model target RH: %g%% (Auto and Manual)' % percent,
                                self._payload_detail('target_rh', len(data), flash))
 
+    def patch_tube_warmup(self):
+        """Hold the heated tube at the target RH's temperature while the plate warms."""
+        # Climate inputs vtable slot +0x3c (HTS getter) and sensors slot +0x1c
+        # (humidity-model reference temperature).
+        sites = {
+            'SX567-0401': (0xf43e8, 0xf61ac),
+        }.get(self.asf.cdx_ver)
+        if sites is None:
+            return PatchOutcome.skip("unsupported CDX version %s" % self.asf.cdx_ver)
+
+        data, _, elf_path = self._load_versioned_payload('tube_warmup')
+        hooks = []
+        for offset, stock, wrapper in zip(sites, (
+                'climate_tube_setpoint_get', 'climate_reference_temperature_get'),
+                ('start', 'tube_warmup_reference')):
+            original = self._elf_symbol_addr(elf_path, stock) | 1
+            target = self._elf_symbol_addr(elf_path, wrapper) | 1
+            if self.asf.read_u32(offset) not in (original, target):
+                raise ValueError('patch_tube_warmup: unexpected %s pointer at 0x%X' % (stock, offset))
+            hooks.append((offset, original, target, stock))
+
+        flash, _ = self._inject_payload('tube_warmup', data)
+        details = [self._payload_detail('tube_warmup', len(data), flash)]
+        for offset, original, target, stock in hooks:
+            self._replace_bytes_checked(
+                offset, struct.pack('<I', original), struct.pack('<I', target),
+                'tube warm-up ' + stock, accept_existing=True)
+            details.append(self._hook_detail(stock, self.asf.FLASH_BASE + offset, target))
+        self.applied_payloads.add('tube_warmup')
+        return PatchOutcome.ok(None, *details)
+
     def patch_defaults(self):
         defaults = (
             ('LAN', 0),  # English
@@ -3223,6 +3254,9 @@ PATCH_PHASES = (
         PatchSpec('patch-target-rh',
                   'Set target RH (default: 85%, y: 85%, n: disabled); custom settings adds a 70-100% menu control.',
                   85.0, 'patch_target_rh', value_type=target_rh_value),
+        PatchSpec('patch-tube-warmup',
+                  'Hold the heated tube at the target RH temperature while the humidifier warms up.',
+                  False, 'patch_tube_warmup'),
         PatchSpec('patch-custom-palette', 'Patch the custom color palette.',
                   True, 'custom_palette'),
         PatchSpec('patch-past-date', 'Allow setting past date in the menu and over UART.',
