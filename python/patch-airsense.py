@@ -3340,7 +3340,7 @@ PATCH_PHASES = (
         PatchSpec('patch-header-clock', 'Add a clock to the Home and therapy-screen headers.',
                   True, 'patch_header_clock'),
         PatchSpec('patch-header-climate',
-                  'Show tube and plate temperatures and estimated RH in the therapy-screen header.',
+                  'Show tube and plate temperatures and estimated RH in the Home and therapy-screen headers.',
                   False, 'patch_header_climate'),
         PatchSpec('patch-target-rh',
                   'Set target RH (default: 85%, y: 85%, n: disabled); custom settings adds a 70-100% menu control.',
