@@ -65,7 +65,11 @@ phase and read from `patch-airsense.py`, so the list always matches the patcher.
 Ticking a patch also ticks the patches it requires; unticking one unticks the
 patches that depend on it. Options that differ from the built-in default are
 shown bold. Save writes only those options; other patcher options already in
-the file are kept, but comments are not. The Patch firmware section saves the
+the file are kept, but comments are not. Hovering a patch shows its entry from the
+[patching guide](guide/patching.md), its dependencies and the custom settings menu
+items it adds. A counter shows how many of the menu slots reclaimed from the stock
+Reminders menu (9 on/off, 8 value; see [Custom settings](custom_settings.md)) and
+new labels the selection uses. The Patch firmware section saves the
 options and runs the patcher on a chosen image, showing its output. Needs only
 Python with tkinter.
 

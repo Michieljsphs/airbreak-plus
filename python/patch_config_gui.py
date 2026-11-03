@@ -5,6 +5,9 @@ show up here without changes. Ticking a patch also ticks the patches it requires
 patches that require it. Options that differ from the built-in default are shown bold, and only those are
 written by Save (see docs/patch_options.md). Other patcher options found in the file (--force-deprecated,
 ...) are kept as they are.
+Hovering a patch shows its entry from docs/guide/patching.md and the linked feature page, its dependencies
+and the custom settings menu items it adds. The counter above the patches shows how many of the reclaimed
+Reminder variables (the menu slots) and labels the selected patches use; both are read from the patcher.
 Patch saves the config and runs patch-airsense.py INPUT OUTPUT PATCH --overwrite, with its output in the
 log. The input and output paths are remembered in ~/.airbreak_patch_gui.json.
 Needs only Python with tkinter (included in the Windows installer). Start it with patch-airsense-gui.bat
@@ -13,12 +16,15 @@ Needs only Python with tkinter (included in the Windows installer). Start it wit
 import argparse
 from copy import copy
 import importlib.util
+import inspect
 import json
 import os
 import queue
+import re
 import shlex
 import subprocess
 import sys
+import textwrap
 import threading
 import tkinter as tk
 from tkinter import filedialog, messagebox, ttk
@@ -36,15 +42,142 @@ CONFIG_FILE = os.path.join(REPO, LOCAL_FILES["air10"])
 SETTINGS_FILE = os.path.join(os.path.expanduser("~"), ".airbreak_patch_gui.json")
 HEADER = "# Written by python/patch_config_gui.py: only options that differ from the built-in defaults."
 DEFAULT_OUTPUT = os.path.join(REPO, "build", "stm32-patched.bin")
+GUIDE_DIR = os.path.join(REPO, "docs", "guide")
+PATCHING_DOC = os.path.join(GUIDE_DIR, "patching.md")
 P = None   # patch-airsense.py, loaded by main()
+SLOTS = (("g8", "On/off settings"), ("g4", "Value settings"), ("labels", "New labels"))
 
 
 def load_patcher():
     """patch-airsense.py has a hyphen in its name, so it is loaded from its path."""
     spec = importlib.util.spec_from_file_location("patch_airsense", PATCHER)
     module = importlib.util.module_from_spec(spec)
+    sys.modules[spec.name] = module   # inspect.getsource looks the module up by name
     spec.loader.exec_module(module)
     return module
+
+
+def plain(text):
+    """Markdown inline markup to plain text: links, code, emphasis and escaped pipes."""
+    text = re.sub(r"\[([^\]]*)\]\([^)]*\)", r"\1", text)
+    return re.sub(r"[`*]", "", text).replace("\\|", "|").strip()
+
+
+def doc_section(path, anchor):
+    """First prose paragraph below the heading with this anchor, or below the title without one."""
+    try:
+        with open(path, encoding="utf-8") as f:
+            lines = f.read().splitlines()
+    except OSError:
+        return ""
+    start = 0
+    for i, line in enumerate(lines):
+        if line.startswith("#") and (not anchor or re.sub(r"[^a-z0-9 -]", "", line.lstrip("#").strip().lower())
+                                     .replace(" ", "-") == anchor):
+            start = i + 1
+            break
+    else:
+        if anchor:
+            return ""
+    paragraph = []
+    for line in lines[start:]:
+        if line.startswith("#"):
+            break
+        if not line.strip() or line.lstrip().startswith(("<", "!", "|", "-", "```")):
+            if paragraph:
+                break
+            continue
+        paragraph.append(line.strip())
+    return plain(" ".join(paragraph))
+
+
+def patch_docs():
+    """option -> (what it does, linked feature page or None, first paragraph of that page) from patching.md.
+    The Therapy modifications table lists environment variables; they map to the last option they set."""
+    try:
+        with open(PATCHING_DOC, encoding="utf-8") as f:
+            text = f.read()
+    except OSError:
+        return {}
+    rows = [line for line in text.splitlines() if line.startswith("|")]
+    docs = {}
+    for row in rows:
+        cells = [c.strip() for c in re.split(r"(?<!\\)\|", row.strip().strip("|"))]
+        if len(cells) < 2:
+            continue
+        options = re.findall(r"--(patch-[a-z0-9-]+)", cells[-1])
+        env = re.match(r"`(\w+)=1`", cells[0])
+        if env and env.group(1) in AIR10_LEGACY_OPTIONS:
+            options = [o[2:] for o in AIR10_LEGACY_OPTIONS[env.group(1)] if o.startswith("--patch-")][-1:]
+        what = cells[1] if len(cells) > 2 else cells[-1]
+        link = re.search(r"\]\(([^)#]+)(?:#([^)]+))?\)", row)
+        page = os.path.normpath(os.path.join(GUIDE_DIR, link.group(1))) if link else None
+        for option in options:
+            docs.setdefault(option, (plain(what), page, doc_section(page, link.group(2)) if link else ""))
+    for paragraph in re.split(r"\n\s*\n", text):   # options described only in prose, like keep-screen-on
+        if paragraph.lstrip().startswith(("|", "#", "```", "<", "-")):
+            continue
+        for option in re.findall(r"--(patch-[a-z0-9-]+)", paragraph):
+            docs.setdefault(option, (plain(" ".join(paragraph.split())), None, ""))
+    return docs
+
+
+def menu_resources():
+    """Which custom settings menu resources each patch uses, read from the patcher source:
+    {option: {"g8": [vars], "g4": [vars], "labels": [texts]}} and the pool size of each resource."""
+    patches = P.ASFirmwarePatches
+    pools = {"labels": None}   # reclaimed string IDs: the count depends on the firmware
+    reclaim = inspect.getsource(patches.custom_patch_settings_reclaim_reminders)
+    for names, table in re.findall(r"for var in \(([^)]*)\):\s*self\.custom_reclaim_g(\d)_var", reclaim):
+        pools["g" + table] = len(re.findall(r"'\w+'", names))
+    collect = inspect.getsource(patches.custom_patch_settings_collect_features)
+    resources = {}
+    for source, method in re.findall(r"\('(\w+)', self\.(\w+)\)", collect):
+        body = inspect.getsource(getattr(patches, method))
+        used = {"g8": re.findall(r"custom_claim_g8_var\('(\w+)'", body),
+                "g4": re.findall(r"custom_claim_g4_var\('(\w+)'", body),
+                "labels": re.findall(r"redefine_fw_string\(-1, \{0: '([^']*)'", body)}
+        for spec in P.iter_patch_specs():   # the patch that activates this feature
+            if spec.method == "patch_" + source or "add('%s')" % source in inspect.getsource(getattr(patches, spec.method)):
+                resources[spec.option] = used
+                break
+    return resources, pools
+
+
+class Tooltip:
+    """Shows text from a callback after hovering a widget for a moment."""
+    def __init__(self, widget, text):
+        self.widget, self.text, self.tip, self.job = widget, text, None, None
+        widget.bind("<Enter>", self.schedule, add="+")
+        widget.bind("<Leave>", self.hide, add="+")
+        widget.bind("<ButtonPress>", self.hide, add="+")
+
+    def schedule(self, _):
+        self.hide()
+        self.job = self.widget.after(500, self.show)
+
+    def show(self):
+        text = self.text()
+        if not text:
+            return
+        x, y = self.widget.winfo_rootx() + 20, self.widget.winfo_rooty() + self.widget.winfo_height() + 4
+        self.tip = tk.Toplevel(self.widget)
+        self.tip.wm_overrideredirect(True)
+        tk.Label(self.tip, text=text, justify="left", background="#ffffe8", relief="solid", borderwidth=1,
+                 padx=6, pady=4).pack()
+        self.tip.update_idletasks()   # keep it on the screen
+        x = min(x, self.tip.winfo_screenwidth() - self.tip.winfo_reqwidth() - 8)
+        if y + self.tip.winfo_reqheight() > self.tip.winfo_screenheight() - 40:
+            y = self.widget.winfo_rooty() - self.tip.winfo_reqheight() - 4
+        self.tip.wm_geometry("+%d+%d" % (x, y))
+
+    def hide(self, _=None):
+        if self.job:
+            self.widget.after_cancel(self.job)
+            self.job = None
+        if self.tip:
+            self.tip.destroy()
+            self.tip = None
 
 
 class OptionsParser(argparse.ArgumentParser):
@@ -73,6 +206,10 @@ def option_text(value):
     if value is False:
         return "n"
     return "%g" % value
+
+
+def wrap_lines(text):
+    return textwrap.fill(text, 90)
 
 
 def env_overrides():
@@ -107,6 +244,8 @@ class App(tk.Tk):
         self.geometry("1280x900")
         self.parser = options_parser()
         self.specs = {spec.option: spec for spec in P.iter_patch_specs()}
+        self.docs = patch_docs()
+        self.resources, self.pools = menu_resources()
         self.enabled = {}   # option -> BooleanVar: patch selected
         self.values = {}    # option -> StringVar: parameter of a patch with a value (target RH)
         self.spins = {}     # option -> Spinbox of that parameter, disabled while the patch is unticked
@@ -148,9 +287,18 @@ class App(tk.Tk):
                 canvas.yview_scroll(-event.delta // 120, "units")
         self.bind_all("<MouseWheel>", wheel)
 
+        usage = ttk.LabelFrame(inner, text="Custom settings menu", padding=(8, 4))   # the counter
+        usage.grid(row=0, column=0, columnspan=2, sticky="we", pady=(0, 8), padx=(0, 4))
+        self.usage = {}
+        for key, _ in SLOTS:
+            self.usage[key] = ttk.Label(usage)
+            self.usage[key].pack(side="left", padx=(0, 24))
+            Tooltip(self.usage[key], lambda k=key: self.usage_text(k))
+        Tooltip(usage, lambda: self.usage_text(None))
+
         columns = [ttk.Frame(inner) for _ in range(2)]   # one LabelFrame per patch phase, in two columns
         for i, column in enumerate(columns):
-            column.grid(row=0, column=i, sticky="nwe", padx=(0, 8) if i == 0 else (0, 4))
+            column.grid(row=1, column=i, sticky="nwe", padx=(0, 8) if i == 0 else (0, 4))
             inner.columnconfigure(i, weight=1, uniform="column")
         rows = [0, 0]
         for phase, specs in P.PATCH_PHASES:
@@ -221,8 +369,10 @@ class App(tk.Tk):
         check = ttk.Checkbutton(frame, text=text, variable=self.enabled[spec.option],
                                 command=lambda: self.toggled(spec.option))
         check.grid(row=row, column=0, sticky="w")
-        ttk.Label(frame, text="--" + spec.option, foreground="#888888", font=("Consolas", 9)).grid(
-            row=row, column=1, sticky="e", padx=(8, 0))
+        name = ttk.Label(frame, text="--" + spec.option, foreground="#888888", font=("Consolas", 9))
+        name.grid(row=row, column=1, sticky="e", padx=(8, 0))
+        for widget in (check, name):
+            Tooltip(widget, lambda: self.tooltip_text(spec))
         self.checks[spec.option] = check
         if not spec.value_type and not hint:
             return
@@ -237,6 +387,67 @@ class App(tk.Tk):
             ttk.Label(sub, text="%").pack(side="left", padx=(2, 8))
         if hint:
             ttk.Label(sub, text=hint.strip(), foreground="#666666").pack(side="left")
+
+    def tooltip_text(self, spec):
+        """Extended information on a patch: docs, default, dependencies and the menu items it adds."""
+        wrap = wrap_lines
+        what, page, more = self.docs.get(spec.option, ("", None, ""))
+        parts = ["--%s (default: %s)" % (spec.option, "off" if spec.default is False else
+                                         "on" if spec.default is True else option_text(spec.default))]
+        parts += [wrap(text) for text in (what, more) if text]
+        needs = P.PATCH_DEPENDENCIES.get(spec.option, ())
+        needed_by = [other for other, deps in P.PATCH_DEPENDENCIES.items() if spec.option in deps]
+        if needs:
+            parts.append("Requires: " + ", ".join("--" + o for o in needs))
+        if needed_by:
+            parts.append("Required by: " + ", ".join("--" + o for o in needed_by))
+        used = self.resources.get(spec.option)
+        if used:
+            counts = ", ".join("%s: %d" % (label.lower(), len(used[key])) for key, label in SLOTS if used[key])
+            parts.append(wrap("Custom settings menu (with --patch-custom-settings): %s%s" % (
+                "uses " + counts if counts else "shows stock menu items, uses no reclaimed slots",
+                "; adds " + ", ".join(used["labels"]) if used["labels"] else "")))
+        if page:
+            parts.append("More: " + os.path.relpath(page, REPO).replace(os.sep, "/"))
+        return "\n\n".join(parts)
+
+    def menu_usage(self, values):
+        """Reclaimed slots and labels used by the selected patches; None without custom settings."""
+        if not values.get("patch-custom-settings"):
+            return None
+        used = {key: [] for key, _ in SLOTS}
+        for option, resources in self.resources.items():
+            if values.get(option) is not False:
+                for key in used:
+                    used[key] += resources[key]
+        return used
+
+    def usage_text(self, key):
+        if key == "labels":
+            return wrap_lines(
+                "Menu labels are stored in string IDs reclaimed from the stock Reminders menu: its title and "
+                "message strings plus the now unused names of the reclaimed variables. How many are free "
+                "depends on the firmware; tick Verbose and patch to see 'free reclaimed str_id' in the log.")
+        if key:
+            table = {"g8": "g[8]", "g4": "g[4]"}[key]
+            return wrap_lines(
+                "%s variables reclaimed from the stock Reminders menu, one per added menu setting. Each feature "
+                "claims fixed variables, so two features cannot share one. Free after patching: see "
+                "'unused reclaimed %s vars' in the verbose log." % (table, table))
+        return wrap_lines(
+            "Patches with menu controls share the resources freed by removing the stock Reminders menu "
+            "(docs/custom_settings.md). Counted only while --patch-custom-settings is ticked.")
+
+    def update_usage(self, values):
+        used = self.menu_usage(values)
+        for key, label in SLOTS:
+            if used is None:
+                self.usage[key].config(text="%s: -" % label, foreground="#888888")
+                continue
+            pool = self.pools.get(key)
+            over = pool is not None and len(used[key]) > pool
+            self.usage[key].config(text="%s: %d%s" % (label, len(used[key]), " / %d" % pool if pool else ""),
+                                   foreground="#b00020" if over else "")
 
     def current(self):
         """option -> value as the patcher takes it: True/False, or the percentage of a patch with a value.
@@ -294,6 +505,7 @@ class App(tk.Tk):
         except argparse.ArgumentTypeError as exc:
             self.cmdline.set("Invalid value: %s" % exc)
             return
+        self.update_usage(values)
         for option, value in values.items():
             changed = value != self.specs[option].default
             self.checks[option].config(style="Changed.TCheckbutton" if changed else "TCheckbutton")
