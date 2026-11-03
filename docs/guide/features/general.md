@@ -130,17 +130,26 @@ Warm-up restarts after the tube controller has been idle for a minute, for
 example between therapy sessions. A hot water chamber, such as after a stock
 Warm-up, ends it immediately.
 
-The humidity output is estimated from the plate and ambient temperatures. The
-chamber outlet is assumed saturated at `ambient + coupling × (plate − ambient)`.
-Lower couplings hold the tube back longer; the default `0.3` has not yet been
-calibrated against device logs.
+The humidity output comes from the device's own humidifier model, run
+backwards. Stock sets the plate temperature from the moisture the air needs:
+`duty = k0 + k1 × flow × ΔAH` and `plate = k3 + k4 × duty`, with flow in L/min
+and ΔAH in g/m³. Tube Warm-up solves this for ΔAH at the current plate
+temperature and flow, using the calibration `k0`-`k4` the device loads at boot,
+and adds it to the moisture already in the room air. The coefficients are read
+at runtime, so each device uses its own. Below `k3` the model has no answer;
+the added moisture then tapers linearly to zero at ambient.
+
+Stock only runs the model at 8 L/min or more. Below that, or when the device
+has no usable calibration, the chamber outlet is instead assumed saturated at
+`ambient + 0.3 × (plate − ambient)`, never drier than the room. The `0.3` is
+the constant in `patches/tube_warmup_abi.S` and has not been calibrated.
 
 With custom settings, clinical **Accessories** contains:
 
 | Setting | UART | Values | Default |
 |---------|------|--------|---------|
 | Tube Warm-up | first free on/off slot | Off, On | On |
-| Warm-up Factor | RDH | 0.10-1.00, step 0.05 (the coupling) | 0.30 |
+| Warm-up Factor | RDH | 0.50-1.50, step 0.05 | 1.00 |
 
 Each setting needs a label string, and the switch also an on/off variable,
 that no other installed feature uses. The `plus` image uses all of them, so
@@ -151,11 +160,14 @@ used; for example, without ST iBR and AutoEPAP:
 make build/stm32-plus.bin AIR10_PATCH_ARGS='--patch-st-ibr n --patch-autoepap n --patch-tube-warmup y'
 ```
 
-Warm-up Factor is added first; at 1.00 the cap releases almost at once. The
+Warm-up Factor scales the moisture the model adds: 1.00 uses the model as is,
+lower values hold the tube back longer. It does not change the 0.3 fallback.
+Builds before the model used this setting as the coupling (0.10-1.00, default
+0.30); check it after updating, since a stored value below 0.50 is out of the
+new range. Warm-up Factor is added first. The
 [Header climate](#header-climate) switch, when installed, takes what Tube
 Warm-up leaves. When only one label is free, Tube Warm-up stays on without a switch; with none, the
-coupling stays at its default. The build log reports what was added. Without
-custom settings, the coupling is the constant in `patches/tube_warmup_abi.S`.
+factor stays at 1.00. The build log reports what was added.
 
 Enable it with `--patch-tube-warmup y` or `PATCH_TUBE_WARMUP=1`. It is off by
 default and requires font repacking (on by default).
@@ -180,12 +192,14 @@ Temperatures follow the device's °C/°F setting. The readout appears only with 
 humidifier attached; Home keeps the clock.
 
 The device has no humidity sensor in the air path, so the RH value is
-estimated in the same way as [Tube Warm-up](#tube-warm-up). The air leaving
-the water chamber is assumed saturated at
-`ambient + coupling × (plate − ambient)`, and never drier than the room. With
-Tube Warm-up and custom settings, the coupling follows **Warm-up Factor**;
-otherwise it is `0.3` in `patches/header_clock_abi.S`. Treat the value as a guide
-to the trend, not a measurement; it has not been calibrated against device logs.
+estimated in the same way as [Tube Warm-up](#tube-warm-up): the room air plus
+the moisture the stock humidifier model adds at the current plate temperature
+and flow, divided by the saturation humidity at the tube temperature. With
+Tube Warm-up and custom settings, **Warm-up Factor** scales the added moisture.
+Out of therapy, below 8 L/min or without calibration, it falls back to air
+saturated at `ambient + 0.3 × (plate − ambient)`, with the `0.3` in
+`patches/header_clock_abi.S`. Treat the value as a guide to the trend, not a
+measurement; it has not been checked against a hygrometer.
 
 With custom settings, clinical **Configuration** gets a **Climate** switch
 (Off, On; default On) next to **Clock**. Off shows the clock, or the stock
