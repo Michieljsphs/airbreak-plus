@@ -151,8 +151,9 @@ used; for example, without ST iBR and AutoEPAP:
 make build/stm32-plus.bin AIR10_PATCH_ARGS='--patch-st-ibr n --patch-autoepap n --patch-tube-warmup y'
 ```
 
-Warm-up Factor is added first; at 1.00 the cap releases almost at once. When
-only one label is free, Tube Warm-up stays on without a switch; with none, the
+Warm-up Factor is added first; at 1.00 the cap releases almost at once. The
+[Header climate](#header-climate) switch, when installed, takes what Tube
+Warm-up leaves. When only one label is free, Tube Warm-up stays on without a switch; with none, the
 coupling stays at its default. The build log reports what was added. Without
 custom settings, the coupling is the constant in `patches/tube_warmup_abi.S`.
 
@@ -185,6 +186,11 @@ the water chamber is assumed saturated at
 Tube Warm-up and custom settings, the coupling follows **Warm-up Factor**;
 otherwise it is `0.3` in `patches/header_clock_abi.S`. Treat the value as a guide
 to the trend, not a measurement; it has not been calibrated against device logs.
+
+With custom settings, clinical **Configuration** gets a **Climate** switch
+(Off, On; default On) next to **Clock**. Off shows the clock, or the stock
+title, again. The switch needs a free on/off variable and label string, like
+the Tube Warm-up switch, and gets them after it; without one the readout stays on.
 
 Enable it with `--patch-header-climate y` or `PATCH_HEADER_CLIMATE=1`. It is off
 by default, needs the header clock patch (on by default), and is independent
