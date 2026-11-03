@@ -114,7 +114,7 @@ Higher targets increase condensation risk; 100% targets saturation.
 
 At the start of therapy, the heated tube normally reaches its temperature
 within minutes, while the humidifier plate takes much longer to heat the water.
-Until then the air is warm but dry. This optional patch (SX567-0401 only) holds
+Until then the air is warm but dry. This optional patch (SX567 only) holds
 the tube back while the humidifier warms up.
 
 During warm-up, the tube setpoint is capped at the temperature where the
