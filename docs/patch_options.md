@@ -72,8 +72,10 @@ Reminders menu (9 on/off, 8 value; see [Custom settings](custom_settings.md)) an
 new labels the selection uses. The Patch firmware section saves the
 options and runs the patcher on a chosen image, showing its output. Its Build
 payloads button runs `make binaries`, through WSL on Windows (see
-[WSL2 setup](guide/wsl_setup.md)), which the compiled payloads need first.
-The window itself needs only Python with tkinter.
+[WSL2 setup](guide/wsl_setup.md)), which the compiled payloads need first. The
+Flash device section dumps, flashes and verifies over SWD with OpenOCD; see
+[Flashing](guide/flashing.md#from-the-patch-options-window). The window itself
+needs only Python with tkinter.
 
 ## Precedence
 
