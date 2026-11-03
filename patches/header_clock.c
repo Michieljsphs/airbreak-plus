@@ -34,7 +34,7 @@ extern const u16 header_clock_var_id;
 extern const u8 header_climate_enabled;
 extern const u16 header_climate_var_id;
 extern const float header_climate_plate_coupling;
-extern const u16 header_climate_coupling_var_id;
+extern const u16 header_climate_factor_var_id;
 extern int variable_get_by_id(int var_id);
 extern struct root_screen *gui_root_screen_get(void);
 extern struct root_screen *gui_root_screen_init(struct root_screen *root);
@@ -45,13 +45,7 @@ extern void WM_InvalidateRect(u32 window, const short *rect);
 extern int snprintf(char *buffer, unsigned size, const char *format, ...);
 
 #ifdef HEADER_CLIMATE
-extern float expf(float x);
-
-/* Magnus saturation vapour pressure over water, hPa. */
-static float saturation(float t)
-{
-    return 6.112f * expf(17.62f * t / (243.12f + t));
-}
+#include "humidity_model.h"
 
 /* Rounded display temperature from a raw degC * 10 value. */
 static int display_temp(int raw, int fahrenheit)
@@ -62,8 +56,10 @@ static int display_temp(int raw, int fahrenheit)
 }
 
 /* Tube and plate temperatures and the estimated RH at the tube temperature,
- * using the same chamber estimate as tube_warmup: outlet air saturated at
- * ambient + coupling * (plate - ambient), never drier than the room.
+ * using the same chamber estimate as tube_warmup: the room air plus the
+ * moisture the stock humidity model adds at this plate temperature and flow.
+ * Without flow or calibration, outlet air saturated at ambient + coupling *
+ * (plate - ambient), never drier than the room.
  */
 static u16 current_climate(char *text)
 {
@@ -75,16 +71,15 @@ static u16 current_climate(char *text)
     int plate_raw = variable_get_by_id(VAR_ID_HPT);
     int tube_raw = tube_present ? variable_get_by_id(VAR_ID_HTT) : ambient_raw;
 
-    float coupling = header_climate_coupling_var_id == 0xffffu ?
-        header_climate_plate_coupling :
-        variable_get_by_id(header_climate_coupling_var_id) * 0.01f;
-    float ambient = ambient_raw * 0.1f;
-    float outlet = ambient + coupling * (plate_raw * 0.1f - ambient);
-    float vapour = saturation(outlet);
-    float room = variable_get_by_id(VAR_ID_HAH) * 0.001f * saturation(ambient);
-    if (vapour < room)
-        vapour = room;
-    int rh = (int)(100.0f * vapour / saturation(tube_raw * 0.1f) + 0.5f);
+    float factor = header_climate_factor_var_id == 0xffffu ? 1.0f :
+        variable_get_by_id(header_climate_factor_var_id) * 0.01f;
+    struct humidity_coeffs coeffs;
+    humidity_coeffs_read(&coeffs);
+    float outlet = humidity_outlet(&coeffs,
+                                   plate_raw * 0.1f, ambient_raw * 0.1f,
+                                   variable_get_by_id(VAR_ID_HAH) * 0.001f, factor,
+                                   header_climate_plate_coupling);
+    int rh = (int)(100.0f * outlet / ah_sat(tube_raw * 0.1f) + 0.5f);
     if (rh > 100)
         rh = 100;
     if (rh < 0)

@@ -2,11 +2,13 @@
  *
  * The stock climate controller drives the tube toward HTS as soon as therapy
  * starts, long before the plate has heated the water, so early air is warm and
- * dry. While the plate warms, cap the tube setpoint where the estimated vapour
- * pressure gives the target RH, and let the humidity model aim for HTS so the
- * plate keeps heating at full demand. The cap ends once it reaches HTS, the
+ * dry. While the plate warms, cap the tube setpoint where the moisture the stock
+ * humidity model says the chamber adds gives the target RH, and let that model
+ * aim for HTS so the plate keeps heating at full demand. The cap ends once it reaches HTS, the
  * plate stops rising, or the warm-up time limit expires.
  */
+#include "humidity_model.h"
+
 typedef unsigned char u8;
 typedef float (*getf_t)(void *);
 typedef int (*geti_t)(void *);
@@ -42,13 +44,13 @@ struct state {
     unsigned seen[3];
     unsigned sample[3];
     float last_plate;
+    struct humidity_coeffs coeffs;
     u8 minutes;
     u8 done;
     u8 capping;
 };
 
 extern void *malloc(unsigned size);
-extern float expf(float x);
 extern void millisecond_timer_init(void *timer, unsigned elapsed);
 extern int millisecond_timer_expired(void *timer, unsigned ms);
 extern float climate_tube_setpoint_get(struct obj *inputs);
@@ -56,50 +58,25 @@ extern float climate_reference_temperature_get(struct obj *sensors);
 extern void *const climate_inputs_vtable[];
 extern const float tube_warmup_plate_coupling;
 extern const unsigned short tube_warmup_enable_var_id;
-extern const unsigned short tube_warmup_coupling_var_id;
+extern const unsigned short tube_warmup_factor_var_id;
 extern int variable_get_by_id(int var_id);
 
 static float call_f(struct obj *o, int slot) { return ((getf_t)o->vptr[slot])(o); }
 static int call_i(struct obj *o, int slot) { return ((geti_t)o->vptr[slot])(o); }
 
-static float log_approx(float x)
-{
-    union { float f; int i; } u = { .f = x };
-    int e = ((u.i >> 23) & 0xff) - 127;
-    u.i = (u.i & 0x007fffff) | 0x3f800000;
-    if (u.f > 1.41421356f) {
-        u.f *= 0.5f;
-        ++e;
-    }
-    float s = (u.f - 1.0f) / (u.f + 1.0f), s2 = s * s;
-    return (float)e * 0.69314718f +
-           2.0f * s * (1.0f + s2 * (0.33333333f + s2 * (0.2f + s2 * 0.14285714f)));
-}
-
-/* Magnus saturation vapour pressure over water, hPa. */
-static float saturation(float t)
-{
-    return 6.112f * expf(17.62f * t / (243.12f + t));
-}
-
-static float dew_point(float vapour)
-{
-    float x = log_approx(vapour / 6.112f);
-    return 243.12f * x / (17.62f - x);
-}
-
-/* Custom settings, when installed, supply the switch and the coupling. */
+/* Custom settings, when installed, supply the switch and the factor. */
 static int enabled(void)
 {
     return tube_warmup_enable_var_id == 0xffffu ||
            variable_get_by_id(tube_warmup_enable_var_id);
 }
 
-static float coupling(void)
+/* Scales the moisture the stock model says the chamber adds. */
+static float factor(void)
 {
-    if (tube_warmup_coupling_var_id == 0xffffu)
-        return tube_warmup_plate_coupling;
-    return variable_get_by_id(tube_warmup_coupling_var_id) * 0.01f;
+    if (tube_warmup_factor_var_id == 0xffffu)
+        return 1.0f;
+    return variable_get_by_id(tube_warmup_factor_var_id) * 0.01f;
 }
 
 static void restart(struct state *s, float plate)
@@ -107,6 +84,7 @@ static void restart(struct state *s, float plate)
     s->done = 0;
     s->minutes = 0;
     s->last_plate = plate;
+    humidity_coeffs_read(&s->coeffs);
     millisecond_timer_init(s->sample, 0);
 }
 
@@ -167,18 +145,17 @@ float start(struct obj *inputs)
         s->last_plate = plate;
     }
 
-    float outlet = ambient + coupling() * (plate - ambient);
-    float vapour = saturation(outlet);
-    float room = call_f(sensors, SENSOR_AMBIENT_RH) * saturation(ambient);
-    if (vapour < room)
-        vapour = room;
-    float limit = dew_point(vapour / call_f(inputs, INPUT_TARGET_RH));
+    float outlet = humidity_outlet(&s->coeffs, plate, ambient,
+                                   call_f(sensors, SENSOR_AMBIENT_RH), factor(),
+                                   tube_warmup_plate_coupling);
+    float limit = humidity_model_temperature(outlet, call_f(inputs, INPUT_TARGET_RH),
+                                             ambient, set);
     if (limit >= set) {
         s->done = 1;
         return set;
     }
     s->capping = 1;
-    return limit > ambient ? limit : ambient;
+    return limit;
 }
 
 /* Replaces the sensors' humidity-model reference temperature. */
