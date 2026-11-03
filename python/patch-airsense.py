@@ -2170,7 +2170,11 @@ class ASFirmwarePatches(CompiledPayloadMixin):
         # Climate inputs vtable slot +0x3c (HTS getter) and sensors slot +0x1c
         # (humidity-model reference temperature).
         sites = {
+            'SX567-0302': (0xf3a70, 0xf5834),
+            'SX567-0305': (0xf4184, 0xf5f48),
+            'SX567-0306': (0xf4188, 0xf5f4c),
             'SX567-0401': (0xf43e8, 0xf61ac),
+            'SX567-0402': (0xf4660, 0xf6424),
         }.get(self.asf.cdx_ver)
         if sites is None:
             return PatchOutcome.skip("unsupported CDX version %s" % self.asf.cdx_ver)
