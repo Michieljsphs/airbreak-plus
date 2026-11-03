@@ -1,5 +1,5 @@
 /* Replace Home and on-therapy page titles with the device time, or with a
- * climate readout on the therapy pages.
+ * climate readout on Home and the therapy pages.
  */
 #include "s10_vars.h"
 
@@ -108,7 +108,7 @@ static u16 current_title(const struct root_screen *root, char *text)
     int therapy = page >= THERAPY_PAGE_FIRST && page < THERAPY_PAGE_FIRST + 4 &&
                   (root->title == 7 || root->title == 8);
 #ifdef HEADER_CLIMATE
-    if (therapy && header_climate_enabled &&
+    if ((home || therapy) && header_climate_enabled &&
             (header_climate_var_id == 0xffffu ||
              variable_get_by_id(header_climate_var_id))) {
         u16 climate = current_climate(text);
