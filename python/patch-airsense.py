@@ -482,6 +482,14 @@ class ASFirmwarePatches(CompiledPayloadMixin):
             request, owner, self.custom_g8_reclaimed,
             self.custom_g8_claims, 8)
 
+    def custom_claim_free_g8_var(self, candidates, owner):
+        """Claim the first unclaimed reclaimed g[8] candidate, or return None."""
+        for request in candidates:
+            vid = self.asf.resolve_var_id(request)
+            if vid in self.custom_g8_reclaimed and vid not in self.custom_g8_claims:
+                return self.custom_claim_g8_var(request, owner)
+        return None
+
     def custom_claim_g4_var(self, request, owner=None):
         """Claim one exact reclaimed g[4] variable and return its UART name."""
         return self._custom_claim_var(
@@ -1490,6 +1498,45 @@ class ASFirmwarePatches(CompiledPayloadMixin):
         addr = self._write_payload_u16('target_rh', 'target_rh_var_id', vid)
         self._custom_detail('Target RH: %s var_id=0x%04X at 0x%08X' % (var, vid, addr))
 
+    def custom_patch_settings_tube_warmup(self):
+        """Expose the Tube Warm-up plate coupling and switch in Accessories."""
+        # Runs after the fixed-name features and uses what they leave: a label
+        # string for each setting and, for the switch, a free on/off slot. The
+        # coupling comes first; at 1.00 it also releases the cap almost at once.
+        dep = self.asf.find_var_table_index(4, 'RGT')
+        hint = 'build without e.g. --patch-st-ibr and --patch-autoepap to add it'
+        if not self.custom_string_pool:
+            self._custom_detail('Warm-up Factor: no free label string; ' + hint)
+            return
+
+        # Raw value is the coupling * 100: 0.10-1.00 in steps of 0.05.
+        coupling = self.custom_claim_g4_var('RDH', 'tube_warmup_coupling')
+        label = self.redefine_fw_string(-1, {0: 'Warm-up Factor'}, 'tube_warmup_coupling_label')
+        self.redefine_g4_var(coupling, 0x0007, 0, dep, label,
+                             30, 100, 10, 2, 100, 5, self.asf.str_id_empty)
+        self.custom_menu_add('accessories', coupling, self.CUSTOM_MENU_MODE_BITS)
+        vid = self.asf.resolve_var_id(coupling)
+        addr = self._write_payload_u16('tube_warmup', 'tube_warmup_coupling_var_id', vid)
+        self._custom_detail('Warm-up Factor: %s var_id=0x%04X at 0x%08X' % (coupling, vid, addr))
+        if 'header_clock' in self.applied_payloads:
+            addr = self._write_payload_u16('header_clock', 'header_climate_coupling_var_id', vid)
+            self._custom_detail('Header climate coupling var_id=0x%04X at 0x%08X' % (vid, addr))
+
+        enable = None
+        if self.custom_string_pool:
+            enable = self.custom_claim_free_g8_var(
+                ('RXW', 'RSA', 'RPF', 'RPW', 'RPO', 'RPH', 'RXM', 'RXH'), 'tube_warmup_enable')
+        if enable is None:
+            self._custom_detail('Tube Warm-up switch: no free label string or on/off slot; ' + hint)
+            return
+        label = self.redefine_fw_string(-1, {0: 'Tube Warm-up'}, 'tube_warmup_enable_label')
+        self.redefine_g8_var(enable, 0x0007, 0, dep, label, 1,
+                             2, 0, 0x00000003, self.asf.str_id_off_on_base, 0)
+        self.custom_menu_add('accessories', enable, self.CUSTOM_MENU_MODE_BITS)
+        vid = self.asf.resolve_var_id(enable)
+        addr = self._write_payload_u16('tube_warmup', 'tube_warmup_enable_var_id', vid)
+        self._custom_detail('Tube Warm-up: %s var_id=0x%04X at 0x%08X' % (enable, vid, addr))
+
     def custom_patch_settings_collect_features(self):
         """Return active custom-settings feature functions."""
         feature_patches = (
@@ -1504,6 +1551,8 @@ class ASFirmwarePatches(CompiledPayloadMixin):
             ('backlight_adapt', self.custom_patch_settings_backlight),
             ('target_rh', self.custom_patch_settings_target_rh),
             ('header_clock', self.custom_patch_settings_header_clock),
+            # Last: its switch claims a g[8] slot left free by the features above.
+            ('tube_warmup', self.custom_patch_settings_tube_warmup),
         )
         active = self.applied_payloads | self.enabled_custom_settings_features
         return [feature for source, feature in feature_patches if source in active]
@@ -2093,6 +2142,37 @@ class ASFirmwarePatches(CompiledPayloadMixin):
         self.applied_payloads.add('target_rh')
         return PatchOutcome.ok('Climate model target RH: %g%% (Auto and Manual)' % percent,
                                self._payload_detail('target_rh', len(data), flash))
+
+    def patch_tube_warmup(self):
+        """Hold the heated tube at the target RH's temperature while the plate warms."""
+        # Climate inputs vtable slot +0x3c (HTS getter) and sensors slot +0x1c
+        # (humidity-model reference temperature).
+        sites = {
+            'SX567-0401': (0xf43e8, 0xf61ac),
+        }.get(self.asf.cdx_ver)
+        if sites is None:
+            return PatchOutcome.skip("unsupported CDX version %s" % self.asf.cdx_ver)
+
+        data, _, elf_path = self._load_versioned_payload('tube_warmup')
+        hooks = []
+        for offset, stock, wrapper in zip(sites, (
+                'climate_tube_setpoint_get', 'climate_reference_temperature_get'),
+                ('start', 'tube_warmup_reference')):
+            original = self._elf_symbol_addr(elf_path, stock) | 1
+            target = self._elf_symbol_addr(elf_path, wrapper) | 1
+            if self.asf.read_u32(offset) not in (original, target):
+                raise ValueError('patch_tube_warmup: unexpected %s pointer at 0x%X' % (stock, offset))
+            hooks.append((offset, original, target, stock))
+
+        flash, _ = self._inject_payload('tube_warmup', data)
+        details = [self._payload_detail('tube_warmup', len(data), flash)]
+        for offset, original, target, stock in hooks:
+            self._replace_bytes_checked(
+                offset, struct.pack('<I', original), struct.pack('<I', target),
+                'tube warm-up ' + stock, accept_existing=True)
+            details.append(self._hook_detail(stock, self.asf.FLASH_BASE + offset, target))
+        self.applied_payloads.add('tube_warmup')
+        return PatchOutcome.ok(None, *details)
 
     def patch_defaults(self):
         defaults = (
@@ -2858,6 +2938,17 @@ class ASFirmwarePatches(CompiledPayloadMixin):
         self.applied_payloads.add('header_clock')
         return PatchOutcome.ok(None, self._payload_detail('header_clock', len(data), flash))
 
+    def patch_header_climate(self):
+        """Show tube and plate temperatures and estimated RH in the therapy headers."""
+        if 'header_clock' not in self.applied_payloads:
+            return PatchOutcome.skip("header clock payload not installed")
+        if not self.asf.cdx_ver.startswith('SX567-'):
+            return PatchOutcome.skip("unsupported CDX version %s" % self.asf.cdx_ver)
+        elf_path = self._require_versioned_artifact('header_clock', 'elf')
+        address = self._elf_symbol_addr(elf_path, 'header_climate_enabled')
+        self.asf.write_u8(address - self.asf.FLASH_BASE, 1)
+        return PatchOutcome.ok("Climate readout enabled at 0x%08X" % address)
+
     def patch_backlight_adapt(self):
         """improved backlight response to ambient light"""
         if self.asf.cdx_ver in ('SX584-0204', 'SX584-0205'):
@@ -3220,9 +3311,15 @@ PATCH_PHASES = (
                   True, 'enable_keep_backlight'),
         PatchSpec('patch-header-clock', 'Add a clock to the Home and therapy-screen headers.',
                   True, 'patch_header_clock'),
+        PatchSpec('patch-header-climate',
+                  'Show tube and plate temperatures and estimated RH in the therapy-screen header.',
+                  False, 'patch_header_climate'),
         PatchSpec('patch-target-rh',
                   'Set target RH (default: 85%, y: 85%, n: disabled); custom settings adds a 70-100% menu control.',
                   85.0, 'patch_target_rh', value_type=target_rh_value),
+        PatchSpec('patch-tube-warmup',
+                  'Hold the heated tube at the target RH temperature while the humidifier warms up.',
+                  False, 'patch_tube_warmup'),
         PatchSpec('patch-custom-palette', 'Patch the custom color palette.',
                   True, 'custom_palette'),
         PatchSpec('patch-past-date', 'Allow setting past date in the menu and over UART.',
@@ -3285,6 +3382,7 @@ PATCH_DEPENDENCIES = {
     'patch-ivaps-settings': ('patch-custom-settings',),
     'patch-fw-graph': ('patch-fw-common-code',),
     'patch-graph-keep-screen-on': ('patch-fw-graph',),
+    'patch-header-climate': ('patch-header-clock',),
     'patch-fw-vauto-wrapper': ('patch-fw-common-code',),
     'patch-fw-squarewave': ('patch-fw-common-code', 'patch-fw-vauto-wrapper'),
 }

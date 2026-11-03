@@ -89,6 +89,7 @@ All patches below are **enabled by default** unless noted.
 | [Backlight adaptation](features/backlight.md) | Continuously adjusts LCD and button brightness to ambient light | `--patch-fw-backlight` |
 | [Keep backlight](features/general.md#keep-backlight) | Hold the dial to toggle screen keep-awake | `--patch-keep-backlight` |
 | [Header clock](features/general.md#header-clock) | Adds Clock in Configuration to show time on Home and therapy screens | `--patch-header-clock` |
+| [Header climate](features/general.md#header-climate) (opt-in) | Shows tube and plate temperatures and estimated RH in the therapy-screen header; SX567 only | `--patch-header-climate Y` |
 | [Custom settings](../custom_settings.md) | Exposes menu settings for active compiled payloads and optional features | `--patch-custom-settings` |
 | [Target humidity](features/general.md#target-humidity) | Adjusts target humidity in Auto and Manual; adds a menu control with custom settings | `--patch-target-rh PERCENT\|y\|n` (default / `y`: 85%, `n`: disabled) |
 
@@ -107,6 +108,7 @@ environment variables.
 | `PATCH_FALL_TIME=1` | Add [Fall Time](features/general.md#fall-time) in S/ST/T/PAC/iVAPS through custom settings |
 | `PATCH_ST_IBR=1` | Add [adaptive backup timing in ST](features/general.md#st-ibr) through custom settings |
 | `PATCH_AUTOEPAP=1` | Add [iVAPS AutoEPAP](features/general.md#ivaps-autoepap); requires font repacking and expanded heap |
+| `PATCH_TUBE_WARMUP=1` | Hold the heated tube at the target RH temperature during [humidifier warm-up](features/general.md#tube-warm-up); SX567-0401 only, requires font repacking |
 
 With custom settings, `Monitoring` in clinical Options enables or disables the
 flow and pressure graph. Without custom settings, the graph remains enabled.
