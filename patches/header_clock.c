@@ -32,6 +32,7 @@ struct root_screen {
 
 extern const u16 header_clock_var_id;
 extern const u8 header_climate_enabled;
+extern const u16 header_climate_var_id;
 extern const float header_climate_plate_coupling;
 extern const u16 header_climate_coupling_var_id;
 extern int variable_get_by_id(int var_id);
@@ -111,7 +112,9 @@ static u16 current_title(const struct root_screen *root, char *text)
     int therapy = page >= THERAPY_PAGE_FIRST && page < THERAPY_PAGE_FIRST + 4 &&
                   (root->title == 7 || root->title == 8);
 #ifdef HEADER_CLIMATE
-    if (therapy && header_climate_enabled) {
+    if (therapy && header_climate_enabled &&
+            (header_climate_var_id == 0xffffu ||
+             variable_get_by_id(header_climate_var_id))) {
         u16 climate = current_climate(text);
         if (climate != CLOCK_HIDDEN)
             return climate;
