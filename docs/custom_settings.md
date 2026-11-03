@@ -41,6 +41,8 @@ Settings are assigned when their corresponding patch or payload is active.
 | [Backlight adaptation](guide/features/backlight.md) | Buttons / Low | LBL | g[4] | CSG |
 | [Backlight adaptation](guide/features/backlight.md) | Buttons / High | LBH | g[4] | CSG |
 | [Target humidity](guide/features/general.md#target-humidity) | Target RH (%) | RCH | g[4] | CSG |
+| [Tube Warm-up](guide/features/general.md#tube-warm-up) | Tube Warm-up | first free of RXW, RSA, RPF, RPW, RPO, RPH, RXM, RXH; omitted when none or no label string is free | g[8] | CSG |
+| [Tube Warm-up](guide/features/general.md#tube-warm-up) | Warm-up Factor | RDH | g[4] | CSG |
 
 
 ## Application sequence
@@ -51,7 +53,8 @@ requests custom settings:
 1. disable stock Reminder processing and remove its menu row and page
 2. rename the Reminder persistence group from `RGL` to `CSG`
 3. reclaim selected Reminder variables and string IDs
-4. let each active feature activate or redefine its variables
+4. let each active feature activate or redefine its variables; Tube Warm-up runs last and takes
+   any on/off variable left unclaimed
 5. extend the CSG member list with any additional persistent firmware variables
 6. emit the custom menu registry into reclaimed CDX space
 7. inject the clinical menu hooks
