@@ -55,6 +55,9 @@ extern float climate_tube_setpoint_get(struct obj *inputs);
 extern float climate_reference_temperature_get(struct obj *sensors);
 extern void *const climate_inputs_vtable[];
 extern const float tube_warmup_plate_coupling;
+extern const unsigned short tube_warmup_enable_var_id;
+extern const unsigned short tube_warmup_coupling_var_id;
+extern int variable_get_by_id(int var_id);
 
 static float call_f(struct obj *o, int slot) { return ((getf_t)o->vptr[slot])(o); }
 static int call_i(struct obj *o, int slot) { return ((geti_t)o->vptr[slot])(o); }
@@ -83,6 +86,20 @@ static float dew_point(float vapour)
 {
     float x = log_approx(vapour / 6.112f);
     return 243.12f * x / (17.62f - x);
+}
+
+/* Custom settings, when installed, supply the switch and the coupling. */
+static int enabled(void)
+{
+    return tube_warmup_enable_var_id == 0xffffu ||
+           variable_get_by_id(tube_warmup_enable_var_id);
+}
+
+static float coupling(void)
+{
+    if (tube_warmup_coupling_var_id == 0xffffu)
+        return tube_warmup_plate_coupling;
+    return variable_get_by_id(tube_warmup_coupling_var_id) * 0.01f;
 }
 
 static void restart(struct state *s, float plate)
@@ -134,7 +151,8 @@ float start(struct obj *inputs)
         restart(s, plate);
     millisecond_timer_init(s->seen, 0);
     s->capping = 0;
-    if (s->done || !call_i(inputs, INPUT_HUMIDIFIER_ACTIVE) || !auto_with_tube(inputs))
+    if (s->done || !enabled() || !call_i(inputs, INPUT_HUMIDIFIER_ACTIVE) ||
+            !auto_with_tube(inputs))
         return set;
 
     float ambient = call_f(sensors, SENSOR_AMBIENT_T);
@@ -149,7 +167,7 @@ float start(struct obj *inputs)
         s->last_plate = plate;
     }
 
-    float outlet = ambient + tube_warmup_plate_coupling * (plate - ambient);
+    float outlet = ambient + coupling() * (plate - ambient);
     float vapour = saturation(outlet);
     float room = call_f(sensors, SENSOR_AMBIENT_RH) * saturation(ambient);
     if (vapour < room)

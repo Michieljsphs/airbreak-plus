@@ -132,11 +132,32 @@ Warm-up, ends it immediately.
 
 The humidity output is estimated from the plate and ambient temperatures. The
 chamber outlet is assumed saturated at `ambient + coupling × (plate − ambient)`.
-The coupling is `0.3` in `patches/tube_warmup_abi.S`. Lower values hold the tube
-back longer; it has not yet been calibrated against device logs.
+Lower couplings hold the tube back longer; the default `0.3` has not yet been
+calibrated against device logs.
+
+With custom settings, clinical **Accessories** contains:
+
+| Setting | UART | Values | Default |
+|---------|------|--------|---------|
+| Tube Warm-up | first free on/off slot | Off, On | On |
+| Warm-up Factor | RDH | 0.10-1.00, step 0.05 (the coupling) | 0.30 |
+
+Each setting needs a label string, and the switch also an on/off variable,
+that no other installed feature uses. The `plus` image uses all of them, so
+build it without features you don't need. Each one frees what its own settings
+used; for example, without ST iBR and AutoEPAP:
+
+```
+make build/stm32-plus.bin AIR10_PATCH_ARGS='--patch-st-ibr n --patch-autoepap n --patch-tube-warmup y'
+```
+
+Warm-up Factor is added first; at 1.00 the cap releases almost at once. When
+only one label is free, Tube Warm-up stays on without a switch; with none, the
+coupling stays at its default. The build log reports what was added. Without
+custom settings, the coupling is the constant in `patches/tube_warmup_abi.S`.
 
 Enable it with `--patch-tube-warmup y` or `PATCH_TUBE_WARMUP=1`. It is off by
-default, has no menu setting, and requires font repacking (on by default).
+default and requires font repacking (on by default).
 
 ## Header Clock
 
@@ -160,8 +181,9 @@ humidifier attached; Home keeps the clock.
 The device has no humidity sensor in the air path, so the RH value is
 estimated in the same way as [Tube Warm-up](#tube-warm-up). The air leaving
 the water chamber is assumed saturated at
-`ambient + coupling × (plate − ambient)`, and never drier than the room. The
-coupling is `0.3` in `patches/header_clock_abi.S`. Treat the value as a guide
+`ambient + coupling × (plate − ambient)`, and never drier than the room. With
+Tube Warm-up and custom settings, the coupling follows **Warm-up Factor**;
+otherwise it is `0.3` in `patches/header_clock_abi.S`. Treat the value as a guide
 to the trend, not a measurement; it has not been calibrated against device logs.
 
 Enable it with `--patch-header-climate y` or `PATCH_HEADER_CLIMATE=1`. It is off
