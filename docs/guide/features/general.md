@@ -162,7 +162,6 @@ With custom settings, clinical **Accessories** contains:
 | Setting | UART | Values | Default |
 |---------|------|--------|---------|
 | Tube Warm-up | first free on/off slot | Off, On | On |
-| Warm-up Factor | RDH | 0.50-1.50, step 0.05 | 1.00 |
 | Warm-up Coupling | RDW | 0.10-1.00, step 0.05 | 0.30 |
 
 Each setting needs a label string, and the switch also an on/off variable,
@@ -174,18 +173,15 @@ used; for example, without ST iBR and AutoEPAP:
 make build/stm32-plus.bin AIR10_PATCH_ARGS='--patch-st-ibr n --patch-autoepap n --patch-tube-warmup y'
 ```
 
-Warm-up Factor scales the estimated added moisture: 1.00 uses the estimate as
-is, lower values hold the tube back longer.
 Warm-up Coupling sets how far the water heats the air leaving the chamber, as a
 fraction of the plate's rise above room temperature. Higher values estimate
 more moisture while the plate is still warming, so the tube warms sooner; lower
 values hold it back longer. It does not change the heater-power bound, so it
-only matters during warm-up. Warm-up Factor and the switch are added first, then
-Warm-up Coupling. The
-[Header climate](#header-climate) switch, when installed, takes what Tube
+only matters during warm-up. The switch is added first, then Warm-up Coupling.
+The [Header climate](#header-climate) switch, when installed, takes what Tube
 Warm-up leaves. When no label is left for a setting it is skipped: without
-the switch Tube Warm-up stays on, and without the factor or coupling they keep
-1.00 and 0.30. The build log reports what was added.
+the switch Tube Warm-up stays on, and without the coupling it keeps 0.30. The
+build log reports what was added.
 
 Enable it with `--patch-tube-warmup y` or `PATCH_TUBE_WARMUP=1`. It is off by
 default and requires font repacking (on by default).
@@ -216,8 +212,7 @@ page counter (for example `1/3`) is hidden while the readout is shown.
 The device has no humidity sensor in the air path, so the RH value is
 estimated in the same way as [Tube Warm-up](#tube-warm-up): the room air plus
 the smaller of the plate and heater-power bounds on the added moisture,
-divided by the saturation humidity at the tube temperature. With Tube Warm-up
-and custom settings, **Warm-up Factor** scales the added moisture. The plate
+divided by the saturation humidity at the tube temperature. The plate
 bound uses the same Warm-up Coupling (default `0.3`, in `patches/header_clock_abi.S`). Treat the value as a guide to the trend, not a
 measurement; it has not been checked against a hygrometer.
 

@@ -72,26 +72,17 @@ extern float climate_reference_temperature_get(struct obj *sensors);
 extern void *const climate_inputs_vtable[];
 extern const float tube_warmup_plate_coupling;
 extern const unsigned short tube_warmup_enable_var_id;
-extern const unsigned short tube_warmup_factor_var_id;
 extern const unsigned short tube_warmup_coupling_var_id;
 extern int variable_get_by_id(int var_id);
 
 static float call_f(struct obj *o, int slot) { return ((getf_t)o->vptr[slot])(o); }
 static int call_i(struct obj *o, int slot) { return ((geti_t)o->vptr[slot])(o); }
 
-/* Custom settings, when installed, supply the switch and the factor. */
+/* Custom settings, when installed, supply the switch. */
 static int enabled(void)
 {
     return tube_warmup_enable_var_id == 0xffffu ||
            variable_get_by_id(tube_warmup_enable_var_id);
-}
-
-/* Scales the estimated moisture the chamber adds. */
-static float factor(void)
-{
-    if (tube_warmup_factor_var_id == 0xffffu)
-        return 1.0f;
-    return variable_get_by_id(tube_warmup_factor_var_id) * 0.01f;
 }
 
 /* Plate bound coupling: the custom setting, else the built-in constant. */
@@ -187,7 +178,7 @@ float start(struct obj *inputs)
     float outlet = humidity_outlet(&s->coeffs, plate, ambient,
                                    call_f(sensors, SENSOR_AMBIENT_RH),
                                    variable_get_by_id(VAR_ID_HPM) * 0.01f,
-                                   variable_get_by_id(VAR_ID_AFL) * 0.01f, factor(),
+                                   variable_get_by_id(VAR_ID_AFL) * 0.01f,
                                    coupling());
     /* The floor is the lowest tube setting, not the ambient reading: the sensor
      * sits in the warm case, and a floor above the tube would keep it heating.
