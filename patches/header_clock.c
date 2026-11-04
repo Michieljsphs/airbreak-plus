@@ -1,5 +1,5 @@
 /* Replace Home and on-therapy page titles with the device time, or with a
- * climate readout on the therapy pages.
+ * climate readout on Home and the therapy pages.
  */
 #include "s10_vars.h"
 
@@ -11,6 +11,7 @@ typedef unsigned int u32;
 /* Clock values stay below 24 << 6; climate values are a flagged checksum. */
 #define CLIMATE_FLAG 0x800u
 #define TITLE_LEN 24
+#define TEMP_LEN 8
 
 /* ZML numbers the four therapy pages consecutively on both families. */
 #if defined(CDX_VER_0204) || defined(CDX_VER_0205)
@@ -32,6 +33,8 @@ struct root_screen {
 
 extern const u16 header_clock_var_id;
 extern const u8 header_climate_enabled;
+extern const u8 header_climate_always;
+extern const u8 header_climate_decimal;
 extern const u16 header_climate_var_id;
 extern const float header_climate_plate_coupling;
 extern const u16 header_climate_coupling_var_id;
@@ -45,25 +48,35 @@ extern void WM_InvalidateRect(u32 window, const short *rect);
 extern int snprintf(char *buffer, unsigned size, const char *format, ...);
 
 #ifdef HEADER_CLIMATE
-extern float expf(float x);
+#include "humidity_model.h"
 
-/* Magnus saturation vapour pressure over water, hPa. */
-static float saturation(float t)
-{
-    return 6.112f * expf(17.62f * t / (243.12f + t));
-}
-
-/* Rounded display temperature from a raw degC * 10 value. */
+/* Display temperature in tenths from a raw degC * 10 value, rounded to whole
+ * degrees unless the decimal is shown.
+ */
 static int display_temp(int raw, int fahrenheit)
 {
     if (fahrenheit)
-        raw = raw * 9 / 5 + 320;
-    return (raw + (raw < 0 ? -5 : 5)) / 10;
+        raw = (raw * 9 + (raw < 0 ? -2 : 2)) / 5 + 320;
+    if (!header_climate_decimal)
+        raw = (raw + (raw < 0 ? -5 : 5)) / 10 * 10;
+    return raw;
+}
+
+static void temp_text(char *buffer, int tenths)
+{
+    const char *sign = tenths < 0 ? "-" : "";
+    if (tenths < 0)
+        tenths = -tenths;
+    if (header_climate_decimal)
+        snprintf(buffer, TEMP_LEN, "%s%d.%d", sign, tenths / 10, tenths % 10);
+    else
+        snprintf(buffer, TEMP_LEN, "%s%d", sign, tenths / 10);
 }
 
 /* Tube and plate temperatures and the estimated RH at the tube temperature,
- * using the same chamber estimate as tube_warmup: outlet air saturated at
- * ambient + coupling * (plate - ambient), never drier than the room.
+ * using the same chamber estimate as tube_warmup (humidity_model.h): the room
+ * air plus the smaller of the plate and heater-power bounds on the moisture
+ * the chamber adds.
  */
 static u16 current_climate(char *text)
 {
@@ -78,13 +91,15 @@ static u16 current_climate(char *text)
     float coupling = header_climate_coupling_var_id == 0xffffu ?
         header_climate_plate_coupling :
         variable_get_by_id(header_climate_coupling_var_id) * 0.01f;
-    float ambient = ambient_raw * 0.1f;
-    float outlet = ambient + coupling * (plate_raw * 0.1f - ambient);
-    float vapour = saturation(outlet);
-    float room = variable_get_by_id(VAR_ID_HAH) * 0.001f * saturation(ambient);
-    if (vapour < room)
-        vapour = room;
-    int rh = (int)(100.0f * vapour / saturation(tube_raw * 0.1f) + 0.5f);
+    struct humidity_coeffs coeffs;
+    humidity_coeffs_read(&coeffs);
+    float outlet = humidity_outlet(&coeffs,
+                                   plate_raw * 0.1f, ambient_raw * 0.1f,
+                                   variable_get_by_id(VAR_ID_HAH) * 0.001f,
+                                   variable_get_by_id(VAR_ID_HPM) * 0.01f,
+                                   variable_get_by_id(VAR_ID_AFL) * 0.01f,
+                                   coupling);
+    int rh = (int)(100.0f * outlet / ah_sat(tube_raw * 0.1f) + 0.5f);
     if (rh > 100)
         rh = 100;
     if (rh < 0)
@@ -93,10 +108,11 @@ static u16 current_climate(char *text)
     int tube = display_temp(tube_raw, fahrenheit);
     int plate = display_temp(plate_raw, fahrenheit);
     if (text) {
-        if (tube_present)
-            snprintf(text, TITLE_LEN, "%d\xc2\xb0 %d\xc2\xb0 %d%%", tube, plate, rh);
-        else
-            snprintf(text, TITLE_LEN, "--\xc2\xb0 %d\xc2\xb0 %d%%", plate, rh);
+        char tube_text[TEMP_LEN], plate_text[TEMP_LEN];
+        temp_text(tube_text, tube);
+        temp_text(plate_text, plate);
+        snprintf(text, TITLE_LEN, "%s\xc2\xb0 %s\xc2\xb0 %d%%",
+                 tube_present ? tube_text : "--", plate_text, rh);
     }
     unsigned sum = ((unsigned)tube * 31u + (unsigned)plate * 7u + (unsigned)rh +
                     (tube_present ? 0x400u : 0u)) & 0x7ffu;
@@ -112,7 +128,7 @@ static u16 current_title(const struct root_screen *root, char *text)
     int therapy = page >= THERAPY_PAGE_FIRST && page < THERAPY_PAGE_FIRST + 4 &&
                   (root->title == 7 || root->title == 8);
 #ifdef HEADER_CLIMATE
-    if (therapy && header_climate_enabled &&
+    if ((home || therapy || header_climate_always) && header_climate_enabled &&
             (header_climate_var_id == 0xffffu ||
              variable_get_by_id(header_climate_var_id))) {
         u16 climate = current_climate(text);
@@ -146,6 +162,19 @@ void start(const char *text, int x, int y)
         text = title;
     gui_disp_string_at_utf8(text, x, y);
 }
+
+#ifdef HEADER_CLIMATE
+/* The page counter ("1/3") drawn after the title: left out beside the climate
+ * readout, which needs the room. The title draw above runs first.
+ */
+void header_climate_page_draw(const char *text, int x, int y)
+{
+    struct root_screen *root = gui_root_screen_get();
+    if (root->clock_time != CLOCK_HIDDEN && (root->clock_time & CLIMATE_FLAG))
+        return;
+    gui_disp_string_at_utf8(text, x, y);
+}
+#endif
 
 int header_clock_title_width(const char *text)
 {

@@ -2,11 +2,17 @@
  *
  * The stock climate controller drives the tube toward HTS as soon as therapy
  * starts, long before the plate has heated the water, so early air is warm and
- * dry. While the plate warms, cap the tube setpoint where the estimated vapour
- * pressure gives the target RH, and let the humidity model aim for HTS so the
- * plate keeps heating at full demand. The cap ends once it reaches HTS, the
- * plate stops rising, or the warm-up time limit expires.
+ * dry. While the plate warms, cap the tube setpoint where the estimated moisture
+ * the chamber adds (humidity_model.h) gives the target RH, and let the stock
+ * model aim for HTS so the plate keeps heating at full demand. The cap is never
+ * below the lowest tube setting (16 degC). The cap ends once
+ * it reaches HTS, the plate stops rising, or the warm-up time limit expires.
+ * The stock model keeps aiming for HTS until the measured tube is within a
+ * degree of it, so the plate does not cool when the tube is released.
  */
+#include "s10_vars.h"
+#include "humidity_model.h"
+
 typedef unsigned char u8;
 typedef float (*getf_t)(void *);
 typedef int (*geti_t)(void *);
@@ -30,8 +36,18 @@ enum {
     SAMPLE_MS = 60000,
     IDLE_MS = 60000,
     MAX_MINUTES = 60,
+    /* Minutes between plate checks; a power of two. */
+    WINDOW_MINUTES = 4,
+    HANDOFF_MS = 300000,
     STATE_MAGIC = 0x50555754,
 };
+
+/* The lowest tube temperature setting, degC. */
+#define MIN_TUBE_TEMP 16.0f
+/* How close the measured tube must get to HTS before the stock reference
+ * temperature takes over again, degC.
+ */
+#define HANDOFF_MARGIN 1.0f
 
 /* Cloning the inputs vtable lets both hooks find this state from their own
  * object without reserving a writable global.
@@ -42,13 +58,13 @@ struct state {
     unsigned seen[3];
     unsigned sample[3];
     float last_plate;
+    struct humidity_coeffs coeffs;
     u8 minutes;
     u8 done;
     u8 capping;
 };
 
 extern void *malloc(unsigned size);
-extern float expf(float x);
 extern void millisecond_timer_init(void *timer, unsigned elapsed);
 extern int millisecond_timer_expired(void *timer, unsigned ms);
 extern float climate_tube_setpoint_get(struct obj *inputs);
@@ -62,39 +78,14 @@ extern int variable_get_by_id(int var_id);
 static float call_f(struct obj *o, int slot) { return ((getf_t)o->vptr[slot])(o); }
 static int call_i(struct obj *o, int slot) { return ((geti_t)o->vptr[slot])(o); }
 
-static float log_approx(float x)
-{
-    union { float f; int i; } u = { .f = x };
-    int e = ((u.i >> 23) & 0xff) - 127;
-    u.i = (u.i & 0x007fffff) | 0x3f800000;
-    if (u.f > 1.41421356f) {
-        u.f *= 0.5f;
-        ++e;
-    }
-    float s = (u.f - 1.0f) / (u.f + 1.0f), s2 = s * s;
-    return (float)e * 0.69314718f +
-           2.0f * s * (1.0f + s2 * (0.33333333f + s2 * (0.2f + s2 * 0.14285714f)));
-}
-
-/* Magnus saturation vapour pressure over water, hPa. */
-static float saturation(float t)
-{
-    return 6.112f * expf(17.62f * t / (243.12f + t));
-}
-
-static float dew_point(float vapour)
-{
-    float x = log_approx(vapour / 6.112f);
-    return 243.12f * x / (17.62f - x);
-}
-
-/* Custom settings, when installed, supply the switch and the coupling. */
+/* Custom settings, when installed, supply the switch. */
 static int enabled(void)
 {
     return tube_warmup_enable_var_id == 0xffffu ||
            variable_get_by_id(tube_warmup_enable_var_id);
 }
 
+/* Plate bound coupling: the custom setting, else the built-in constant. */
 static float coupling(void)
 {
     if (tube_warmup_coupling_var_id == 0xffffu)
@@ -107,6 +98,14 @@ static void restart(struct state *s, float plate)
     s->done = 0;
     s->minutes = 0;
     s->last_plate = plate;
+    humidity_coeffs_read(&s->coeffs);
+    millisecond_timer_init(s->sample, 0);
+}
+
+/* Ends warm-up. The sample timer is free from here on and times the hand-off. */
+static void finish(struct state *s)
+{
+    s->done = 1;
     millisecond_timer_init(s->sample, 0);
 }
 
@@ -150,7 +149,10 @@ float start(struct obj *inputs)
     if (millisecond_timer_expired(s->seen, IDLE_MS))
         restart(s, plate);
     millisecond_timer_init(s->seen, 0);
-    s->capping = 0;
+    /* After warm-up the reference stays at HTS until the tube has caught up. */
+    s->capping = s->done &&
+                 variable_get_by_id(VAR_ID_HTT) < set * 10.0f - 10.0f * HANDOFF_MARGIN &&
+                 !millisecond_timer_expired(s->sample, HANDOFF_MS);
     if (s->done || !enabled() || !call_i(inputs, INPUT_HUMIDIFIER_ACTIVE) ||
             !auto_with_tube(inputs))
         return set;
@@ -158,27 +160,37 @@ float start(struct obj *inputs)
     float ambient = call_f(sensors, SENSOR_AMBIENT_T);
     if (millisecond_timer_expired(s->sample, SAMPLE_MS)) {
         millisecond_timer_init(s->sample, 0);
-        /* A plate that stopped rising has reached the model's target. */
-        if (++s->minutes >= MAX_MINUTES ||
-                (plate - s->last_plate < 0.2f && plate > ambient + 5.0f)) {
-            s->done = 1;
+        /* A plate that barely rose over the last window has reached the model's
+         * target. The plate wobbles and can stall for a minute or two while
+         * still heating, so compare over several minutes, not one.
+         */
+        int check = !(++s->minutes & (WINDOW_MINUTES - 1));
+        if (s->minutes >= MAX_MINUTES ||
+                (check && plate - s->last_plate < 0.2f * WINDOW_MINUTES &&
+                 plate > ambient + 8.0f)) {
+            finish(s);
             return set;
         }
-        s->last_plate = plate;
+        if (check)
+            s->last_plate = plate;
     }
 
-    float outlet = ambient + coupling() * (plate - ambient);
-    float vapour = saturation(outlet);
-    float room = call_f(sensors, SENSOR_AMBIENT_RH) * saturation(ambient);
-    if (vapour < room)
-        vapour = room;
-    float limit = dew_point(vapour / call_f(inputs, INPUT_TARGET_RH));
-    if (limit >= set) {
-        s->done = 1;
+    float outlet = humidity_outlet(&s->coeffs, plate, ambient,
+                                   call_f(sensors, SENSOR_AMBIENT_RH),
+                                   variable_get_by_id(VAR_ID_HPM) * 0.01f,
+                                   variable_get_by_id(VAR_ID_AFL) * 0.01f,
+                                   coupling());
+    /* The floor is the lowest tube setting, not the ambient reading: the sensor
+     * sits in the warm case, and a floor above the tube would keep it heating.
+     */
+    float limit = humidity_model_temperature(outlet, call_f(inputs, INPUT_TARGET_RH),
+                                             set < MIN_TUBE_TEMP ? set : MIN_TUBE_TEMP, set);
+    if (limit + 0.01f >= set) {
+        finish(s);
         return set;
     }
     s->capping = 1;
-    return limit > ambient ? limit : ambient;
+    return limit;
 }
 
 /* Replaces the sensors' humidity-model reference temperature. */
