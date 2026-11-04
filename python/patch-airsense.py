@@ -1519,43 +1519,43 @@ class ASFirmwarePatches(CompiledPayloadMixin):
         self._custom_detail('Target RH: %s var_id=0x%04X at 0x%08X' % (var, vid, addr))
 
     def custom_patch_settings_tube_warmup(self):
-        """Expose the Tube Warm-up plate coupling and switch in Accessories."""
+        """Expose the Tube Warm-up switch and coupling in Accessories."""
         # Runs after the fixed-name features and uses what they leave: a label
         # string for each setting and, for the switch, a free on/off slot. The
-        # coupling comes first; at 1.00 it also releases the cap almost at once.
+        # switch comes first, then the coupling.
         dep = self.asf.find_var_table_index(4, 'RGT')
         hint = 'build without e.g. --patch-st-ibr and --patch-autoepap to add it'
-        if not self.custom_string_pool:
-            self._custom_detail('Warm-up Factor: no free label string; ' + hint)
-            return
-
-        # Raw value is the coupling * 100: 0.10-1.00 in steps of 0.05.
-        coupling = self.custom_claim_g4_var('RDH', 'tube_warmup_coupling')
-        label = self.redefine_fw_string(-1, {0: 'Warm-up Factor'}, 'tube_warmup_coupling_label')
-        self.redefine_g4_var(coupling, 0x0007, 0, dep, label,
-                             30, 100, 10, 2, 100, 5, self.asf.str_id_empty)
-        self.custom_menu_add('accessories', coupling, self.CUSTOM_MENU_MODE_BITS)
-        vid = self.asf.resolve_var_id(coupling)
-        addr = self._write_payload_u16('tube_warmup', 'tube_warmup_coupling_var_id', vid)
-        self._custom_detail('Warm-up Factor: %s var_id=0x%04X at 0x%08X' % (coupling, vid, addr))
-        if 'header_clock' in self.applied_payloads:
-            addr = self._write_payload_u16('header_clock', 'header_climate_coupling_var_id', vid)
-            self._custom_detail('Header climate coupling var_id=0x%04X at 0x%08X' % (vid, addr))
-
         enable = None
         if self.custom_string_pool:
             enable = self.custom_claim_free_g8_var(
                 ('RXW', 'RSA', 'RPF', 'RPW', 'RPO', 'RPH', 'RXM', 'RXH'), 'tube_warmup_enable')
         if enable is None:
             self._custom_detail('Tube Warm-up switch: no free label string or on/off slot; ' + hint)
+        else:
+            label = self.redefine_fw_string(-1, {0: 'Tube Warm-up'}, 'tube_warmup_enable_label')
+            self.redefine_g8_var(enable, 0x0007, 0, dep, label, 1,
+                                 2, 0, 0x00000003, self.asf.str_id_off_on_base, 0)
+            self.custom_menu_add('accessories', enable, self.CUSTOM_MENU_MODE_BITS)
+            vid = self.asf.resolve_var_id(enable)
+            addr = self._write_payload_u16('tube_warmup', 'tube_warmup_enable_var_id', vid)
+            self._custom_detail('Tube Warm-up: %s var_id=0x%04X at 0x%08X' % (enable, vid, addr))
+
+        # Plate coupling: raw value is the coupling * 100, 0.10-1.00 in steps
+        # of 0.05, default 0.30. Needs only a label string.
+        if not self.custom_string_pool:
+            self._custom_detail('Warm-up Coupling: no free label string; ' + hint)
             return
-        label = self.redefine_fw_string(-1, {0: 'Tube Warm-up'}, 'tube_warmup_enable_label')
-        self.redefine_g8_var(enable, 0x0007, 0, dep, label, 1,
-                             2, 0, 0x00000003, self.asf.str_id_off_on_base, 0)
-        self.custom_menu_add('accessories', enable, self.CUSTOM_MENU_MODE_BITS)
-        vid = self.asf.resolve_var_id(enable)
-        addr = self._write_payload_u16('tube_warmup', 'tube_warmup_enable_var_id', vid)
-        self._custom_detail('Tube Warm-up: %s var_id=0x%04X at 0x%08X' % (enable, vid, addr))
+        coupling = self.custom_claim_g4_var('RDW', 'tube_warmup_coupling')
+        label = self.redefine_fw_string(-1, {0: 'Warm-up Coupling'}, 'tube_warmup_coupling_label')
+        self.redefine_g4_var(coupling, 0x0007, 0, dep, label,
+                             30, 100, 10, 2, 100, 5, self.asf.str_id_empty)
+        self.custom_menu_add('accessories', coupling, self.CUSTOM_MENU_MODE_BITS)
+        vid = self.asf.resolve_var_id(coupling)
+        addr = self._write_payload_u16('tube_warmup', 'tube_warmup_coupling_var_id', vid)
+        self._custom_detail('Warm-up Coupling: %s var_id=0x%04X at 0x%08X' % (coupling, vid, addr))
+        if 'header_clock' in self.applied_payloads:
+            addr = self._write_payload_u16('header_clock', 'header_climate_coupling_var_id', vid)
+            self._custom_detail('Header climate coupling var_id=0x%04X at 0x%08X' % (vid, addr))
 
     def custom_patch_settings_collect_features(self):
         """Return active custom-settings feature functions."""
@@ -2941,6 +2941,7 @@ class ASFirmwarePatches(CompiledPayloadMixin):
         if profile is None:
             return PatchOutcome.skip("unsupported CDX version %s" % self.asf.cdx_ver)
         draw, width, ctor, update = profile
+        self.header_title_draw_site = draw
         data, _, elf_path = self._load_versioned_payload('header_clock')
         replacements = []
         for site, original, wrapper in (
@@ -2974,7 +2975,42 @@ class ASFirmwarePatches(CompiledPayloadMixin):
         address = self._elf_symbol_addr(elf_path, 'header_climate_enabled')
         self.asf.write_u8(address - self.asf.FLASH_BASE, 1)
         self.enabled_custom_settings_features.add('header_climate')
-        return PatchOutcome.ok("Climate readout enabled at 0x%08X" % address)
+        details = ["Climate readout enabled at 0x%08X" % address]
+
+        # The page counter is drawn by the call 0x4e bytes after the title draw
+        # in the same function. Leave it alone if this version differs.
+        site = self.header_title_draw_site + 0x4e
+        expected = self._encode_thumb_bl(
+            site, self._elf_symbol_addr(elf_path, 'gui_disp_string_at_utf8') & ~1)
+        if self.asf.read_bytes(site, len(expected)) == expected:
+            target = self._elf_symbol_addr(elf_path, 'header_climate_page_draw')
+            self._replace_bytes_checked(site, expected, self._encode_thumb_bl(site, target),
+                                        'patch_header_climate: page counter')
+            details.append(self._hook_detail('page counter', self.asf.FLASH_BASE + site, target))
+        else:
+            details.append("Page counter call not found at 0x%08X; left unchanged" %
+                           (self.asf.FLASH_BASE + site))
+        return PatchOutcome.ok(*details)
+
+    def patch_header_climate_decimal(self):
+        """Show the climate readout temperatures with one decimal."""
+        if 'header_climate' not in self.enabled_custom_settings_features:
+            return PatchOutcome.skip("header climate not installed")
+        elf_path = self._require_versioned_artifact('header_clock', 'elf')
+        address = self._elf_symbol_addr(elf_path, 'header_climate_decimal')
+        self.asf.write_u8(address - self.asf.FLASH_BASE, 1)
+        return PatchOutcome.ok("Climate temperatures with a decimal at 0x%08X" % address)
+
+    def patch_header_climate_always(self):
+        """Show the climate readout in every screen title, not only Home and therapy."""
+        if 'header_clock' not in self.applied_payloads:
+            return PatchOutcome.skip("header clock payload not installed")
+        if 'header_climate' not in self.enabled_custom_settings_features:
+            return PatchOutcome.skip("header climate not installed")
+        elf_path = self._require_versioned_artifact('header_clock', 'elf')
+        address = self._elf_symbol_addr(elf_path, 'header_climate_always')
+        self.asf.write_u8(address - self.asf.FLASH_BASE, 1)
+        return PatchOutcome.ok("Climate readout in every title at 0x%08X" % address)
 
     def patch_backlight_adapt(self):
         """improved backlight response to ambient light"""
@@ -3339,8 +3375,14 @@ PATCH_PHASES = (
         PatchSpec('patch-header-clock', 'Add a clock to the Home and therapy-screen headers.',
                   True, 'patch_header_clock'),
         PatchSpec('patch-header-climate',
-                  'Show tube and plate temperatures and estimated RH in the therapy-screen header.',
+                  'Show tube and plate temperatures and estimated RH in the Home and therapy-screen headers; hides the page counter there.',
                   False, 'patch_header_climate'),
+        PatchSpec('patch-header-climate-decimal',
+                  'Show the climate readout temperatures with one decimal (27.4 instead of 27).',
+                  True, 'patch_header_climate_decimal'),
+        PatchSpec('patch-header-climate-always',
+                  'Show the climate readout in every screen title (menus too), not only Home and therapy.',
+                  False, 'patch_header_climate_always'),
         PatchSpec('patch-target-rh',
                   'Set target RH (default: 85%, y: 85%, n: disabled); custom settings adds a 70-100% menu control.',
                   85.0, 'patch_target_rh', value_type=target_rh_value),
@@ -3410,6 +3452,7 @@ PATCH_DEPENDENCIES = {
     'patch-fw-graph': ('patch-fw-common-code',),
     'patch-graph-keep-screen-on': ('patch-fw-graph',),
     'patch-header-climate': ('patch-header-clock',),
+    'patch-header-climate-always': ('patch-header-climate',),
     'patch-tube-warmup': ('patch-font-repack',),
     'patch-fw-vauto-wrapper': ('patch-fw-common-code',),
     'patch-fw-squarewave': ('patch-fw-common-code', 'patch-fw-vauto-wrapper'),

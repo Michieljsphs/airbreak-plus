@@ -257,6 +257,7 @@ $(foreach v,$(call payload_versions,custom_menu_hooks),$(eval $(call S10_CUSTOM_
 
 $(foreach v,$(call payload_versions,custom_menu_hooks),$(BUILD)/custom_menu_hooks_$(v).o): $(SRC)/custom_menu_registry.h
 $(foreach v,$(call payload_versions,button_hooks),$(BUILD)/button_hooks_$(v).o): $(SRC)/button_hooks.h
+$(foreach p,tube_warmup header_clock,$(foreach v,$(call payload_versions,$(p)),$(BUILD)/$(p)_$(v).o)): $(SRC)/humidity_model.h
 
 define S10_STANDALONE_PAYLOAD_template
 $(BUILD)/$(1)_$(2).o: $(wildcard $(SRC)/$(1)/*.c)

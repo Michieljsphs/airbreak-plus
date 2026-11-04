@@ -190,3 +190,6 @@ NSTUB(0x0806CA11, g4_numeric_set_dynamic_max)
 NSTUB_VAR(0x080F4624, climate_inputs_vtable)
 NSTUB(0x080D2DF3, climate_tube_setpoint_get)
 NSTUB(0x080D2E0B, climate_reference_temperature_get)
+// Stock humidity model: climate signal by id, and its calibration k0..k4
+NSTUB(0x080D2AB7, climate_signal_get)
+NSTUB(0x080D2AE9, humidity_model_coefficients_get)
