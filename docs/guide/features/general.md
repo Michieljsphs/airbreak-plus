@@ -122,7 +122,8 @@ estimated humidity output gives the target RH (85%, or the
 [Target Humidity](#target-humidity) setting). The humidity model keeps aiming
 for the full tube temperature, so the plate heats at full demand. The cap
 follows the plate up and ends when it reaches the tube temperature setting,
-when the plate stops rising (less than 0.2 °C per minute), or after 60
+when the plate has stopped rising (checked every 4 minutes; less than 0.2 °C per
+minute on average, and at least 8 °C above the ambient reading), or after 60
 minutes. It applies only to Auto climate control with a heated tube and the
 humidifier active. It is never lower than 16 °C, the lowest tube setting; the
 tube heater stays off while the measured tube is above the cap.

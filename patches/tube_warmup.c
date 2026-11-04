@@ -36,6 +36,8 @@ enum {
     SAMPLE_MS = 60000,
     IDLE_MS = 60000,
     MAX_MINUTES = 60,
+    /* Minutes between plate checks; a power of two. */
+    WINDOW_MINUTES = 4,
     HANDOFF_MS = 300000,
     STATE_MAGIC = 0x50555754,
 };
@@ -167,13 +169,19 @@ float start(struct obj *inputs)
     float ambient = call_f(sensors, SENSOR_AMBIENT_T);
     if (millisecond_timer_expired(s->sample, SAMPLE_MS)) {
         millisecond_timer_init(s->sample, 0);
-        /* A plate that stopped rising has reached the model's target. */
-        if (++s->minutes >= MAX_MINUTES ||
-                (plate - s->last_plate < 0.2f && plate > ambient + 5.0f)) {
+        /* A plate that barely rose over the last window has reached the model's
+         * target. The plate wobbles and can stall for a minute or two while
+         * still heating, so compare over several minutes, not one.
+         */
+        int check = !(++s->minutes & (WINDOW_MINUTES - 1));
+        if (s->minutes >= MAX_MINUTES ||
+                (check && plate - s->last_plate < 0.2f * WINDOW_MINUTES &&
+                 plate > ambient + 8.0f)) {
             finish(s);
             return set;
         }
-        s->last_plate = plate;
+        if (check)
+            s->last_plate = plate;
     }
 
     float outlet = humidity_outlet(&s->coeffs, plate, ambient,
@@ -186,7 +194,7 @@ float start(struct obj *inputs)
      */
     float limit = humidity_model_temperature(outlet, call_f(inputs, INPUT_TARGET_RH),
                                              set < MIN_TUBE_TEMP ? set : MIN_TUBE_TEMP, set);
-    if (limit > set - 0.05f) {
+    if (limit + 0.01f >= set) {
         finish(s);
         return set;
     }
