@@ -131,6 +131,12 @@ Warm-up restarts after the tube controller has been idle for a minute, for
 example between therapy sessions. A hot water chamber, such as after a stock
 Warm-up, ends it immediately.
 
+When warm-up ends, the humidity model keeps aiming for the tube temperature
+setting until the measured tube is within 1 °C of it (at most 5 minutes). Without
+this, the model would switch to the lower measured tube temperature at that
+moment, ask for less moisture, and the plate would cool by several degrees
+before recovering.
+
 The stock humidifier is open loop. It sets the heater duty from the moisture
 the air needs, `duty = k0 + k1 × flow × ΔAH` with flow in L/min and ΔAH in
 g/m³, using a calibration the device loads at boot, and only limits the plate

@@ -7,6 +7,8 @@
  * model aim for HTS so the plate keeps heating at full demand. The cap is never
  * below the lowest tube setting (16 degC). The cap ends once
  * it reaches HTS, the plate stops rising, or the warm-up time limit expires.
+ * The stock model keeps aiming for HTS until the measured tube is within a
+ * degree of it, so the plate does not cool when the tube is released.
  */
 #include "s10_vars.h"
 #include "humidity_model.h"
@@ -34,11 +36,16 @@ enum {
     SAMPLE_MS = 60000,
     IDLE_MS = 60000,
     MAX_MINUTES = 60,
+    HANDOFF_MS = 300000,
     STATE_MAGIC = 0x50555754,
 };
 
 /* The lowest tube temperature setting, degC. */
 #define MIN_TUBE_TEMP 16.0f
+/* How close the measured tube must get to HTS before the stock reference
+ * temperature takes over again, degC.
+ */
+#define HANDOFF_MARGIN 1.0f
 
 /* Cloning the inputs vtable lets both hooks find this state from their own
  * object without reserving a writable global.
@@ -102,6 +109,13 @@ static void restart(struct state *s, float plate)
     millisecond_timer_init(s->sample, 0);
 }
 
+/* Ends warm-up. The sample timer is free from here on and times the hand-off. */
+static void finish(struct state *s)
+{
+    s->done = 1;
+    millisecond_timer_init(s->sample, 0);
+}
+
 static struct state *state_of(struct obj *inputs, int create)
 {
     struct state *s = (struct state *)inputs->vptr;
@@ -142,7 +156,10 @@ float start(struct obj *inputs)
     if (millisecond_timer_expired(s->seen, IDLE_MS))
         restart(s, plate);
     millisecond_timer_init(s->seen, 0);
-    s->capping = 0;
+    /* After warm-up the reference stays at HTS until the tube has caught up. */
+    s->capping = s->done &&
+                 variable_get_by_id(VAR_ID_HTT) < set * 10.0f - 10.0f * HANDOFF_MARGIN &&
+                 !millisecond_timer_expired(s->sample, HANDOFF_MS);
     if (s->done || !enabled() || !call_i(inputs, INPUT_HUMIDIFIER_ACTIVE) ||
             !auto_with_tube(inputs))
         return set;
@@ -153,7 +170,7 @@ float start(struct obj *inputs)
         /* A plate that stopped rising has reached the model's target. */
         if (++s->minutes >= MAX_MINUTES ||
                 (plate - s->last_plate < 0.2f && plate > ambient + 5.0f)) {
-            s->done = 1;
+            finish(s);
             return set;
         }
         s->last_plate = plate;
@@ -169,8 +186,8 @@ float start(struct obj *inputs)
      */
     float limit = humidity_model_temperature(outlet, call_f(inputs, INPUT_TARGET_RH),
                                              set < MIN_TUBE_TEMP ? set : MIN_TUBE_TEMP, set);
-    if (limit >= set) {
-        s->done = 1;
+    if (limit > set - 0.05f) {
+        finish(s);
         return set;
     }
     s->capping = 1;
