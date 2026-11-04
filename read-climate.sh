@@ -3,15 +3,14 @@
 # 0401 firmware) over SWD. Reads RAM through OpenOCD without halting, so
 # therapy keeps running. Never halt or reset the target: that stops the blower.
 #
-# Usage: ./read-climate.sh [-w SECONDS] [-r ROOM_DEGC] [-f FACTOR] [-c COUPLING]
-#                          [-k K1] [run-ocd.sh options]
+# Usage: ./read-climate.sh [-w SECONDS] [-r ROOM_DEGC] [-c COUPLING] [-k K1]
+#                          [run-ocd.sh options]
 #   -w SECONDS   repeat every SECONDS until interrupted
 #   -r ROOM_DEGC also print the ambient RH the same moisture gives at that room
 #                temperature; the sensor sits in the warm case and reads low
-#   -f FACTOR    Warm-up Factor used for the mask-end estimate (default 1.00)
 #   -c COUPLING  Warm-up Coupling used for it (default 0.30)
 #   -k K1        humidifier calibration k1 (default 0.001; k0 is taken as 0)
-# Set -f and -c to the values in the device menu. The estimate is the one the
+# Set -c to the value in the device menu. The estimate is the one the
 # header uses: room air plus the smaller of the plate and heater-power bounds.
 # Other options, such as -s SERIAL, are passed to run-ocd.sh.
 
@@ -28,19 +27,17 @@ HAH 0x20009DD4 10 % ambient relative humidity
 
 interval=
 room=
-factor=1.00
 coupling=0.30
 k1=0.001
 passthrough=()
-usage="Usage: $0 [-w SECONDS] [-r ROOM_DEGC] [-f FACTOR] [-c COUPLING] [-k K1] [run-ocd.sh options]"
+usage="Usage: $0 [-w SECONDS] [-r ROOM_DEGC] [-c COUPLING] [-k K1] [run-ocd.sh options]"
 while (( $# > 0 )); do
     case "$1" in
-        -w|-r|-f|-c|-k)
+        -w|-r|-c|-k)
             (( $# >= 2 )) || { echo "$usage" >&2; exit 2; }
             case "$1" in
                 -w) interval=$2 ;;
                 -r) room=$2 ;;
-                -f) factor=$2 ;;
                 -c) coupling=$2 ;;
                 -k) k1=$2 ;;
             esac
@@ -65,7 +62,7 @@ read_once() {
         return 1
     }
     # mdw prints "0x2000987c: 00000c41"; values are signed 32-bit words.
-    awk -v vars="$VARIABLES" -v room="$room" -v factor="$factor" \
+    awk -v vars="$VARIABLES" -v room="$room" \
         -v coupling="$coupling" -v k1="$k1" '
         function hex(s,   i, n, c) {
             n = 0
@@ -139,15 +136,15 @@ read_once() {
                     if (power < added) added = power
                 }
                 if (added < 0) added = 0
-                mask = room_ah + factor * added
+                mask = room_ah + added
                 printf "\n%-22s %8s  %-5s %s\n", "Mask-end estimate", "Value", "Unit", \
-                    sprintf("Meaning (factor %.2f, coupling %.2f, k1 %g)", factor, coupling, k1)
+                    sprintf("Meaning (coupling %.2f, k1 %g)", coupling, k1)
                 printf "%-22s %8.1f  %-5s %s\n", "Plate bound", plate_bound, "g/m3", "added moisture from the plate temperature"
                 if (power >= 0)
                     printf "%-22s %8.1f  %-5s %s\n", "Heater-power bound", power, "g/m3", "added moisture from the heater duty and flow"
                 else
                     printf "%-22s %8s  %-5s %s\n", "Heater-power bound", "-", "g/m3", "not used below 8 L/min"
-                printf "%-22s %8.1f  %-5s %s\n", "Added moisture", factor * added, "g/m3", "smaller bound x factor"
+                printf "%-22s %8.1f  %-5s %s\n", "Added moisture", added, "g/m3", "the smaller of the two bounds"
                 printf "%-22s %8.1f  %-5s %s\n", "Absolute humidity", mask, "g/m3", "room moisture + added moisture"
                 printf "%-22s %8.0f  %-5s %s\n", "RH at the tube", 100 * mask / ahsat(tube), "%", \
                     sprintf("at the measured %.1f degC (not limited to 100)", tube)
