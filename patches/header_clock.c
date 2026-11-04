@@ -114,7 +114,7 @@ static u16 current_climate(char *text)
         char tube_text[TEMP_LEN], plate_text[TEMP_LEN];
         temp_text(tube_text, tube);
         temp_text(plate_text, plate);
-        snprintf(text, TITLE_LEN, "%sÂ° %sÂ° %d%%",
+        snprintf(text, TITLE_LEN, "%s\xc2\xb0 %s\xc2\xb0 %d%%",
                  tube_present ? tube_text : "--", plate_text, rh);
     }
     unsigned sum = ((unsigned)tube * 31u + (unsigned)plate * 7u + (unsigned)rh +
