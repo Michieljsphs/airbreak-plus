@@ -29,3 +29,12 @@ tube_warmup_enable_var_id:
 tube_warmup_factor_var_id:
     .short 0xffff
 .size tube_warmup_factor_var_id, . - tube_warmup_factor_var_id
+
+/* Custom-settings variable for the plate coupling (raw = coupling * 100);
+ * 0xffff uses tube_warmup_plate_coupling above.
+ */
+.global tube_warmup_coupling_var_id
+.type tube_warmup_coupling_var_id, %object
+tube_warmup_coupling_var_id:
+    .short 0xffff
+.size tube_warmup_coupling_var_id, . - tube_warmup_coupling_var_id
