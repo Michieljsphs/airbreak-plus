@@ -48,14 +48,14 @@ static inline void humidity_coeffs_read(struct humidity_coeffs *c)
         c->k1 = 0.0f;
 }
 
-/* Absolute humidity leaving the chamber, g/m3: the room air plus factor times
- * the smaller of the plate and heater-power bounds on the added moisture.
+/* Absolute humidity leaving the chamber, g/m3: the room air plus the
+ * smaller of the plate and heater-power bounds on the added moisture.
  * duty is the measured humidifier heater duty, 0..1, and flow the average
  * blower flow in L/min.
  */
 static inline float humidity_outlet(const struct humidity_coeffs *c, float plate,
                                     float ambient, float room_rh, float duty,
-                                    float flow, float factor, float coupling)
+                                    float flow, float coupling)
 {
     float room = room_rh * ah_sat(ambient);
     float added = ah_sat(ambient + coupling * (plate - ambient)) - ah_sat(ambient);
@@ -64,7 +64,7 @@ static inline float humidity_outlet(const struct humidity_coeffs *c, float plate
         if (powered < added)
             added = powered;
     }
-    return room + factor * (added > 0.0f ? added : 0.0f);
+    return room + (added > 0.0f ? added : 0.0f);
 }
 
 /* Temperature in [lo, hi] where rh * ah_sat(T) equals ah. When there is none the

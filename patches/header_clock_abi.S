@@ -48,15 +48,6 @@ header_climate_plate_coupling:
     .float 0.3
 .size header_climate_plate_coupling, . - header_climate_plate_coupling
 
-// Custom-settings factor on the estimated added moisture (raw = factor
-// * 100), shared with tube_warmup; 0xffff uses a factor of 1.
-.align 1
-.global header_climate_factor_var_id
-.type header_climate_factor_var_id, %object
-header_climate_factor_var_id:
-    .short 0xffff
-.size header_climate_factor_var_id, . - header_climate_factor_var_id
-
 // Custom-settings plate coupling (raw = coupling * 100), shared with
 // tube_warmup; 0xffff uses header_climate_plate_coupling above.
 .align 1
