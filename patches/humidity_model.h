@@ -32,7 +32,7 @@ extern int humidity_model_coefficients_get(void *unused, float *k0, float *k1,
                                            float *k2, float *k3, float *k4);
 
 /* Stock saturation absolute humidity, g/m3. */
-static inline float ah_sat(float t)
+static __attribute__((noinline)) float ah_sat(float t)
 {
     return 4.61f + t * (0.436f + t * (0.00122f + t * 0.000427f));
 }
@@ -44,7 +44,7 @@ static inline void humidity_coeffs_read(struct humidity_coeffs *c)
     c->k0 = 0.0f;
     c->k1 = 0.0f;
     if (!humidity_model_coefficients_get(0, &c->k0, &c->k1, &k2, &k3, &k4) ||
-            !(c->k1 > 0.0f && c->k0 > -1.0f && c->k0 < 1.0f))
+            !(c->k1 > 0.0f && c->k0 * c->k0 < 1.0f))
         c->k1 = 0.0f;
 }
 
@@ -67,13 +67,11 @@ static inline float humidity_outlet(const struct humidity_coeffs *c, float plate
     return room + factor * (added > 0.0f ? added : 0.0f);
 }
 
-/* Temperature in [lo, hi] where rh * ah_sat(T) equals ah. */
+/* Temperature in [lo, hi] where rh * ah_sat(T) equals ah. When there is none the
+ * result ends up within 0.001 degC of the nearer bound.
+ */
 static inline float humidity_model_temperature(float ah, float rh, float lo, float hi)
 {
-    if (rh * ah_sat(lo) >= ah)
-        return lo;
-    if (rh * ah_sat(hi) <= ah)
-        return hi;
     for (int i = 0; i < 16; ++i) {
         float mid = 0.5f * (lo + hi);
         if (rh * ah_sat(mid) < ah)
