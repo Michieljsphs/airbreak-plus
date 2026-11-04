@@ -44,6 +44,7 @@ Settings are assigned when their corresponding patch or payload is active.
 | [Target humidity](guide/features/general.md#target-humidity) | Target RH (%) | RCH | g[4] | CSG |
 | [Tube Warm-up](guide/features/general.md#tube-warm-up) | Tube Warm-up | first free of RXW, RSA, RPF, RPW, RPO, RPH, RXM, RXH; omitted when none or no label string is free | g[8] | CSG |
 | [Tube Warm-up](guide/features/general.md#tube-warm-up) | Warm-up Factor | RDH | g[4] | CSG |
+| [Tube Warm-up](guide/features/general.md#tube-warm-up) | Warm-up Coupling | RDW; omitted when no label string is free | g[4] | CSG |
 
 
 ## Application sequence

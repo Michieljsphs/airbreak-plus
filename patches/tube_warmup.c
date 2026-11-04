@@ -60,6 +60,7 @@ extern void *const climate_inputs_vtable[];
 extern const float tube_warmup_plate_coupling;
 extern const unsigned short tube_warmup_enable_var_id;
 extern const unsigned short tube_warmup_factor_var_id;
+extern const unsigned short tube_warmup_coupling_var_id;
 extern int variable_get_by_id(int var_id);
 
 static float call_f(struct obj *o, int slot) { return ((getf_t)o->vptr[slot])(o); }
@@ -78,6 +79,14 @@ static float factor(void)
     if (tube_warmup_factor_var_id == 0xffffu)
         return 1.0f;
     return variable_get_by_id(tube_warmup_factor_var_id) * 0.01f;
+}
+
+/* Plate bound coupling: the custom setting, else the built-in constant. */
+static float coupling(void)
+{
+    if (tube_warmup_coupling_var_id == 0xffffu)
+        return tube_warmup_plate_coupling;
+    return variable_get_by_id(tube_warmup_coupling_var_id) * 0.01f;
 }
 
 static void restart(struct state *s, float plate)
@@ -150,7 +159,7 @@ float start(struct obj *inputs)
                                    call_f(sensors, SENSOR_AMBIENT_RH),
                                    variable_get_by_id(VAR_ID_HPM) * 0.01f,
                                    variable_get_by_id(VAR_ID_AFL) * 0.01f, factor(),
-                                   tube_warmup_plate_coupling);
+                                   coupling());
     float limit = humidity_model_temperature(outlet, call_f(inputs, INPUT_TARGET_RH),
                                              ambient, set);
     if (limit >= set) {

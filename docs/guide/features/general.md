@@ -141,12 +141,12 @@ as the smaller of two upper bounds:
 
 | Bound | Estimate | Holds |
 |-------|----------|-------|
-| Plate | the saturation humidity gained from `ambient` to `ambient + 0.3 × (plate − ambient)`; nothing while the plate is at room temperature | while the water heats |
+| Plate | the saturation humidity gained from `ambient` to `ambient + coupling × (plate − ambient)`; nothing while the plate is at room temperature | while the water heats |
 | Heater power | `(duty − k0) / (k1 × flow)`, with the measured duty `HPM` and average blower flow `AFL` | once the water is warm |
 
 `k0` and `k1` are read at runtime, so each device uses its own calibration.
 Stock only runs its model at 8 L/min or more; below that, or without a usable
-calibration, only the plate bound applies. The `0.3` is the constant in
+calibration, only the plate bound applies. The coupling is 0.3 unless set in the menu; that default is the constant in
 `patches/tube_warmup_abi.S` and has not been calibrated.
 
 With custom settings, clinical **Accessories** contains:
@@ -155,6 +155,7 @@ With custom settings, clinical **Accessories** contains:
 |---------|------|--------|---------|
 | Tube Warm-up | first free on/off slot | Off, On | On |
 | Warm-up Factor | RDH | 0.50-1.50, step 0.05 | 1.00 |
+| Warm-up Coupling | RDW | 0.10-1.00, step 0.05 | 0.30 |
 
 Each setting needs a label string, and the switch also an on/off variable,
 that no other installed feature uses. The `plus` image uses all of them, so
@@ -167,12 +168,16 @@ make build/stm32-plus.bin AIR10_PATCH_ARGS='--patch-st-ibr n --patch-autoepap n 
 
 Warm-up Factor scales the estimated added moisture: 1.00 uses the estimate as
 is, lower values hold the tube back longer.
-Builds before the model used this setting as the coupling (0.10-1.00, default
-0.30); check it after updating, since a stored value below 0.50 is out of the
-new range. Warm-up Factor is added first. The
+Warm-up Coupling sets how far the water heats the air leaving the chamber, as a
+fraction of the plate's rise above room temperature. Higher values estimate
+more moisture while the plate is still warming, so the tube warms sooner; lower
+values hold it back longer. It does not change the heater-power bound, so it
+only matters during warm-up. Warm-up Factor and the switch are added first, then
+Warm-up Coupling. The
 [Header climate](#header-climate) switch, when installed, takes what Tube
-Warm-up leaves. When only one label is free, Tube Warm-up stays on without a switch; with none, the
-factor stays at 1.00. The build log reports what was added.
+Warm-up leaves. When no label is left for a setting it is skipped: without
+the switch Tube Warm-up stays on, and without the factor or coupling they keep
+1.00 and 0.30. The build log reports what was added.
 
 Enable it with `--patch-tube-warmup y` or `PATCH_TUBE_WARMUP=1`. It is off by
 default and requires font repacking (on by default).
@@ -203,7 +208,7 @@ estimated in the same way as [Tube Warm-up](#tube-warm-up): the room air plus
 the smaller of the plate and heater-power bounds on the added moisture,
 divided by the saturation humidity at the tube temperature. With Tube Warm-up
 and custom settings, **Warm-up Factor** scales the added moisture. The plate
-bound's `0.3` is in `patches/header_clock_abi.S`. Treat the value as a guide to the trend, not a
+bound uses the same Warm-up Coupling (default `0.3`, in `patches/header_clock_abi.S`). Treat the value as a guide to the trend, not a
 measurement; it has not been checked against a hygrometer.
 
 With custom settings, clinical **Configuration** gets a **Climate** switch

@@ -42,3 +42,12 @@ header_climate_plate_coupling:
 header_climate_factor_var_id:
     .short 0xffff
 .size header_climate_factor_var_id, . - header_climate_factor_var_id
+
+// Custom-settings plate coupling (raw = coupling * 100), shared with
+// tube_warmup; 0xffff uses header_climate_plate_coupling above.
+.align 1
+.global header_climate_coupling_var_id
+.type header_climate_coupling_var_id, %object
+header_climate_coupling_var_id:
+    .short 0xffff
+.size header_climate_coupling_var_id, . - header_climate_coupling_var_id
