@@ -32,6 +32,7 @@ struct root_screen {
 
 extern const u16 header_clock_var_id;
 extern const u8 header_climate_enabled;
+extern const u8 header_climate_always;
 extern const u16 header_climate_var_id;
 extern const float header_climate_plate_coupling;
 extern const u16 header_climate_factor_var_id;
@@ -48,13 +49,17 @@ extern int snprintf(char *buffer, unsigned size, const char *format, ...);
 #ifdef HEADER_CLIMATE
 #include "humidity_model.h"
 
-/* Rounded display temperature from a raw degC * 10 value. */
+/* Display temperature in tenths from a raw degC * 10 value. */
 static int display_temp(int raw, int fahrenheit)
 {
     if (fahrenheit)
-        raw = raw * 9 / 5 + 320;
-    return (raw + (raw < 0 ? -5 : 5)) / 10;
+        raw = (raw * 9 + (raw < 0 ? -2 : 2)) / 5 + 320;
+    return raw;
 }
+
+/* Sign and whole part, and the decimal digit, of a value in tenths. */
+#define TENTHS(v) ((v) < 0 ? "-" : ""), ((v) < 0 ? -(v) : (v)) / 10, \
+                  ((v) < 0 ? -(v) : (v)) % 10
 
 /* Tube and plate temperatures and the estimated RH at the tube temperature,
  * using the same chamber estimate as tube_warmup (humidity_model.h): the room
@@ -94,9 +99,11 @@ static u16 current_climate(char *text)
     int plate = display_temp(plate_raw, fahrenheit);
     if (text) {
         if (tube_present)
-            snprintf(text, TITLE_LEN, "%d\xc2\xb0 %d\xc2\xb0 %d%%", tube, plate, rh);
+            snprintf(text, TITLE_LEN, "%s%d.%d\xc2\xb0 %s%d.%d\xc2\xb0 %d%%",
+                     TENTHS(tube), TENTHS(plate), rh);
         else
-            snprintf(text, TITLE_LEN, "--\xc2\xb0 %d\xc2\xb0 %d%%", plate, rh);
+            snprintf(text, TITLE_LEN, "--\xc2\xb0 %s%d.%d\xc2\xb0 %d%%",
+                     TENTHS(plate), rh);
     }
     unsigned sum = ((unsigned)tube * 31u + (unsigned)plate * 7u + (unsigned)rh +
                     (tube_present ? 0x400u : 0u)) & 0x7ffu;
@@ -112,7 +119,7 @@ static u16 current_title(const struct root_screen *root, char *text)
     int therapy = page >= THERAPY_PAGE_FIRST && page < THERAPY_PAGE_FIRST + 4 &&
                   (root->title == 7 || root->title == 8);
 #ifdef HEADER_CLIMATE
-    if ((home || therapy) && header_climate_enabled &&
+    if ((home || therapy || header_climate_always) && header_climate_enabled &&
             (header_climate_var_id == 0xffffu ||
              variable_get_by_id(header_climate_var_id))) {
         u16 climate = current_climate(text);
@@ -146,6 +153,19 @@ void start(const char *text, int x, int y)
         text = title;
     gui_disp_string_at_utf8(text, x, y);
 }
+
+#ifdef HEADER_CLIMATE
+/* The page counter ("1/3") drawn after the title: left out beside the climate
+ * readout, which needs the room. The title draw above runs first.
+ */
+void header_climate_page_draw(const char *text, int x, int y)
+{
+    struct root_screen *root = gui_root_screen_get();
+    if (root->clock_time != CLOCK_HIDDEN && (root->clock_time & CLIMATE_FLAG))
+        return;
+    gui_disp_string_at_utf8(text, x, y);
+}
+#endif
 
 int header_clock_title_width(const char *text)
 {

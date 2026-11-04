@@ -190,7 +190,7 @@ therapy-screen titles with the device time in 24-hour `HH:MM` format.
 ## Header Climate
 
 This optional readout (SX567 firmware) replaces the Home and therapy-screen
-titles with the climate values, for example `27° 41° 85%`:
+titles with the climate values, for example `27.4° 41.0° 85%`:
 
 | Field | Source |
 |-------|--------|
@@ -201,7 +201,8 @@ titles with the climate values, for example `27° 41° 85%`:
 Temperatures follow the device's °C/°F setting. The readout appears only with a
 humidifier attached; without one, the clock shows instead. Outside therapy
 there is no airflow, so the RH value is the room air at the tube temperature.
-Menu screens keep their own titles.
+Menu screens keep their own titles unless [Always show](#always-show) is on. The
+page counter (for example `1/3`) is hidden while the readout is shown.
 
 The device has no humidity sensor in the air path, so the RH value is
 estimated in the same way as [Tube Warm-up](#tube-warm-up): the room air plus
@@ -219,6 +220,14 @@ the Tube Warm-up switch, and gets them after it; without one the readout stays o
 Enable it with `--patch-header-climate y` or `PATCH_HEADER_CLIMATE=1`. It is off
 by default, needs the header clock patch (on by default), and is independent
 of the **Clock** setting.
+
+### Always show
+
+`--patch-header-climate-always y` shows the readout in every screen title, so
+menus such as Settings and My Options show it instead of their names. It needs
+`--patch-header-climate`, follows the **Climate** switch, and is a build option
+in the patcher window under the header options. Screens without a humidifier
+keep their stock titles.
 
 ## Keep Backlight
 
