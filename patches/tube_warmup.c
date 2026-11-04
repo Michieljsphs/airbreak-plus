@@ -4,7 +4,8 @@
  * starts, long before the plate has heated the water, so early air is warm and
  * dry. While the plate warms, cap the tube setpoint where the estimated moisture
  * the chamber adds (humidity_model.h) gives the target RH, and let the stock
- * model aim for HTS so the plate keeps heating at full demand. The cap ends once
+ * model aim for HTS so the plate keeps heating at full demand. The cap is never
+ * below the lowest tube setting (16 degC). The cap ends once
  * it reaches HTS, the plate stops rising, or the warm-up time limit expires.
  */
 #include "s10_vars.h"
@@ -35,6 +36,9 @@ enum {
     MAX_MINUTES = 60,
     STATE_MAGIC = 0x50555754,
 };
+
+/* The lowest tube temperature setting, degC. */
+#define MIN_TUBE_TEMP 16.0f
 
 /* Cloning the inputs vtable lets both hooks find this state from their own
  * object without reserving a writable global.
@@ -160,8 +164,11 @@ float start(struct obj *inputs)
                                    variable_get_by_id(VAR_ID_HPM) * 0.01f,
                                    variable_get_by_id(VAR_ID_AFL) * 0.01f, factor(),
                                    coupling());
+    /* The floor is the lowest tube setting, not the ambient reading: the sensor
+     * sits in the warm case, and a floor above the tube would keep it heating.
+     */
     float limit = humidity_model_temperature(outlet, call_f(inputs, INPUT_TARGET_RH),
-                                             ambient, set);
+                                             set < MIN_TUBE_TEMP ? set : MIN_TUBE_TEMP, set);
     if (limit >= set) {
         s->done = 1;
         return set;
