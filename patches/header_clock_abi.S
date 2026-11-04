@@ -16,6 +16,13 @@ header_climate_enabled:
     .byte 0
 .size header_climate_enabled, . - header_climate_enabled
 
+// Set by --patch-header-climate-decimal: temperatures with one decimal.
+.global header_climate_decimal
+.type header_climate_decimal, %object
+header_climate_decimal:
+    .byte 0
+.size header_climate_decimal, . - header_climate_decimal
+
 // Set by --patch-header-climate-always: the readout replaces every title.
 .global header_climate_always
 .type header_climate_always, %object

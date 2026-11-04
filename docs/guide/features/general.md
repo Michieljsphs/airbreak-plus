@@ -190,7 +190,8 @@ therapy-screen titles with the device time in 24-hour `HH:MM` format.
 ## Header Climate
 
 This optional readout (SX567 firmware) replaces the Home and therapy-screen
-titles with the climate values, for example `27.4° 41.0° 85%`:
+titles with the climate values, for example `27.4° 41.0° 85%` (`27° 41° 85%`
+with decimals off):
 
 | Field | Source |
 |-------|--------|
@@ -228,6 +229,13 @@ menus such as Settings and My Options show it instead of their names. It needs
 `--patch-header-climate`, follows the **Climate** switch, and is a build option
 in the patcher window under the header options. Screens without a humidifier
 keep their stock titles.
+
+### Decimals
+
+`--patch-header-climate-decimal` (on by default) shows the tube and plate
+temperatures with one decimal, `27.4`. Use `--patch-header-climate-decimal n` for
+whole degrees, `27`. It is a build option in the patcher window and has no
+effect without `--patch-header-climate`.
 
 ## Keep Backlight
 
