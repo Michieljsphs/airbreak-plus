@@ -124,7 +124,8 @@ for the full tube temperature, so the plate heats at full demand. The cap
 follows the plate up and ends when it reaches the tube temperature setting,
 when the plate stops rising (less than 0.2 °C per minute), or after 60
 minutes. It applies only to Auto climate control with a heated tube and the
-humidifier active. It is never lower than the ambient temperature.
+humidifier active. It is never lower than 16 °C, the lowest tube setting; the
+tube heater stays off while the measured tube is above the cap.
 
 Warm-up restarts after the tube controller has been idle for a minute, for
 example between therapy sessions. A hot water chamber, such as after a stock
