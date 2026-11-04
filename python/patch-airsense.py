@@ -3010,6 +3010,15 @@ class ASFirmwarePatches(CompiledPayloadMixin):
                            (self.asf.FLASH_BASE + site))
         return PatchOutcome.ok(*details)
 
+    def patch_header_climate_decimal(self):
+        """Show the climate readout temperatures with one decimal."""
+        if 'header_climate' not in self.enabled_custom_settings_features:
+            return PatchOutcome.skip("header climate not installed")
+        elf_path = self._require_versioned_artifact('header_clock', 'elf')
+        address = self._elf_symbol_addr(elf_path, 'header_climate_decimal')
+        self.asf.write_u8(address - self.asf.FLASH_BASE, 1)
+        return PatchOutcome.ok("Climate temperatures with a decimal at 0x%08X" % address)
+
     def patch_header_climate_always(self):
         """Show the climate readout in every screen title, not only Home and therapy."""
         if 'header_clock' not in self.applied_payloads:
@@ -3386,6 +3395,9 @@ PATCH_PHASES = (
         PatchSpec('patch-header-climate',
                   'Show tube and plate temperatures and estimated RH in the Home and therapy-screen headers; hides the page counter there.',
                   False, 'patch_header_climate'),
+        PatchSpec('patch-header-climate-decimal',
+                  'Show the climate readout temperatures with one decimal (27.4 instead of 27).',
+                  True, 'patch_header_climate_decimal'),
         PatchSpec('patch-header-climate-always',
                   'Show the climate readout in every screen title (menus too), not only Home and therapy.',
                   False, 'patch_header_climate_always'),

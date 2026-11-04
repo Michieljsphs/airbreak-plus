@@ -11,6 +11,7 @@ typedef unsigned int u32;
 /* Clock values stay below 24 << 6; climate values are a flagged checksum. */
 #define CLIMATE_FLAG 0x800u
 #define TITLE_LEN 24
+#define TEMP_LEN 8
 
 /* ZML numbers the four therapy pages consecutively on both families. */
 #if defined(CDX_VER_0204) || defined(CDX_VER_0205)
@@ -33,6 +34,7 @@ struct root_screen {
 extern const u16 header_clock_var_id;
 extern const u8 header_climate_enabled;
 extern const u8 header_climate_always;
+extern const u8 header_climate_decimal;
 extern const u16 header_climate_var_id;
 extern const float header_climate_plate_coupling;
 extern const u16 header_climate_factor_var_id;
@@ -49,17 +51,28 @@ extern int snprintf(char *buffer, unsigned size, const char *format, ...);
 #ifdef HEADER_CLIMATE
 #include "humidity_model.h"
 
-/* Display temperature in tenths from a raw degC * 10 value. */
+/* Display temperature in tenths from a raw degC * 10 value, rounded to whole
+ * degrees unless the decimal is shown.
+ */
 static int display_temp(int raw, int fahrenheit)
 {
     if (fahrenheit)
         raw = (raw * 9 + (raw < 0 ? -2 : 2)) / 5 + 320;
+    if (!header_climate_decimal)
+        raw = (raw + (raw < 0 ? -5 : 5)) / 10 * 10;
     return raw;
 }
 
-/* Sign and whole part, and the decimal digit, of a value in tenths. */
-#define TENTHS(v) ((v) < 0 ? "-" : ""), ((v) < 0 ? -(v) : (v)) / 10, \
-                  ((v) < 0 ? -(v) : (v)) % 10
+static void temp_text(char *buffer, int tenths)
+{
+    const char *sign = tenths < 0 ? "-" : "";
+    if (tenths < 0)
+        tenths = -tenths;
+    if (header_climate_decimal)
+        snprintf(buffer, TEMP_LEN, "%s%d.%d", sign, tenths / 10, tenths % 10);
+    else
+        snprintf(buffer, TEMP_LEN, "%s%d", sign, tenths / 10);
+}
 
 /* Tube and plate temperatures and the estimated RH at the tube temperature,
  * using the same chamber estimate as tube_warmup (humidity_model.h): the room
@@ -98,12 +111,11 @@ static u16 current_climate(char *text)
     int tube = display_temp(tube_raw, fahrenheit);
     int plate = display_temp(plate_raw, fahrenheit);
     if (text) {
-        if (tube_present)
-            snprintf(text, TITLE_LEN, "%s%d.%d\xc2\xb0 %s%d.%d\xc2\xb0 %d%%",
-                     TENTHS(tube), TENTHS(plate), rh);
-        else
-            snprintf(text, TITLE_LEN, "--\xc2\xb0 %s%d.%d\xc2\xb0 %d%%",
-                     TENTHS(plate), rh);
+        char tube_text[TEMP_LEN], plate_text[TEMP_LEN];
+        temp_text(tube_text, tube);
+        temp_text(plate_text, plate);
+        snprintf(text, TITLE_LEN, "%sÂ° %sÂ° %d%%",
+                 tube_present ? tube_text : "--", plate_text, rh);
     }
     unsigned sum = ((unsigned)tube * 31u + (unsigned)plate * 7u + (unsigned)rh +
                     (tube_present ? 0x400u : 0u)) & 0x7ffu;
