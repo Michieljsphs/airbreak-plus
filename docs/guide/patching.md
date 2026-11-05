@@ -117,6 +117,12 @@ Optionally enable `--patch-graph-keep-screen-on Y` (or
 Monitoring is On. This option requires the graph patch, includes the
 [dial shortcut](features/general.md#keep-backlight), and is off by default.
 
+Optionally enable `--patch-graph-climate Y` (or `PATCH_GRAPH_CLIMATE=1`) to
+show the [climate graph](features/climate_graph.md) instead of the pressure
+graph: plate and tube temperatures and estimated RH over the first hour of
+therapy, with dashed lines for the tube setting, Min Tube and target RH. It
+requires the graph patch and is off by default.
+
 Example with custom VAuto:
 ```
 export PATCH_CODE=1

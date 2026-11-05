@@ -10,7 +10,7 @@ AIR10_FIRMWARE ?= stm32.bin
 export AIR10_PATCH_ARGS
 
 AIR10_LEGACY_ENV := PATCH_CODE PATCH_VAUTO_WRAPPER PATCH_S PATCH_ASV_TASK_WRAPPER \
-	PATCH_FALL_TIME PATCH_ST_IBR PATCH_AUTOEPAP PATCH_S10_LCD PATCH_GRAPH_KEEP_SCREEN_ON PATCH_TARGET_RH PATCH_HUMID_START FORCE_DEPRECATED
+	PATCH_FALL_TIME PATCH_ST_IBR PATCH_AUTOEPAP PATCH_S10_LCD PATCH_GRAPH_KEEP_SCREEN_ON PATCH_GRAPH_CLIMATE PATCH_TARGET_RH PATCH_HUMID_START FORCE_DEPRECATED
 $(foreach name,$(AIR10_LEGACY_ENV),$(if $(filter undefined,$(origin $(name))),,$(eval export $(name))))
 
 PATCHER_OUTPUT_ARGS := --log-file '$(abspath $(MAKE_LOG))'
@@ -257,7 +257,7 @@ $(foreach v,$(call payload_versions,custom_menu_hooks),$(eval $(call S10_CUSTOM_
 
 $(foreach v,$(call payload_versions,custom_menu_hooks),$(BUILD)/custom_menu_hooks_$(v).o): $(SRC)/custom_menu_registry.h
 $(foreach v,$(call payload_versions,button_hooks),$(BUILD)/button_hooks_$(v).o): $(SRC)/button_hooks.h
-$(foreach v,$(call payload_versions,humid_start),$(BUILD)/humid_start_$(v).o): $(SRC)/humidity_model.h
+$(foreach p,humid_start graph,$(foreach v,$(call payload_versions,$(p)),$(BUILD)/$(p)_$(v).o)): $(SRC)/humidity_model.h
 
 define S10_STANDALONE_PAYLOAD_template
 $(BUILD)/$(1)_$(2).o: $(wildcard $(SRC)/$(1)/*.c)

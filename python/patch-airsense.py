@@ -1528,6 +1528,7 @@ class ASFirmwarePatches(CompiledPayloadMixin):
             vid = self.asf.resolve_var_id(enable)
             addr = self._write_payload_u16('humid_start', 'humid_start_enable_var_id', vid)
             self._custom_detail('Humid Start: %s var_id=0x%04X at 0x%08X' % (enable, vid, addr))
+            self._graph_climate_var('graph_humid_start_var_id', vid)
 
         # Minimum tube temperature: raw value is whole degC, 16-30, default 16
         # (no minimum beyond the lowest tube setting). Needs only a label string.
@@ -1542,6 +1543,7 @@ class ASFirmwarePatches(CompiledPayloadMixin):
             vid = self.asf.resolve_var_id(min_tube)
             addr = self._write_payload_u16('humid_start', 'humid_start_min_tube_var_id', vid)
             self._custom_detail('Min Tube: %s var_id=0x%04X at 0x%08X' % (min_tube, vid, addr))
+            self._graph_climate_var('graph_min_tube_var_id', vid)
 
         # Plate coupling: raw value is the coupling * 100, 0.10-1.00 in steps
         # of 0.05, default 0.25. Needs only a label string.
@@ -1556,6 +1558,13 @@ class ASFirmwarePatches(CompiledPayloadMixin):
         vid = self.asf.resolve_var_id(coupling)
         addr = self._write_payload_u16('humid_start', 'humid_start_coupling_var_id', vid)
         self._custom_detail('Start Coupling: %s var_id=0x%04X at 0x%08X' % (coupling, vid, addr))
+        self._graph_climate_var('graph_coupling_var_id', vid)
+
+    def _graph_climate_var(self, symbol, vid):
+        """Hand a Humid Start setting to the climate graph, when installed."""
+        if 'graph' in self.applied_payloads:
+            addr = self._write_payload_u16('graph', symbol, vid)
+            self._custom_detail('Climate graph %s=0x%04X at 0x%08X' % (symbol, vid, addr))
 
     def custom_patch_settings_collect_features(self):
         """Return active custom-settings feature functions."""
@@ -2283,6 +2292,15 @@ class ASFirmwarePatches(CompiledPayloadMixin):
                               header_wrapper | 1),
             self._hook_detail('graph pressure pointer', self.asf.FLASH_BASE + numbers_site[0],
                               numbers_wrapper | 1))
+
+    def patch_graph_climate(self):
+        """Draw the climate chart instead of the pressure chart."""
+        if 'graph' not in self.applied_payloads:
+            return PatchOutcome.skip("graph payload not installed")
+        elf_path = self._require_versioned_artifact('graph', 'elf')
+        address = self._elf_symbol_addr(elf_path, 'graph_climate')
+        self.asf.write_u8(address - self.asf.FLASH_BASE, 1)
+        return PatchOutcome.ok("Climate graph instead of pressure graph at 0x%08X" % address)
 
     def patch_squarewave(self):
         """Add squarewave pressure mode"""
@@ -3343,6 +3361,9 @@ PATCH_PHASES = (
                   False, 'patch_common_code'),
         PatchSpec('patch-fw-graph', 'Add the therapy pressure graph.',
                   False, 'patch_graph'),
+        PatchSpec('patch-graph-climate',
+                  'Show the climate graph instead of the pressure graph: plate and tube temperatures and estimated RH over the first hour of therapy.',
+                  False, 'patch_graph_climate'),
         PatchSpec('patch-graph-keep-screen-on',
                   'Keep the screen awake during therapy while Monitoring is enabled.',
                   False, 'patch_graph_keep_screen_on'),
@@ -3392,6 +3413,7 @@ PATCH_DEPENDENCIES = {
     'patch-ivaps-settings': ('patch-custom-settings',),
     'patch-fw-graph': ('patch-fw-common-code',),
     'patch-graph-keep-screen-on': ('patch-fw-graph',),
+    'patch-graph-climate': ('patch-fw-graph',),
     'patch-humid-start': ('patch-font-repack',),
     'patch-fw-vauto-wrapper': ('patch-fw-common-code',),
     'patch-fw-squarewave': ('patch-fw-common-code', 'patch-fw-vauto-wrapper'),

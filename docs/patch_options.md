@@ -95,6 +95,7 @@ Air 10 legacy variables:
 | `PATCH_ST_IBR` | `--patch-st-ibr y` |
 | `PATCH_S10_LCD` | `--patch-fw-lcd y` |
 | `PATCH_GRAPH_KEEP_SCREEN_ON` | `--patch-graph-keep-screen-on y` |
+| `PATCH_GRAPH_CLIMATE` | `--patch-graph-climate y`; requires the graph |
 | `PATCH_HUMID_START` | `--patch-humid-start y` |
 | `FORCE_DEPRECATED` | `--force-deprecated` |
 

@@ -201,3 +201,8 @@ left for a setting it is skipped: without the switch Humid Start stays on. The b
 
 Enable it with `--patch-humid-start y` or `PATCH_HUMID_START=1`. It is off by
 default and requires font repacking (on by default).
+
+To see how a night started, build with the
+[climate graph](climate_graph.md) (`--patch-graph-climate y`). It records the
+plate and tube temperatures and the estimated RH for the first hour, with the
+tube setting, Min Tube and target RH as dashed lines.
