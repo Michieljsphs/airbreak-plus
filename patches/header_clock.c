@@ -194,9 +194,40 @@ struct root_screen *header_clock_init(struct root_screen *root)
     return root;
 }
 
+#ifdef HEADER_CLIMATE
+/* Test of a timed humidifier warm-up: between WARMUP_TEST_DELAY and
+ * WARMUP_TEST_DELAY + WARMUP_TEST_WINDOW seconds after power-on, on Home
+ * with a humidifier attached, set WUP the way the Run Warmup button might.
+ */
+#define WARMUP_TEST_DELAY 120u
+#define WARMUP_TEST_WINDOW 10u
+#define TICKS_PER_SECOND 100u
+
+extern const u8 warmup_test_enabled;
+extern const u8 warmup_test_value;
+extern void variable_set_by_id(int var_id, int value);
+extern unsigned system_tick_get(void);
+
+static void warmup_test(void)
+{
+    if (!warmup_test_enabled)
+        return;
+    unsigned seconds = system_tick_get() / TICKS_PER_SECOND;
+    if (seconds < WARMUP_TEST_DELAY || seconds >= WARMUP_TEST_DELAY + WARMUP_TEST_WINDOW)
+        return;
+    if (variable_get_by_id(VAR_ID_ZML) != 0 || !variable_get_by_id(VAR_ID_HUM))
+        return;
+    if (variable_get_by_id(VAR_ID_WUP) != warmup_test_value)
+        variable_set_by_id(VAR_ID_WUP, warmup_test_value);
+}
+#endif
+
 void header_clock_update(struct root_screen *root, int changed)
 {
     gui_root_screen_layout_right_widgets(root, changed);
+#ifdef HEADER_CLIMATE
+    warmup_test();
+#endif
     if (++root->clock_update_count < 10)
         return;
     root->clock_update_count = 0;

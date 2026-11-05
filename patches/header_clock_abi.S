@@ -30,6 +30,20 @@ header_climate_always:
     .byte 0
 .size header_climate_always, . - header_climate_always
 
+// Set by --patch-warmup-test: set WUP 2 minutes after power-on (test only).
+.global warmup_test_enabled
+.type warmup_test_enabled, %object
+warmup_test_enabled:
+    .byte 0
+.size warmup_test_enabled, . - warmup_test_enabled
+
+// WUP value written by the test; 1 selects "Stop Warmup", i.e. running.
+.global warmup_test_value
+.type warmup_test_value, %object
+warmup_test_value:
+    .byte 1
+.size warmup_test_value, . - warmup_test_value
+
 // Custom-settings Climate switch; 0xffff shows the readout whenever enabled.
 .align 1
 .global header_climate_var_id
