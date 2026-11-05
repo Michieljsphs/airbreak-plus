@@ -110,6 +110,11 @@ You can drag the divider between them.
 - **Patch groups**: one box per patch phase. Each patch has a checkbox, its
   option name (for example `--patch-humid-start`) and some have a value box.
 - **Bold** entries differ from the built-in default. Only those are saved.
+- **Palette colors**: under *Patch the custom color palette*, each color swatch
+  is one group of display colors (text, background, accent, ...). Click a
+  swatch to pick a color. *Custom palette colors* puts back the built-in amber
+  palette, *Stock ResMed colors* the original white, grey and blue. Colors that
+  differ from the built-in palette are saved as `--palette-colors`.
 - **Hover** a patch to see its description from the [patching guide](patching.md),
   what it requires, and the menu items it adds.
 - Ticking a patch also ticks the patches it needs; unticking one unticks the

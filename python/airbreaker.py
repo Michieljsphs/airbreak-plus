@@ -32,7 +32,7 @@ import sys
 import textwrap
 import threading
 import tkinter as tk
-from tkinter import filedialog, messagebox, ttk
+from tkinter import colorchooser, filedialog, messagebox, ttk
 from tkinter import font as tkfont
 import traceback
 
@@ -66,6 +66,7 @@ P = None   # patch-airsense.py, loaded by main()
 SLOTS = (("g8", "On/off settings"), ("g4", "Value settings"), ("labels", "New labels"))
 PLUS_ENV = ("PATCH_CODE", "PATCH_ASV_TASK_WRAPPER", "PATCH_VAUTO_WRAPPER", "PATCH_S", "PATCH_FALL_TIME",
             "PATCH_ST_IBR", "PATCH_AUTOEPAP")   # what the plus target in the Makefile sets
+PALETTE_OPTION = "patch-custom-palette"   # its colors are set with --palette-colors
 STEPS = (("choose", "1 Choose patches"), ("save", "2 Save"), ("build", "3 Build payloads"), ("patch", "4 Patch"),
          ("backup", "5 Dump backup"), ("flash", "6 Flash"))   # the checklist above the options
 
@@ -309,6 +310,9 @@ class App(tk.Tk):
         self.values = {}    # option -> StringVar: parameter of a patch with a value (target RH)
         self.spins = {}     # option -> Spinbox of that parameter, disabled while the patch is unticked
         self.checks = {}    # option -> Checkbutton, bold when not at the built-in default
+        self.palette = {}   # palette role -> StringVar with its RRGGBB color (--palette-colors)
+        self.swatches = {}  # palette role -> swatch Label showing that color
+        self.palette_frame = None
         self.extra = []     # other patcher options found in the config file, written back unchanged
         self.foreign = False      # the config file was not written by this window: ask before replacing it
         self.saved_tokens = None  # options in the config file, None when it could not be read
@@ -530,6 +534,8 @@ class App(tk.Tk):
         for widget in (check, name):
             Tooltip(widget, lambda: self.tooltip_text(spec))
         self.checks[spec.option] = check
+        if spec.option == PALETTE_OPTION:
+            self.add_palette(frame, row + 1)
         if not spec.value_type and not hint:
             return
         sub = ttk.Frame(frame)
@@ -543,6 +549,58 @@ class App(tk.Tk):
             ttk.Label(sub, text="%").pack(side="left", padx=(2, 8))
         if hint:
             ttk.Label(sub, text=hint.strip(), foreground="#666666").pack(side="left")
+
+    def add_palette(self, frame, row):
+        """One color swatch per palette role; a click opens a color picker."""
+        box = ttk.Frame(frame)
+        box.grid(row=row, column=0, columnspan=2, sticky="w", padx=(22, 0), pady=(0, 4))
+        self.palette_frame = box
+        for i, (key, label, _, custom, stock) in enumerate(P.PALETTE_ROLES):
+            var = self.palette[key] = tk.StringVar(value=custom)
+            var.trace_add("write", self.refresh)
+            cell = ttk.Frame(box)
+            cell.grid(row=i // 3, column=i % 3, sticky="w", padx=(0, 12), pady=1)
+            swatch = tk.Label(cell, width=3, relief="solid", borderwidth=1, cursor="hand2", background="#" + custom)
+            swatch.pack(side="left")
+            name = ttk.Label(cell, text=label, cursor="hand2")
+            name.pack(side="left", padx=(4, 0))
+            for widget in (swatch, name):
+                widget.bind("<Button-1>", lambda _, k=key: self.pick_color(k))
+                Tooltip(widget, lambda k=key, s=stock, c=custom: "%s: #%s\nBuilt-in custom palette: #%s\n"
+                        "Stock ResMed: #%s\nClick to choose a color." % (k, self.palette[k].get(), c, s))
+            self.swatches[key] = swatch
+        buttons = ttk.Frame(box)
+        buttons.grid(row=(len(P.PALETTE_ROLES) + 2) // 3, column=0, columnspan=3, sticky="w", pady=(4, 0))
+        ttk.Button(buttons, text="Custom palette colors",
+                   command=lambda: self.set_palette({k: c for k, _, _, c, _ in P.PALETTE_ROLES})).pack(side="left")
+        ttk.Button(buttons, text="Stock ResMed colors",
+                   command=lambda: self.set_palette({k: s for k, _, _, _, s in P.PALETTE_ROLES})).pack(
+            side="left", padx=(6, 0))
+
+    def pick_color(self, key):
+        if not self.enabled[PALETTE_OPTION].get():
+            return
+        label = next(role[1] for role in P.PALETTE_ROLES if role[0] == key)
+        _, color = colorchooser.askcolor(color="#" + self.palette[key].get(), parent=self,
+                                         title="%s - %s" % (TITLE, label))
+        if color:
+            self.palette[key].set(color.lstrip("#").upper())
+
+    def set_palette(self, colors):
+        """Sets every role from colors (role -> RRGGBB), refreshing once."""
+        self.loading = True
+        for key, var in self.palette.items():
+            var.set(colors[key])
+        self.loading = False
+        self.refresh()
+
+    def palette_text(self):
+        """--palette-colors value: the roles that differ from the built-in custom palette, '' when none."""
+        if not self.palette or not self.enabled[PALETTE_OPTION].get():
+            return ""
+        changed = ",".join("%s=%s" % (key, self.palette[key].get()) for key, _, _, custom, _ in P.PALETTE_ROLES
+                           if self.palette[key].get().upper() != custom)
+        return P.palette_colors_value(changed) if changed else ""
 
     def tooltip_text(self, spec):
         """Extended information on a patch: docs, default, dependencies and the menu items it adds."""
@@ -639,13 +697,16 @@ class App(tk.Tk):
         for option, value in values.items():
             if value != self.specs[option].default:
                 out += ["--" + option, option_text(value)]
+        palette = self.palette_text()
+        if palette:
+            out += ["--palette-colors", palette]
         return out + self.extra
 
     def extra_tokens(self, ns):
         """Non-patch options set in the config file (--force-deprecated, --log-file, ...)."""
         tokens = []
         for action in self.parser._actions:
-            if action.dest in map(dest, self.specs):
+            if action.dest in map(dest, self.specs) or action.dest == "palette_colors":
                 continue
             value = getattr(ns, action.dest)
             if value != action.default:
@@ -653,8 +714,12 @@ class App(tk.Tk):
                 tokens += [name] if action.nargs == 0 else [name, str(value)]
         return tokens
 
-    def apply(self, values):
+    def apply(self, values, palette=""):
+        """Shows values (option -> value) and palette (a --palette-colors value) in the window."""
         self.loading = True
+        chosen = dict(item.split("=") for item in palette.split(",") if item)
+        for key, _, _, custom, _ in P.PALETTE_ROLES:
+            self.palette[key].set(chosen.get(key, custom))
         for option, spec in self.specs.items():
             value = values[option]
             self.enabled[option].set(value is not False)
@@ -694,6 +759,14 @@ class App(tk.Tk):
             return
         for option, spin in self.spins.items():
             spin.config(state="normal" if self.enabled[option].get() else "disabled")
+        if self.palette:
+            on = self.enabled[PALETTE_OPTION].get()
+            for key, swatch in self.swatches.items():
+                swatch.config(background="#" + self.palette[key].get() if on else "#d9d9d9")
+            for cell in self.palette_frame.winfo_children():
+                for widget in (cell, *cell.winfo_children()):
+                    if isinstance(widget, (ttk.Label, ttk.Button)):
+                        widget.state(["!disabled"] if on else ["disabled"])
         try:
             values = self.current()
         except argparse.ArgumentTypeError as exc:
@@ -732,6 +805,7 @@ class App(tk.Tk):
     def load(self):
         """Reads patch-airsense.config with the patcher's own option types; no file means the built-in defaults."""
         values = {option: spec.default for option, spec in self.specs.items()}
+        palette = ""
         self.extra, self.foreign, self.saved_tokens = [], False, []
         try:
             with open(CONFIG_FILE, encoding="utf-8") as f:
@@ -748,6 +822,7 @@ class App(tk.Tk):
             try:
                 ns = self.parser.parse_args(shlex.split(text, comments=True))
                 values = {option: getattr(ns, dest(option)) for option in self.specs}
+                palette = ns.palette_colors
                 self.extra = self.extra_tokens(ns)
                 self.status.config(text="Loaded %s" % CONFIG_FILE)
             except ValueError as exc:
@@ -755,7 +830,7 @@ class App(tk.Tk):
                 messagebox.showerror(TITLE, "%s could not be read:\n\n%s\n\nThe built-in defaults are shown; "
                                      "Save replaces the file." % (CONFIG_FILE, exc))
                 self.status.config(text="Could not read %s" % os.path.basename(CONFIG_FILE))
-        self.apply(values)
+        self.apply(values, palette)
         if self.saved_tokens is not None:
             self.saved_tokens = self.tokens(values)
         self.refresh()
@@ -801,6 +876,9 @@ class App(tk.Tk):
                 lines.append("# " + phase)
                 lines += ["--%s %s" % (spec.option, option_text(values[spec.option])) for spec in group]
                 lines.append("")
+        palette = self.palette_text()
+        if palette:
+            lines += ["# Custom palette colors", "--palette-colors " + palette, ""]
         if self.extra:
             lines += ["# Other options", " ".join(shlex.quote(t) for t in self.extra), ""]
         if not tokens:
