@@ -1,13 +1,14 @@
 /*
  * This replaces the normal pressure gauge code in the ROM.
  *
- * Two charts share the strip below the pressure gauge, chosen when patching
- * (graph_climate):
- * - pressure: a scrolling strip of flow and pressure;
- * - climate: the first hour of therapy, one column per 15 s, with the plate
- *   and tube temperatures and the estimated RH (humidity_model.h), plus
+ * Two charts, chosen when patching (graph_climate):
+ * - pressure: a scrolling strip of flow and pressure below the pressure gauge;
+ * - climate: the first 30 minutes of therapy, one column per 7.5 s, with the
+ *   plate and tube temperatures and the estimated RH (humidity_model.h), plus
  *   dashed lines for the tube setting, the Humid Start Min Tube and the target
- *   RH. The chart stops after the hour so it is still there in the morning.
+ *   RH. It also takes the space of the mode and pressure readouts (VAuto,
+ *   PS 4.0, 7.2, 11.2), which are no longer redrawn while it is shown. The
+ *   chart stops after 30 minutes so it is still there in the morning.
  */
 #include "stubs.h"
 #include "common_code.h"
@@ -17,13 +18,19 @@
 #define DRAW_PRESSURE 1
 #define DRAW_FLOW 0
 
-/* Strip chart area on the screen, shared by both charts. */
+/* Strip chart area on the screen. The climate chart starts higher, just
+ * below the screen title bar, over the mode and pressure readouts.
+ */
 #define CHART_TOP 155
 #define CHART_BOTTOM 235
+#define CLIMATE_TOP 90
+#define CLIMATE_HEIGHT (CHART_BOTTOM - CLIMATE_TOP)
 
 #define CLIMATE_COLUMNS 240
-/* system_tick_get counts 10 ms ticks. */
-#define TICKS_PER_COLUMN 1500
+/* system_tick_get counts 10 ms ticks: 240 columns of 7.5 s are 30 minutes. */
+#define TICKS_PER_COLUMN 750
+/* A grid tick every 5 minutes. */
+#define COLUMNS_PER_TICK 40
 /* A gap in updates this long may be a new session (see climate_update). */
 #define SESSION_GAP_TICKS 60000
 
@@ -42,9 +49,13 @@ typedef struct {
 	unsigned start_tick;
 	unsigned last_tick;
 	unsigned last_therapy;
-	/* Columns since the start; keeps counting after the hour. */
+	/* Columns since the start; keeps counting after the 30 minutes. */
 	unsigned short column;
 	uint8 active;
+	/* Redraw the whole chart on the next update: the readouts it covers
+	 * may have painted over it.
+	 */
+	uint8 redraw;
 	/* Tube setting, (unused), target RH, Min Tube */
 	uint8 setpoints[4];
 	uint8 data[3][CLIMATE_COLUMNS];
@@ -77,7 +88,7 @@ extern const float graph_plate_coupling;
 STATIC void init_graph_state(graph_state_t *state) {
 	state->last_pos_x = -1;
 	if (graph_climate)
-		((climate_state_t *)state)->active = 0;
+		((climate_state_t *)state)->active = ((climate_state_t *)state)->redraw = 0;
 }
 
 STATIC graph_state_t *get_graph_state(void) {
@@ -147,13 +158,13 @@ STATIC void screen_end(const gui_saved_t *saved) {
 #define COLOR_RH_SET RGB(0x2c, 0x6a, 0xb0)
 #define COLOR_GRID RGB(0x30, 0x30, 0x30)
 
-/* y of a value: temperatures on a 15-71 degC axis, 0.7 degC per pixel (v in
- * half degrees); RH on a 20-100 % axis, 1 % per pixel.
+/* y of a value: temperatures on a 15-71 degC axis (v in half degrees), RH
+ * on a 20-100 % axis, both over the full chart height.
  */
 STATIC int value_y(int series, int v) {
-	int y = series == RH ? CHART_BOTTOM - (v - 20) :
-			       CHART_BOTTOM - (v - 30) * 5 / 7;
-	return clamp(y, CHART_TOP, CHART_BOTTOM);
+	int y = series == RH ? CHART_BOTTOM - (v - 20) * CLIMATE_HEIGHT / 80 :
+			       CHART_BOTTOM - (v - 30) * CLIMATE_HEIGHT / 112;
+	return clamp(y, CLIMATE_TOP, CHART_BOTTOM);
 }
 
 /* Raw degC * 10 to half degrees, 1..255 (0 means no data). */
@@ -225,13 +236,13 @@ STATIC void climate_draw_column(const climate_state_t *s, int x) {
 	const uint8 *set = s->setpoints;
 
 	GUI_SetColor(0x000000);
-	LCD_FillRect(x, CHART_TOP - 1, x, CHART_BOTTOM + 1);
+	LCD_FillRect(x, CLIMATE_TOP - 1, x, CHART_BOTTOM + 1);
 
-	// faint grid every 10 degC and a tick every 15 minutes
+	// faint grid every 10 degC and a tick every 5 minutes
 	GUI_SetColor(COLOR_GRID);
 	for (int t = 40; t <= 140; t += 20)
 		climate_dash(TUBE, t, x, 3);
-	if (x % 60 == 0)
+	if (x % COLUMNS_PER_TICK == 0)
 		LCD_FillRect(x, CHART_BOTTOM - 3, x, CHART_BOTTOM);
 
 	// tube setting and target RH dashed, Min Tube dotted
@@ -255,7 +266,7 @@ STATIC void climate_draw_column(const climate_state_t *s, int x) {
 	}
 }
 
-/* Samples a column every 15 s for the first hour of therapy and draws what
+/* Samples a column every 7.5 s for the first 30 minutes of therapy and draws what
  * changed when draw is set; a new session clears the chart. Returns whether
  * the chart has data to show.
  */
@@ -282,10 +293,14 @@ STATIC bool climate_update(climate_state_t *s, bool draw, bool all) {
 		s->column = 0xffff;
 		all = true;
 	}
+	if (s->redraw) {
+		s->redraw = 0;
+		all = true;
+	}
 	s->last_tick = now;
 	s->last_therapy = therapy;
 
-	/* Setpoints are checked once a column, also after the hour. */
+	/* Setpoints are checked once a column, also after the 30 minutes. */
 	unsigned column = (now - s->start_tick) / TICKS_PER_COLUMN;
 	bool sampled = false;
 	if (column != s->column) {
@@ -315,6 +330,11 @@ STATIC bool climate_update(climate_state_t *s, bool draw, bool all) {
 }
 
 // The parent also calls this draw method when only the numeric row is invalidated.
+/* The climate chart is on screen and covers the mode and pressure readouts. */
+STATIC bool climate_covers_readouts(void) {
+	return graph_climate && *therapy_mode != MODE_OFF && graph_enabled();
+}
+
 STATIC bool graph_widget_is_invalidated(void) {
 	const short * const clip = (short*)(gui_context + 8);
 	const short xOff = *(short*)(gui_context + 76);
@@ -416,7 +436,10 @@ int MAIN start(int *obj) {
 	}
 	if (!graph_widget_is_invalidated()) return 0;
 	if (graph_climate) {
-		climate_update((climate_state_t *)get_graph_state(), true, true);
+		climate_state_t *s = (climate_state_t *)get_graph_state();
+		climate_update(s, true, true);
+		// the readouts it covers may paint after it in this repaint
+		s->redraw = 1;
 		return 1;
 	}
 	return graph_draw_current_column(false);
@@ -458,6 +481,9 @@ void MAIN graph_header_update(void *obj) {
 	((graph_header_update_t)graph_header_update_original)(obj);
 	*hwin = saved_hwin;
 
+	// the climate chart covers the mode and pressure support text
+	if (climate_covers_readouts())
+		return;
 	if (fixed_string_changed(old_left, base + 0x90, sizeof(old_left)) ||
 	    fixed_string_changed(old_right, base + 0xa5, sizeof(old_right)) ||
 	    bytes_changed(old_status, base + 0x8c, sizeof(old_status)))
@@ -482,6 +508,9 @@ void MAIN graph_numbers_update(void *obj, int left_var, int right_var) {
 		obj, left_var, right_var);
 	*hwin = saved_hwin;
 
+	// the climate chart covers the pressure readouts
+	if (climate_covers_readouts())
+		return;
 	if (fixed_string_changed(old_left, base + 0x10, sizeof(old_left)) ||
 	    fixed_string_changed(old_right, base + 0x15, sizeof(old_right)))
 		gui_method_fc104_setup_and_invalidate(
