@@ -127,7 +127,7 @@ As the plate warms, the estimate rises, the cap follows it up, and the tube
 warms with it, so the air never gets much warmer than the humidity can support.
 
 <p align="center">
-  <img src="../../images/tube-warmup-comparison.svg" alt="Relative humidity and tube temperature over the first minutes of therapy, with stock firmware and with Humid Start" width="720">
+  <img src="../../images/humid-start-comparison.svg" alt="Relative humidity and tube temperature over the first minutes of therapy, with stock firmware and with Humid Start" width="720">
 </p>
 
 The charts show the idea with a 30 °C tube setting and an 85% target. The axis
@@ -255,7 +255,7 @@ With custom settings, clinical **Accessories** contains:
 | Start Coupling | RDW | 0.10-1.00, step 0.05 | 0.30 |
 
 Without custom settings, or when no label string is left for the coupling, the
-coupling keeps its default of 0.30 (the constant in `patches/tube_warmup_abi.S`).
+coupling keeps its default of 0.30 (the constant in `patches/humid_start_abi.S`).
 
 Each setting needs a label string, and the switch also an on/off variable,
 that no other installed feature uses. The `plus` image uses all of them, so
@@ -263,7 +263,7 @@ build it without features you don't need. Each one frees what its own settings
 used; for example, without ST iBR and AutoEPAP:
 
 ```
-make build/stm32-plus.bin AIR10_PATCH_ARGS='--patch-st-ibr n --patch-autoepap n --patch-tube-warmup y'
+make build/stm32-plus.bin AIR10_PATCH_ARGS='--patch-st-ibr n --patch-autoepap n --patch-humid-start y'
 ```
 
 The switch is added first, then Start Coupling. The
@@ -271,7 +271,7 @@ The switch is added first, then Start Coupling. The
 Warm-up leaves. When no label is left for a setting it is skipped: without the
 switch Humid Start stays on. The build log reports what was added.
 
-Enable it with `--patch-tube-warmup y` or `PATCH_TUBE_WARMUP=1`. It is off by
+Enable it with `--patch-humid-start y` or `PATCH_HUMID_START=1`. It is off by
 default and requires font repacking (on by default).
 
 ## Header Clock
