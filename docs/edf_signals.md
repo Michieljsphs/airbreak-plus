@@ -30,7 +30,15 @@
 | 14 | AlvMinVent.2s | AAV | 30 | 0.5 Hz | . | . | . | . | x |
 | 15 | CLRatio.2s | RCR | 30 | 0.5 Hz | . | . | . | . | x |
 | 16 | TRRatio.2s | RTR | 30 | 0.5 Hz | . | . | . | . | x |
-| 17 | Crc16 | DCR | 1 | 1/rec | x | x | x | x | x |
+| 17 | PlateTemp.2s | HPT | 30 | 0.5 Hz | + | + | + | + | + |
+| 18 | TubeTemp.2s | HTT | 30 | 0.5 Hz | + | + | + | + | + |
+| 19 | AmbTemp.2s | HAT | 30 | 0.5 Hz | + | + | + | + | + |
+| 20 | AmbHum.2s | HAH | 30 | 0.5 Hz | + | + | + | + | + |
+| 21 | Crc16 | DCR | 1 | 1/rec | x | x | x | x | x |
+
+`+` marks climate signals that the stock firmware does not record; only the EDF
+merge patch adds them. Ranges come from the variable descriptors: plate 0–95 °C,
+tube 0–40 °C, ambient 0–125 °C (all /10), ambient RH 0–1 (/1000).
 
 ## SAD.edf -- SpO2/pulse (1 Hz, 60s records)
 

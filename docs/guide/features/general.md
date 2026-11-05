@@ -202,6 +202,20 @@ The files remain standard EDF files on the SD card. Signals not used or
 produced by the active therapy mode or connected hardware may remain empty or
 zero, and the additional channels can make the files slightly larger.
 
+The patch also adds climate signals to `PLD.edf`, sampled every 2 seconds, so
+the humidifier can be followed through the night:
+
+| Signal | Source | Unit |
+| --- | --- | --- |
+| `PlateTemp.2s` | Humidifier plate temperature (`HPT`) | °C, 0.1 °C steps |
+| `TubeTemp.2s` | Heated tube temperature (`HTT`) | °C, 0.1 °C steps |
+| `AmbTemp.2s` | Room temperature from the humidifier sensor (`HAT`) | °C, 0.1 °C steps |
+| `AmbHum.2s` | Room relative humidity from the humidifier sensor (`HAH`) | fraction 0–1 (0.55 = 55 %), although the header says `%` |
+
+Without a heated tube `TubeTemp.2s` stays at 0. The RH estimate shown in the
+header and climate graph is calculated by the patch and is not recorded. OSCAR
+does not know these signal names and may not plot them; any EDF reader can.
+
 ## myAir Cloud Compatibility
 
 myAir accepts sessions only when the selected therapy mode is supported by the

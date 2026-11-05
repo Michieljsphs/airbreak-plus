@@ -76,6 +76,11 @@ PLD_SIGNALS = [
     ("AlvMinVent.2s", "AAV", 30),
     ("CLRatio.2s",   "RCR", 30),
     ("TRRatio.2s",   "RTR", 30),
+    # Climate sensors; EDF ranges come from each variable's g[4] descriptor.
+    ("PlateTemp.2s", "HPT", 30),
+    ("TubeTemp.2s",  "HTT", 30),
+    ("AmbTemp.2s",   "HAT", 30),
+    ("AmbHum.2s",    "HAH", 30),
     ("Crc16",        "DCR", 1),
 ]
 
