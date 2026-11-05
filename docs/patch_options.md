@@ -60,10 +60,10 @@ Each patcher's `--help` lists available options and defaults.
 ### Graphical editor
 
 A step-by-step guide for Windows, Linux and WSL is in the
-[patch options window guide](guide/patch_gui.md).
+[AirBreaker guide](guide/patch_gui.md).
 
-`patch-airsense-gui.bat` (Windows, no console) or `python python/patch_config_gui.py`
-opens a window for the Air 10 `patch-airsense.config`. Patches are grouped by
+`airbreaker.bat` (Windows, no console) or `python python/airbreaker.py`
+opens AirBreaker, a window for the Air 10 `patch-airsense.config`. Patches are grouped by
 phase and read from `patch-airsense.py`, so the list always matches the patcher.
 The Plus preset button selects the patches of `build/stm32-plus.bin`.
 Ticking a patch also ticks the patches it requires; unticking one unticks the
@@ -78,7 +78,7 @@ options and runs the patcher on a chosen image, showing its output. Its Build
 payloads button runs `make binaries`, through WSL on Windows (see
 [WSL2 setup](guide/wsl_setup.md)), which the compiled payloads need first. The
 Flash device section dumps, flashes and verifies over SWD with OpenOCD; see
-[Flashing](guide/flashing.md#from-the-patch-options-window). The window itself
+[Flashing](guide/flashing.md#from-airbreaker). The window itself
 needs only Python with tkinter.
 
 ## Precedence
@@ -159,4 +159,4 @@ The Air 10 option list is available through `patch-airsense.py --help`.
 [Air11 patching guide](guide/as11/patching.md),
 [Air 10 configuration example](../patch-airsense.config.example),
 [Air11 configuration example](../patch-airsense-s11.config.example),
-[Air 10 options window](../python/patch_config_gui.py).
+[AirBreaker](../python/airbreaker.py).

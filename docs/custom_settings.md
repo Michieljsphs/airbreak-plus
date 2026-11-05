@@ -71,6 +71,14 @@ An unpatched ABI slot contains `0xFFFF`. Payload code treats that value as a
 request for its built-in fallback. The menu framework therefore configures a
 payload but is not a runtime dependency of that payload.
 
+`--hide-menu-items ITEM,...` uses this contract to leave single settings out
+of the menu. A hidden item claims no reclaimed variable or label string, so a
+setting that takes what others leave (Humid Start, Min Tube, Start Coupling,
+Climate) can get a menu item instead. Its ABI slot stays `0xFFFF` and the
+payload uses its built-in value (`MENU_ITEMS` in `python/patch-airsense.py`
+lists the items and those values). In AirBreaker this is the *Show in menu*
+row under each patch.
+
 ## Persistence
 
 Stock Reminder variables belong to the globals[16] group named `RGL`. The
