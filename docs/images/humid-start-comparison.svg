@@ -1,8 +1,8 @@
-<svg xmlns="http://www.w3.org/2000/svg" width="760" height="640" viewBox="0 0 760 640" role="img" aria-labelledby="title desc">
-<title id="title">Humid Start compared with stock firmware</title>
-<desc id="desc">Two charts of relative humidity at the mask and tube temperature over the first minutes of therapy with a 30 degree tube setting. With stock firmware the tube reaches its setting long before the air reaches 85 percent RH. With Humid Start the tube follows the water and RH reaches 85 percent sooner.</desc>
+<svg xmlns="http://www.w3.org/2000/svg" width="760" height="960" viewBox="0 0 760 960" role="img" aria-labelledby="title desc">
+<title id="title">Humid Start compared with stock firmware, with and without Min Tube</title>
+<desc id="desc">Three charts of relative humidity at the mask and tube temperature over the first minutes of therapy in an 18 degree room with a 30 degree tube setting. With stock firmware the tube reaches its setting long before the air reaches 85 percent RH. With Humid Start the tube stays at room temperature until the water can support the target, so RH reaches 85 percent sooner. With Min Tube set to 20 degrees the tube heats to 20 degrees at once and then follows the water.</desc>
 <style>.bg{fill:#fbfaf5}.grid{stroke:#d9d6ca;stroke-width:1}.axis{stroke:#9b988c;stroke-width:1}.ref{stroke:#8a877b;stroke-width:1.2;stroke-dasharray:5 4}.rh,.tube{fill:none;stroke-width:2.5;stroke-linejoin:round;stroke-linecap:round}.rh{stroke:#2a78d6}.tube{stroke:#eb6834}.title{font:500 15px sans-serif;fill:#263238}.sub{font:12px sans-serif;fill:#5a6a70}</style>
-<rect class="bg" width="760" height="640" rx="8"/>
+<rect class="bg" width="760" height="960" rx="8"/>
 <text x="24" y="26" class="title">Stock firmware: the tube is at its 30 °C setting long before the air reaches 85 % RH</text>
 <line x1="24" y1="52" x2="46" y2="52" class="rh"/><text x="52" y="56" class="sub">RH at the mask (left axis)</text>
 <line x1="238" y1="52" x2="260" y2="52" class="tube"/><text x="266" y="56" class="sub">Tube temperature (right axis)</text>
@@ -23,11 +23,11 @@
 <text x="704" y="96.0" class="sub">35°C</text>
 <line x1="64" y1="119.0" x2="696" y2="119.0" class="ref"/><text x="72" y="113.0" class="sub">Target RH 85 %</text>
 <line x1="64" y1="137.0" x2="696" y2="137.0" class="ref"/><text x="688" y="157.0" class="sub" text-anchor="end">Tube setting 30 °C</text>
-<path class="rh" d="M64.0,188.3L77.2,197.5L90.3,201.4L103.5,198.1L116.7,194.7L129.8,191.2L143.0,187.6L156.2,184.0L169.3,180.4L182.5,176.9L195.7,173.4L208.8,169.9L222.0,166.6L235.2,163.4L248.3,160.2L261.5,157.2L274.7,154.4L287.8,151.6L301.0,149.0L314.2,146.4L327.3,144.0L340.5,141.8L353.7,139.6L366.8,137.5L380.0,135.6L393.2,133.7L406.3,132.0L419.5,130.3L432.7,128.7L445.8,127.2L459.0,125.8L472.2,124.4L485.3,123.2L498.5,122.0L511.7,120.8L524.8,119.8L538.0,119.0L551.2,119.0L564.3,119.0L577.5,119.0L590.7,119.0L603.8,119.0L617.0,119.0L630.2,119.0L643.3,119.0L656.5,119.0L669.7,119.0L682.8,119.0L696.0,119.0"/>
-<path class="tube" d="M64.0,215.8L77.2,197.3L90.3,183.2L103.5,172.3L116.7,164.1L129.8,157.7L143.0,152.9L156.2,149.1L169.3,146.3L182.5,144.1L195.7,142.5L208.8,141.2L222.0,140.2L235.2,139.4L248.3,138.9L261.5,138.4L274.7,138.1L287.8,137.8L301.0,137.6L314.2,137.5L327.3,137.4L340.5,137.3L353.7,137.2L366.8,137.2L380.0,137.1L393.2,137.1L406.3,137.1L419.5,137.1L432.7,137.0L445.8,137.0L459.0,137.0L472.2,137.0L485.3,137.0L498.5,137.0L511.7,137.0L524.8,137.0L538.0,137.0L551.2,137.0L564.3,137.0L577.5,137.0L590.7,137.0L603.8,137.0L617.0,137.0L630.2,137.0L643.3,137.0L656.5,137.0L669.7,137.0L682.8,137.0L696.0,137.0"/>
+<path class="rh" d="M64.0,189.5L90.3,207.7L116.7,210.6L143.0,201.9L169.3,193.6L195.7,185.7L222.0,178.2L248.3,171.3L274.7,164.8L301.0,158.9L327.3,153.6L353.7,148.7L380.0,144.3L406.3,140.4L432.7,136.8L459.0,133.7L485.3,130.8L511.7,128.3L538.0,126.0L564.3,123.9L590.7,122.1L617.0,120.5L643.3,119.0L669.7,119.0L696.0,119.0"/>
+<path class="tube" d="M64.0,231.5L90.3,192.4L116.7,169.5L143.0,156.0L169.3,148.2L195.7,143.5L222.0,140.8L248.3,139.2L274.7,138.3L301.0,137.8L327.3,137.5L353.7,137.3L380.0,137.2L406.3,137.1L432.7,137.1L459.0,137.0L485.3,137.0L511.7,137.0L538.0,137.0L564.3,137.0L590.7,137.0L617.0,137.0L643.3,137.0L669.7,137.0L696.0,137.0"/>
 <circle cx="696.0" cy="119.0" r="4.5" fill="#2a78d6"/><circle cx="696.0" cy="137.0" r="4.5" fill="#eb6834"/>
 <text x="380" y="306" class="sub" text-anchor="middle">Time (illustrative) →</text>
-<text x="24" y="346" class="title">Humid Start: RH reaches 85 % sooner because the tube follows the water</text>
+<text x="24" y="346" class="title">Humid Start: RH reaches 85 % sooner, but the tube stays at room temperature at first</text>
 <line x1="24" y1="372" x2="46" y2="372" class="rh"/><text x="52" y="376" class="sub">RH at the mask (left axis)</text>
 <line x1="238" y1="372" x2="260" y2="372" class="tube"/><text x="266" y="376" class="sub">Tube temperature (right axis)</text>
 <line x1="64" y1="592.0" x2="696" y2="592.0" class="axis"/>
@@ -47,8 +47,33 @@
 <text x="704" y="416.0" class="sub">35°C</text>
 <line x1="64" y1="439.0" x2="696" y2="439.0" class="ref"/><text x="72" y="433.0" class="sub">Target RH 85 %</text>
 <line x1="64" y1="457.0" x2="696" y2="457.0" class="ref"/><text x="688" y="477.0" class="sub" text-anchor="end">Tube setting 30 °C</text>
-<path class="rh" d="M64.0,502.0L77.2,502.0L90.3,498.7L103.5,487.5L116.7,476.9L129.8,466.8L143.0,457.3L156.2,448.3L169.3,439.8L182.5,439.0L195.7,439.0L208.8,439.0L222.0,439.0L235.2,439.0L248.3,439.0L261.5,439.0L274.7,439.0L287.8,439.0L301.0,439.0L314.2,439.0L327.3,439.0L340.5,439.0L353.7,439.0L366.8,439.0L380.0,439.0L393.2,439.0L406.3,439.0L419.5,439.0L432.7,439.0L445.8,439.0L459.0,439.0L472.2,439.0L485.3,439.0L498.5,439.0L511.7,439.0L524.8,439.0L538.0,439.0L551.2,439.0L564.3,439.0L577.5,439.0L590.7,439.0L603.8,439.0L617.0,439.0L630.2,439.0L643.3,439.0L656.5,439.0L669.7,439.0L682.8,439.0L696.0,439.0"/>
-<path class="tube" d="M64.0,547.0L77.2,547.0L90.3,547.0L103.5,547.0L116.7,547.0L129.8,547.0L143.0,547.0L156.2,547.0L169.3,547.0L182.5,545.3L195.7,541.9L208.8,537.5L222.0,532.6L235.2,527.4L248.3,522.3L261.5,517.2L274.7,512.4L287.8,507.9L301.0,503.5L314.2,499.5L327.3,495.7L340.5,492.2L353.7,488.9L366.8,485.8L380.0,482.9L393.2,480.2L406.3,477.7L419.5,475.3L432.7,473.1L445.8,471.1L459.0,469.2L472.2,467.4L485.3,465.7L498.5,464.1L511.7,462.6L524.8,461.2L538.0,460.0L551.2,459.1L564.3,458.4L577.5,458.0L590.7,457.7L603.8,457.5L617.0,457.3L630.2,457.2L643.3,457.2L656.5,457.1L669.7,457.1L682.8,457.1L696.0,457.0"/>
-<circle cx="696.0" cy="439.0" r="4.5" fill="#2a78d6"/><circle cx="696.0" cy="457.0" r="4.5" fill="#eb6834"/>
+<path class="rh" d="M64.0,502.0L90.3,502.0L116.7,492.7L143.0,468.8L169.3,447.4L195.7,439.0L222.0,439.0L248.3,439.0L274.7,439.0L301.0,439.0L327.3,439.0L353.7,439.0L380.0,439.0L406.3,439.0L432.7,439.0L459.0,439.0L485.3,439.0L511.7,439.0L538.0,439.0L564.3,439.0L590.7,439.0L617.0,439.0L643.3,439.0L669.7,439.0L696.0,439.0"/>
+<path class="tube" d="M64.0,565.0L90.3,565.0L116.7,565.0L143.0,565.0L169.3,565.0L195.7,562.2L222.0,552.6L248.3,540.9L274.7,529.5L301.0,519.0L327.3,509.8L353.7,501.8L380.0,494.8L406.3,488.7L432.7,483.5L459.0,478.9L485.3,474.9L511.7,471.4L538.0,468.3L564.3,465.6L590.7,463.2L617.0,461.1L643.3,459.2L669.7,458.1L696.0,457.5"/>
+<circle cx="696.0" cy="439.0" r="4.5" fill="#2a78d6"/><circle cx="696.0" cy="457.5" r="4.5" fill="#eb6834"/>
 <text x="380" y="626" class="sub" text-anchor="middle">Time (illustrative) →</text>
+<text x="24" y="666" class="title">With Min Tube 20 °C: the tube heats to 20 °C at once, then follows the water</text>
+<line x1="24" y1="692" x2="46" y2="692" class="rh"/><text x="52" y="696" class="sub">RH at the mask (left axis)</text>
+<line x1="238" y1="692" x2="260" y2="692" class="tube"/><text x="266" y="696" class="sub">Tube temperature (right axis)</text>
+<line x1="64" y1="912.0" x2="696" y2="912.0" class="axis"/>
+<text x="56" y="916.0" class="sub" text-anchor="end">0%</text>
+<text x="704" y="916.0" class="sub">15°C</text>
+<line x1="64" y1="867.0" x2="696" y2="867.0" class="grid"/>
+<text x="56" y="871.0" class="sub" text-anchor="end">25%</text>
+<text x="704" y="871.0" class="sub">20°C</text>
+<line x1="64" y1="822.0" x2="696" y2="822.0" class="grid"/>
+<text x="56" y="826.0" class="sub" text-anchor="end">50%</text>
+<text x="704" y="826.0" class="sub">25°C</text>
+<line x1="64" y1="777.0" x2="696" y2="777.0" class="grid"/>
+<text x="56" y="781.0" class="sub" text-anchor="end">75%</text>
+<text x="704" y="781.0" class="sub">30°C</text>
+<line x1="64" y1="732.0" x2="696" y2="732.0" class="grid"/>
+<text x="56" y="736.0" class="sub" text-anchor="end">100%</text>
+<text x="704" y="736.0" class="sub">35°C</text>
+<line x1="64" y1="759.0" x2="696" y2="759.0" class="ref"/><text x="72" y="753.0" class="sub">Target RH 85 %</text>
+<line x1="64" y1="777.0" x2="696" y2="777.0" class="ref"/><text x="688" y="797.0" class="sub" text-anchor="end">Tube setting 30 °C</text>
+<line x1="64" y1="867.0" x2="696" y2="867.0" class="ref"/><text x="72" y="861.0" class="sub">Min Tube 20 °C</text>
+<path class="rh" d="M64.0,823.7L90.3,828.1L116.7,821.6L143.0,801.1L169.3,782.5L195.7,765.8L222.0,759.0L248.3,759.0L274.7,759.0L301.0,759.0L327.3,759.0L353.7,759.0L380.0,759.0L406.3,759.0L432.7,759.0L459.0,759.0L485.3,759.0L511.7,759.0L538.0,759.0L564.3,759.0L590.7,759.0L617.0,759.0L643.3,759.0L669.7,759.0L696.0,759.0"/>
+<path class="tube" d="M64.0,882.0L90.3,874.2L116.7,870.5L143.0,868.7L169.3,867.8L195.7,867.4L222.0,865.1L248.3,857.3L274.7,847.7L301.0,838.2L327.3,829.4L353.7,821.6L380.0,814.7L406.3,808.7L432.7,803.5L459.0,798.9L485.3,794.9L511.7,791.4L538.0,788.3L564.3,785.6L590.7,783.2L617.0,781.1L643.3,779.2L669.7,778.1L696.0,777.5"/>
+<circle cx="696.0" cy="759.0" r="4.5" fill="#2a78d6"/><circle cx="696.0" cy="777.5" r="4.5" fill="#eb6834"/>
+<text x="380" y="946" class="sub" text-anchor="middle">Time (illustrative) →</text>
 </svg>
