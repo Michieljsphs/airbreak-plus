@@ -42,9 +42,9 @@ Settings are assigned when their corresponding patch or payload is active.
 | [Backlight adaptation](guide/features/backlight.md) | Buttons / Low | LBL | g[4] | CSG |
 | [Backlight adaptation](guide/features/backlight.md) | Buttons / High | LBH | g[4] | CSG |
 | [Target humidity](guide/features/general.md#target-humidity) | Target RH (%) | RCH | g[4] | CSG |
-| [Humid Start](guide/features/general.md#humid-start) | Humid Start | first free of RXW, RSA, RPF, RPW, RPO, RPH, RXM, RXH; omitted when none or no label string is free | g[8] | CSG |
-| [Humid Start](guide/features/general.md#humid-start) | Min Tube (C) | RDH; omitted when no label string is free | g[4] | CSG |
-| [Humid Start](guide/features/general.md#humid-start) | Start Coupling | RDW; omitted when no label string is free | g[4] | CSG |
+| [Humid Start](guide/features/humid_start.md) | Humid Start | first free of RXW, RSA, RPF, RPW, RPO, RPH, RXM, RXH; omitted when none or no label string is free | g[8] | CSG |
+| [Humid Start](guide/features/humid_start.md) | Min Tube (C) | RDH; omitted when no label string is free | g[4] | CSG |
+| [Humid Start](guide/features/humid_start.md) | Start Coupling | RDW; omitted when no label string is free | g[4] | CSG |
 
 
 ## Application sequence
