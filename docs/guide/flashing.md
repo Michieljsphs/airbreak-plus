@@ -21,12 +21,12 @@ Takes about 30 seconds. The device reboots automatically.
 flash_new stm32.bin
 ```
 
-### From the patch options window
+### From AirBreaker
 
-See the [patch options window guide](patch_gui.md) for setup on Windows, Linux and WSL.
+See the [AirBreaker guide](patch_gui.md) for setup on Windows, Linux and WSL.
 
-The Flash device section of `patch-airsense-gui.bat` (or
-`python python/patch_config_gui.py`) runs the same commands without a telnet
+The Flash device section of `airbreaker.bat` (or
+`python python/airbreaker.py`) runs the same commands without a telnet
 session. Each button starts OpenOCD with `tcl/airsense.cfg`, runs one command
 and exits:
 
