@@ -121,7 +121,9 @@ You can drag the divider between them.
   the device. They are left out of the menu, which frees their slots and labels for
   settings marked *May be left out* (Humid Start, Climate, ...), and the
   feature keeps its built-in value (hover a setting to see it). Saved as
-  `--hide-menu-items`.
+  `--hide-menu-items`. Below the Patch button a warning names the settings
+  that will not fit in the menu. The number of free labels differs per
+  firmware version, so it is read from the chosen input firmware.
 - **Hover** a patch to see its description from the [patching guide](patching.md),
   what it requires, and the menu items it adds.
 - Ticking a patch also ticks the patches it needs; unticking one unticks the

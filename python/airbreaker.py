@@ -17,7 +17,9 @@ Needs only Python with tkinter (included in the Windows installer). Start it wit
 (no console) or python python/airbreaker.py.
 """
 import argparse
+from contextlib import redirect_stdout
 from copy import copy
+import io
 import glob
 import importlib.util
 import inspect
@@ -174,6 +176,33 @@ def menu_resources():
                 options[source] = spec.option
                 break
     return resources, pools, options
+
+
+_POOL_CACHE = {}
+
+
+def firmware_pools(path):
+    """{"labels", "g8", "g4"}: what the custom settings menu can use in this firmware image, found by the
+    patcher's own reclaim pass on a copy in memory; None when the file is missing or not a supported image."""
+    try:
+        key = (os.path.abspath(path), os.path.getmtime(path))
+    except OSError:
+        return None
+    if key not in _POOL_CACHE:
+        result = None
+        try:
+            with open(path, "rb") as f, redirect_stdout(io.StringIO()):
+                patches = P.ASFirmwarePatches(P.ASFirmware(f))
+                patches.custom_patch_settings_init()
+                if patches.custom_patch_settings_reclaim_reminders():
+                    patches.custom_patch_settings_rename_storage_group()
+                    patches.custom_build_string_pool()
+                    result = {"labels": len(patches.custom_string_pool), "g8": len(patches.custom_g8_reclaimed),
+                              "g4": len(patches.custom_g4_reclaimed)}
+        except Exception:   # not an Air 10 image, unsupported version, ...
+            result = None
+        _POOL_CACHE[key] = result
+    return _POOL_CACHE[key]
 
 
 class Tooltip:
@@ -463,6 +492,9 @@ class App(tk.Tk):
         self.stop_btn = ttk.Button(actions, text="Stop", command=self.stop, state="disabled")
         self.stop_btn.pack(side="left", padx=(6, 0))
         ttk.Checkbutton(actions, text="Verbose (per-patch details)", variable=self.verbose).pack(side="left", padx=12)
+        self.menu_warning = ttk.Label(patch, foreground="#b36b00", wraplength=560, justify="left")
+        self.menu_warning.grid(row=3, column=0, columnspan=3, sticky="w", pady=(6, 0))
+        self.infile.trace_add("write", lambda *_: self.read_firmware_pools())
 
         flash = ttk.LabelFrame(sections, text="Flash device (SWD, OpenOCD)", padding=8)
         flash.pack(side="left", fill="both", expand=True, padx=(8, 0))
@@ -526,6 +558,9 @@ class App(tk.Tk):
 
         for var in (self.outfile, self.backup):
             var.trace_add("write", lambda *_: self.update_steps())
+        counts = firmware_pools(self.infile.get().strip())
+        if counts:
+            self.pools.update(counts)
         self.load()
         overrides = env_overrides()
         if overrides:
@@ -698,27 +733,51 @@ class App(tk.Tk):
         for _, resources in selected:
             for key, _ in SLOTS:
                 used[key] += [name for name in resources[key] if name not in gone[key]]
+        pool = self.pools.get("labels")   # None: unknown, no input firmware read
+
+        def label_free():
+            return pool is None or len(used["labels"]) < pool
+
+        # Like the patcher, which runs these features last: a switch needs a free on/off variable and a
+        # label, the settings after it only a label; each one left without is not added.
         for option, resources in selected:
-            if resources["free_g8"]:
-                candidates, labels = resources["free_g8"]
-                labels = [label for label in labels if label not in gone["labels"]]
-                if any(item.free_g8 and self.item_option[item.key] == option for item in hidden):
-                    used["labels"] += labels   # no switch: the rest only needs labels
-                    continue
+            if not resources["free_g8"]:
+                continue
+            candidates, labels = resources["free_g8"]
+            labels = [label for label in labels if label not in gone["labels"]]
+            switch = next((item.label for item in P.MENU_ITEMS if item.free_g8 and item not in hidden
+                           and self.item_option[item.key] == option), None)
+            if switch in labels:
+                labels.remove(switch)
                 free = [var for var in candidates if var not in used["g8"]]
-                if free:
+                if free and label_free():
                     used["g8"].append(free[0])
-                    used["labels"] += labels
+                    used["labels"].append(switch)
                 else:
-                    used["omitted"] += labels
+                    used["omitted"].append(switch)
+            for label in labels:
+                if label_free():
+                    used["labels"].append(label)
+                else:
+                    used["omitted"].append(label)
         return used
+
+    def read_firmware_pools(self):
+        """Label count (and slot counts) of the input firmware, for the menu checks; unknown without one."""
+        counts = firmware_pools(self.infile.get().strip())
+        self.pools["labels"] = counts["labels"] if counts else None
+        if counts:
+            self.pools.update(g8=counts["g8"], g4=counts["g4"])
+        self.refresh()
 
     def usage_text(self, key):
         if key == "labels":
             return wrap_lines(
                 "Menu labels are stored in string IDs reclaimed from the stock Reminders menu: its title and "
                 "message strings plus the now unused names of the reclaimed variables. How many are free "
-                "depends on the firmware; tick Verbose and patch to see 'free reclaimed str_id' in the log.")
+                "depends on the firmware: the count is read from the input firmware (%s)." % (
+                    "%d here" % self.pools["labels"] if self.pools.get("labels") is not None
+                    else "none chosen or not readable"))
         if key:
             table = {"g8": "g[8]", "g4": "g[4]"}[key]
             return wrap_lines(
@@ -742,6 +801,18 @@ class App(tk.Tk):
         omitted = used["omitted"] if used else []
         self.usage_note.config(text="May be left out, no free on/off setting or label: " + ", ".join(omitted)
                                if omitted else "")
+        over = [label.lower() for key, label in SLOTS
+                if used and self.pools.get(key) is not None and len(used[key]) > self.pools[key]]
+        lines = []
+        if over:
+            lines.append("Too many menu settings (%s): the patch will fail. Untick 'Show in menu' for settings you "
+                         "do not need, or untick patches." % ", ".join(over))
+        if omitted:
+            lines.append("Not enough room in the menu: %s will be left out. Untick 'Show in menu' for other "
+                         "settings to make room." % ", ".join(omitted))
+        if used and self.pools.get("labels") is None:
+            lines.append("Choose the input firmware to also check the number of labels.")
+        self.menu_warning.config(text="\n".join(lines), foreground="#b00020" if over else "#b36b00")
 
     def current(self):
         """option -> value as the patcher takes it: True/False, or the percentage of a patch with a value.
