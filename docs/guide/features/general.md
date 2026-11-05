@@ -126,6 +126,17 @@ estimated moisture is small, so the cap is low and the tube heater stays off.
 As the plate warms, the estimate rises, the cap follows it up, and the tube
 warms with it, so the air never gets much warmer than the humidity can support.
 
+<p align="center">
+  <img src="../../images/tube-warmup-comparison.svg" alt="Relative humidity and tube temperature over the first minutes of therapy, with stock firmware and with Tube Warm-up" width="720">
+</p>
+
+The charts show the idea with a 30 °C tube setting and an 85% target. The axis
+values are real units, but the curves and the time axis are illustrative, not
+measurements. With stock firmware the tube reaches its setting within a few
+minutes, while the air is still drier than the target. With Tube Warm-up the
+tube stays near room temperature until the water can support the target, then
+follows the water up, so the RH reaches the target sooner and stays there.
+
 - The cap is never lower than 16 °C, the lowest tube setting. The tube heater
   stays off while the measured tube is above the cap.
 - The humidity model keeps aiming for the full tube temperature, so the plate
