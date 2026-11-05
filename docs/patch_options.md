@@ -65,6 +65,7 @@ A step-by-step guide for Windows, Linux and WSL is in the
 `patch-airsense-gui.bat` (Windows, no console) or `python python/patch_config_gui.py`
 opens a window for the Air 10 `patch-airsense.config`. Patches are grouped by
 phase and read from `patch-airsense.py`, so the list always matches the patcher.
+The Plus preset button selects the patches of `build/stm32-plus.bin`.
 Ticking a patch also ticks the patches it requires; unticking one unticks the
 patches that depend on it. Options that differ from the built-in default are
 shown bold. Save writes only those options; other patcher options already in
