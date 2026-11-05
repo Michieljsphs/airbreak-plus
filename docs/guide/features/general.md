@@ -130,12 +130,15 @@ warms with it, so the air never gets much warmer than the humidity can support.
   <img src="../../images/humid-start-comparison.svg" alt="Relative humidity and tube temperature over the first minutes of therapy, with stock firmware and with Humid Start" width="720">
 </p>
 
-The charts show the idea with a 30 °C tube setting and an 85% target. The axis
-values are real units, but the curves and the time axis are illustrative, not
-measurements. With stock firmware the tube reaches its setting within a few
-minutes, while the air is still drier than the target. With Humid Start the
-tube stays near room temperature until the water can support the target, then
-follows the water up, so the RH reaches the target sooner and stays there.
+The charts show the idea in an 18 °C room with a 30 °C tube setting and an 85%
+target. The axis values are real units, but the curves and the time axis are
+illustrative, not measurements. With stock firmware the tube reaches its setting
+within a few minutes, while the air is still drier than the target. With Humid
+Start the tube stays near room temperature until the water can support the
+target, then follows the water up, so the RH reaches the target sooner and stays
+there. The third chart adds [Min Tube](#min-tube) at 20 °C: the tube heats to
+20 °C at once and waits there, so the first air is warmer, and the RH reaches the
+target about a minute later.
 
 - The cap is never lower than 16 °C, the lowest tube setting, or the
   [Min Tube](#min-tube) setting. The tube heater stays off while the measured
