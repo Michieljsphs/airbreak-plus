@@ -1519,10 +1519,10 @@ class ASFirmwarePatches(CompiledPayloadMixin):
         self._custom_detail('Target RH: %s var_id=0x%04X at 0x%08X' % (var, vid, addr))
 
     def custom_patch_settings_humid_start(self):
-        """Expose the Humid Start switch and coupling in Accessories."""
+        """Expose the Humid Start switch, Min Tube and coupling in Accessories."""
         # Runs after the fixed-name features and uses what they leave: a label
         # string for each setting and, for the switch, a free on/off slot. The
-        # switch comes first, then the coupling.
+        # switch comes first, then Min Tube, then the coupling.
         dep = self.asf.find_var_table_index(4, 'RGT')
         hint = 'build without e.g. --patch-st-ibr and --patch-autoepap to add it'
         enable = None
@@ -1539,6 +1539,20 @@ class ASFirmwarePatches(CompiledPayloadMixin):
             vid = self.asf.resolve_var_id(enable)
             addr = self._write_payload_u16('humid_start', 'humid_start_enable_var_id', vid)
             self._custom_detail('Humid Start: %s var_id=0x%04X at 0x%08X' % (enable, vid, addr))
+
+        # Minimum tube temperature: raw value is whole degC, 16-30, default 16
+        # (no minimum beyond the lowest tube setting). Needs only a label string.
+        if not self.custom_string_pool:
+            self._custom_detail('Min Tube: no free label string; ' + hint)
+        else:
+            min_tube = self.custom_claim_g4_var('RDH', 'humid_start_min_tube')
+            label = self.redefine_fw_string(-1, {0: 'Min Tube (C)'}, 'humid_start_min_tube_label')
+            self.redefine_g4_var(min_tube, 0x0007, 0, dep, label,
+                                 16, 30, 16, 0, 1, 1, self.asf.str_id_empty)
+            self.custom_menu_add('accessories', min_tube, self.CUSTOM_MENU_MODE_BITS)
+            vid = self.asf.resolve_var_id(min_tube)
+            addr = self._write_payload_u16('humid_start', 'humid_start_min_tube_var_id', vid)
+            self._custom_detail('Min Tube: %s var_id=0x%04X at 0x%08X' % (min_tube, vid, addr))
 
         # Plate coupling: raw value is the coupling * 100, 0.10-1.00 in steps
         # of 0.05, default 0.30. Needs only a label string.

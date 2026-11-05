@@ -23,6 +23,15 @@ humid_start_enable_var_id:
     .short 0xffff
 .size humid_start_enable_var_id, . - humid_start_enable_var_id
 
+/* Custom-settings variable for the minimum tube temperature (raw = whole
+ * degC); 0xffff uses the lowest tube setting.
+ */
+.global humid_start_min_tube_var_id
+.type humid_start_min_tube_var_id, %object
+humid_start_min_tube_var_id:
+    .short 0xffff
+.size humid_start_min_tube_var_id, . - humid_start_min_tube_var_id
+
 /* Custom-settings variable for the plate coupling (raw = coupling * 100);
  * 0xffff uses humid_start_plate_coupling above.
  */

@@ -5,7 +5,7 @@
  * dry. While the plate warms, cap the tube setpoint where the estimated moisture
  * the chamber adds (humidity_model.h) gives the target RH, and let the stock
  * model aim for HTS so the plate keeps heating at full demand. The cap is never
- * below the lowest tube setting (16 degC). The cap ends once
+ * below the lowest tube setting (16 degC) or the Min Tube setting. The cap ends once
  * it reaches HTS, the plate stops rising, or the warm-up time limit expires.
  * The stock model keeps aiming for HTS until the measured tube is within a
  * degree of it, so the plate does not cool when the tube is released.
@@ -73,6 +73,7 @@ extern void *const climate_inputs_vtable[];
 extern const float humid_start_plate_coupling;
 extern const unsigned short humid_start_enable_var_id;
 extern const unsigned short humid_start_coupling_var_id;
+extern const unsigned short humid_start_min_tube_var_id;
 extern int variable_get_by_id(int var_id);
 
 static float call_f(struct obj *o, int slot) { return ((getf_t)o->vptr[slot])(o); }
@@ -91,6 +92,20 @@ static float coupling(void)
     if (humid_start_coupling_var_id == 0xffffu)
         return humid_start_plate_coupling;
     return variable_get_by_id(humid_start_coupling_var_id) * 0.01f;
+}
+
+/* Lowest the cap goes: the custom Min Tube setting (whole degC), never below
+ * the lowest tube setting.
+ */
+static float cap_floor(void)
+{
+    float lowest = MIN_TUBE_TEMP;
+    if (humid_start_min_tube_var_id != 0xffffu) {
+        float setting = (float)variable_get_by_id(humid_start_min_tube_var_id);
+        if (setting > lowest)
+            lowest = setting;
+    }
+    return lowest;
 }
 
 static void restart(struct state *s, float plate)
@@ -180,11 +195,14 @@ float start(struct obj *inputs)
                                    variable_get_by_id(VAR_ID_HPM) * 0.01f,
                                    variable_get_by_id(VAR_ID_AFL) * 0.01f,
                                    coupling());
-    /* The floor is the lowest tube setting, not the ambient reading: the sensor
-     * sits in the warm case, and a floor above the tube would keep it heating.
+    /* The floor is the lowest tube setting or the Min Tube setting, not the
+     * ambient reading: the sensor sits in the warm case, and a floor above the
+     * tube would keep it heating. The tube heats to the floor at once and stays
+     * there until the estimated moisture allows more.
      */
+    float lowest = cap_floor();
     float limit = humidity_model_temperature(outlet, call_f(inputs, INPUT_TARGET_RH),
-                                             set < MIN_TUBE_TEMP ? set : MIN_TUBE_TEMP, set);
+                                             set < lowest ? set : lowest, set);
     if (limit + 0.01f >= set) {
         finish(s);
         return set;
