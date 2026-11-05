@@ -1,6 +1,6 @@
 @echo off
-rem Opens the AirSense 10 patch options window (no console)
-set "GUI=%~dp0python\patch_config_gui.py"
+rem Opens AirBreaker (no console)
+set "GUI=%~dp0python\airbreaker.py"
 
 rem Python Launcher (python.org installs), then any Python on PATH.
 where pyw >nul 2>&1 && (start "" pyw -3 "%GUI%" & exit /b 0)

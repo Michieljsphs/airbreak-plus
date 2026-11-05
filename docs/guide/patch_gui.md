@@ -1,6 +1,6 @@
-# Patch options window
+# AirBreaker
 
-A window for choosing patches, patching a firmware image and flashing it to an
+AirBreaker is a window for choosing patches, patching a firmware image and flashing it to an
 AirSense 10 / AirCurve 10, without typing commands. It does the same as the
 command line and `make`; use whichever you prefer.
 
@@ -42,11 +42,11 @@ Run it from the repository folder. Pick your platform:
    In the installer, keep **py launcher** and **tcl/tk and IDLE** selected.
 2. Set up [WSL2](wsl_setup.md) with the toolchain. It is only needed for
    *Build payloads* (and for flashing through WSL).
-3. Double-click `patch-airsense-gui.bat` in the repository folder. It opens the
+3. Double-click `airbreaker.bat` in the repository folder. It opens the
    window without a console. If Python is not found, the batch file tells you
    what to install.
 
-Without the batch file: `python python\patch_config_gui.py` in a terminal
+Without the batch file: `python python\airbreaker.py` in a terminal
 shows the same window, with error output in the terminal.
 
 Keep the repository in a normal Windows folder (for example under `C:\Users\you`).
@@ -57,7 +57,7 @@ works best with a Windows path.
 
 ```bash
 sudo apt install python3-tk make gcc-arm-none-eabi binutils-arm-none-eabi openocd
-python3 python/patch_config_gui.py
+python3 python/airbreaker.py
 ```
 
 On other distributions, install tkinter (`tk` on Arch, `python3-tkinter` on
@@ -75,7 +75,7 @@ server.
 
 ```bash
 sudo apt install python3-tk
-python3 python/patch_config_gui.py
+python3 python/airbreaker.py
 ```
 
 The toolchain from the [WSL setup](wsl_setup.md) is used as it is, so *Build

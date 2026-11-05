@@ -13,8 +13,8 @@ log. Build payloads runs make binaries (through WSL on Windows) to compile the p
 from build/. Flash device does over SWD what docs/guide/flashing.md does in the OpenOCD telnet console: each
 button runs OpenOCD once with tcl/airsense.cfg and one of its commands (dump, flash_new, ...), either a
 Windows openocd.exe or run-ocd.sh in WSL. The paths and choices are remembered in ~/.airbreak_patch_gui.json.
-Needs only Python with tkinter (included in the Windows installer). Start it with patch-airsense-gui.bat
-(no console) or python python/patch_config_gui.py.
+Needs only Python with tkinter (included in the Windows installer). Start it with airbreaker.bat
+(no console) or python python/airbreaker.py.
 """
 import argparse
 from copy import copy
@@ -42,10 +42,12 @@ PATCHER = os.path.join(HERE, "patch-airsense.py")
 sys.path.insert(0, HERE)   # patch-airsense.py imports lib.*
 from lib.patch_config import AIR10_LEGACY_OPTIONS, LOCAL_FILES  # noqa: E402
 
-TITLE = "AirSense 10 patch options"
+TITLE = "AirBreaker"
 CONFIG_FILE = os.path.join(REPO, LOCAL_FILES["air10"])
 SETTINGS_FILE = os.path.join(os.path.expanduser("~"), ".airbreak_patch_gui.json")
-HEADER = "# Written by python/patch_config_gui.py: only options that differ from the built-in defaults."
+HEADER = "# Written by python/airbreaker.py: only options that differ from the built-in defaults."
+# Files written before the rename (python/patch_config_gui.py) are ours too.
+OLD_HEADER = "# Written by python/patch_config_gui.py: only options that differ from the built-in defaults."
 DEFAULT_OUTPUT = os.path.join(REPO, "build", "stm32-patched.bin")
 DEFAULT_BACKUP = os.path.join(REPO, "stm32.bin")   # where docs/guide/openocd.md has the stock dump
 FLASH_SIZE = 0x100000   # flash_new and dump work on the whole 1 MB flash
@@ -742,7 +744,7 @@ class App(tk.Tk):
             self.saved_tokens, self.foreign = None, True
             messagebox.showerror(TITLE, "%s could not be read:\n\n%s" % (CONFIG_FILE, exc))
         if text:
-            self.foreign = not text.startswith(HEADER)
+            self.foreign = not text.startswith((HEADER, OLD_HEADER))
             try:
                 ns = self.parser.parse_args(shlex.split(text, comments=True))
                 values = {option: getattr(ns, dest(option)) for option in self.specs}
