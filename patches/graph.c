@@ -29,37 +29,38 @@
 #define CLIMATE_HEIGHT (CLIMATE_BOTTOM - CLIMATE_TOP)
 
 #define CLIMATE_COLUMNS 240
-/* system_tick_get counts 10 ms ticks: 240 columns of 7.5 s are 30 minutes. */
+/* The therapy timer counts 10 ms ticks: 240 columns of 7.5 s are 30 minutes. */
 #define TICKS_PER_COLUMN 750
 /* A grid tick every 5 minutes. */
 #define COLUMNS_PER_TICK 40
-/* A gap in updates this long may be a new session (see climate_update). */
-#define SESSION_GAP_TICKS 60000
 
 typedef struct {
 	int last_pos_x;
 } graph_state_t;
 
-/* Series and setpoints. Values are 0 for none, temperatures in half
- * degrees C, RH in percent.
+/* Series, also the scale of a setpoint line. Values are 0 for none,
+ * temperatures in half degrees C, RH in percent.
  */
-enum { PLATE, TUBE, RH, MIN_TUBE };
+enum { PLATE, TUBE, RH };
 
 /* Only allocated for the climate chart. */
 typedef struct {
 	graph_state_t base;
-	unsigned start_tick;
-	unsigned last_tick;
+	/* Therapy timer at the last update; it going back is a new session. */
 	unsigned last_therapy;
-	/* Columns since the start; keeps counting after the 30 minutes. */
-	unsigned short column;
+	/* Column of the therapy time at the last update; keeps counting after
+	 * the 30 minutes.
+	 */
+	unsigned column;
 	uint8 active;
-	/* Redraw the whole chart on the next update: the readouts it covers
-	 * may have painted over it.
+	/* Redraw the whole chart on the next update: the readouts and icon it
+	 * covers may have painted over it.
 	 */
 	uint8 redraw;
-	/* Tube setting, (unused), target RH, Min Tube */
-	uint8 setpoints[4];
+	/* Setpoint lines, 0 when not shown. */
+	uint8 tube_set;
+	uint8 rh_set;
+	uint8 min_tube;
 	uint8 data[3][CLIMATE_COLUMNS];
 } climate_state_t;
 
@@ -79,7 +80,6 @@ extern void gui_method_fc104_setup_and_invalidate(
 	uint32 hwin, int left, int top, int right, int bottom);
 extern void memcpy_unrolled(void *destination, const void *source,
 			    unsigned size);
-extern unsigned system_tick_get(void);
 extern float climate_target_rh_get(void);
 extern const uint8 graph_climate;
 extern const unsigned short graph_humid_start_var_id;
@@ -93,10 +93,17 @@ STATIC void init_graph_state(graph_state_t *state) {
 		((climate_state_t *)state)->active = ((climate_state_t *)state)->redraw = 0;
 }
 
+/* NULL when the heap had no room for it: the graph then draws nothing. */
 STATIC graph_state_t *get_graph_state(void) {
 	return get_pointer(PTR_GRAPH_DATA,
 			   graph_climate ? sizeof(climate_state_t) : sizeof(graph_state_t),
 			   (void (*)(void *))&init_graph_state);
+}
+
+STATIC void graph_state_reset(void) {
+	graph_state_t *state = get_graph_state();
+	if (state)
+		state->last_pos_x = -1;
 }
 
 STATIC bool graph_enabled(void) {
@@ -181,7 +188,7 @@ STATIC float coupling(void) {
 }
 
 /* Tube setting and Min Tube (0 when not shown), and the target RH. */
-STATIC void climate_setpoints(uint8 *set) {
+STATIC void climate_setpoints(climate_state_t *s) {
 	int hts = 0, floor = 0;
 	if (variable_get_by_id(VAR_ID_HTB)) {
 		hts = half_degrees(variable_get_by_id(VAR_ID_HTS));
@@ -192,10 +199,9 @@ STATIC void climate_setpoints(uint8 *set) {
 		if (floor <= 32 || floor >= hts)
 			floor = 0;
 	}
-	set[PLATE] = 0;
-	set[TUBE] = hts;
-	set[MIN_TUBE] = floor;
-	set[RH] = (int)(climate_target_rh_get() * 100.0f + 0.5f);
+	s->tube_set = hts;
+	s->min_tube = floor;
+	s->rh_set = (int)(climate_target_rh_get() * 100.0f + 0.5f);
 }
 
 /* Plate and tube temperatures and the estimated RH at the tube temperature,
@@ -235,10 +241,9 @@ STATIC void climate_dash(int series, int v, int x, int pattern) {
 
 STATIC void climate_draw_column(const climate_state_t *s, int x) {
 	static const unsigned colors[3] = { COLOR_PLATE, COLOR_TUBE, COLOR_RH };
-	const uint8 *set = s->setpoints;
 
 	GUI_SetColor(0x000000);
-	LCD_FillRect(x, CLIMATE_TOP - 1, x, CLIMATE_BOTTOM + 1);
+	LCD_FillRect(x, CLIMATE_TOP, x, CLIMATE_BOTTOM);
 
 	// faint grid every 10 degC and a tick every 5 minutes
 	GUI_SetColor(COLOR_GRID);
@@ -249,10 +254,10 @@ STATIC void climate_draw_column(const climate_state_t *s, int x) {
 
 	// tube setting and target RH dashed, Min Tube dotted
 	GUI_SetColor(COLOR_TUBE_SET);
-	climate_dash(TUBE, set[TUBE], x, 4);
-	climate_dash(TUBE, set[MIN_TUBE], x, 3);
+	climate_dash(TUBE, s->tube_set, x, 4);
+	climate_dash(TUBE, s->min_tube, x, 3);
 	GUI_SetColor(COLOR_RH_SET);
-	climate_dash(RH, set[RH], x, 4);
+	climate_dash(RH, s->rh_set, x, 4);
 
 	// plate, then RH, then the tube on top: 2 px lines joined to the
 	// previous column
@@ -264,42 +269,32 @@ STATIC void climate_draw_column(const climate_state_t *s, int x) {
 		int y = value_y(series, v[x]);
 		int y0 = x > 0 && v[x - 1] ? value_y(series, v[x - 1]) : y;
 		GUI_SetColor(colors[series]);
-		LCD_FillRect(x, min(y, y0), x, max(y, y0) + 1);
+		LCD_FillRect(x, min(y, y0), x, min(max(y, y0) + 1, CLIMATE_BOTTOM));
 	}
 }
 
-/* Samples a column every 7.5 s for the first 30 minutes of therapy and draws what
- * changed when draw is set; a new session clears the chart. Returns whether
- * the chart has data to show.
+/* Samples a column every 7.5 s of therapy time for the first 30 minutes,
+ * and redraws the whole chart on a new column or after a repaint; a new
+ * session clears the chart. Columns are counted from the therapy timer, so
+ * the chart starts at the start of therapy even when the therapy screen was
+ * not shown then.
  */
-STATIC bool climate_update(climate_state_t *s, bool draw, bool all) {
+STATIC void climate_update(climate_state_t *s) {
 	if (*therapy_mode == MODE_OFF) {
 		s->active = 0;
-		return false;
+		return;
 	}
-	unsigned now = system_tick_get();
 	unsigned therapy = *pap_timer;
-	/* A new session: therapy was seen off, its timer went back, or it
-	 * stood still (less than half the clock time) over a long gap. A long
-	 * gap with the therapy timer running is the same session, so the chart
-	 * survives a screen that stopped updating.
-	 */
-	unsigned gap = now - s->last_tick;
-	if (!s->active || therapy < s->last_therapy ||
-	    (gap > SESSION_GAP_TICKS && therapy - s->last_therapy < gap / 2)) {
+	bool all = s->redraw;
+	s->redraw = 0;
+	if (!s->active || therapy < s->last_therapy) {
 		uint8 *p = &s->data[0][0];
 		for (unsigned i = 0; i < sizeof(s->data); i++)
 			p[i] = 0;
 		s->active = 1;
-		s->start_tick = now;
-		s->column = 0xffff;
+		s->column = ~0u;
 		all = true;
 	}
-	if (s->redraw) {
-		s->redraw = 0;
-		all = true;
-	}
-	s->last_tick = now;
 	s->last_therapy = therapy;
 
 	/* Setpoints are checked once a column, also after the 30 minutes.
@@ -307,31 +302,30 @@ STATIC bool climate_update(climate_state_t *s, bool draw, bool all) {
 	 * stock widgets underneath painted over it (the readouts, the
 	 * humidifier icon) is covered again within a column.
 	 */
-	unsigned column = (now - s->start_tick) / TICKS_PER_COLUMN;
+	unsigned column = therapy / TICKS_PER_COLUMN;
 	if (column != s->column) {
 		s->column = column;
-		climate_setpoints(s->setpoints);
+		climate_setpoints(s);
 		if (column < CLIMATE_COLUMNS)
 			climate_sample(s, column);
 		all = true;
 	}
 
-	if (draw && all) {
+	if (all) {
 		gui_saved_t saved;
 		screen_begin(&saved);
 		for (int x = 0; x < CLIMATE_COLUMNS; x++)
 			climate_draw_column(s, x);
 		screen_end(&saved);
 	}
-	return true;
 }
 
-// The parent also calls this draw method when only the numeric row is invalidated.
 /* The climate chart is on screen and covers the mode and pressure readouts. */
 STATIC bool climate_covers_readouts(void) {
 	return graph_climate && *therapy_mode != MODE_OFF && graph_enabled();
 }
 
+// The parent also calls this draw method when only the numeric row is invalidated.
 STATIC bool graph_widget_is_invalidated(void) {
 	const short * const clip = (short*)(gui_context + 8);
 	const short xOff = *(short*)(gui_context + 76);
@@ -367,6 +361,8 @@ STATIC bool bytes_changed(const uint8 *before, const uint8 *after,
 
 STATIC int graph_draw_current_column(bool only_if_new) {
 	graph_state_t *state = get_graph_state();
+	if (!state)
+		return 0;
 
 	// don't do anything if we are not in an active therapy mode
 	if (*therapy_mode == 0) {
@@ -428,17 +424,19 @@ STATIC int graph_draw_current_column(bool only_if_new) {
 // Replaces the stock bar draw method.
 int MAIN start(int *obj) {
 	if (!graph_enabled()) {
-		get_graph_state()->last_pos_x = -1;
+		graph_state_reset();
 		return ((graph_draw_t)graph_draw_original)(obj);
 	}
-	if (!graph_widget_is_invalidated()) return 0;
 	if (graph_climate) {
+		// A repaint, also one of only the numeric row the chart covers:
+		// redraw the chart on the next update, after the readouts and icon
+		// it covers have painted in this repaint.
 		climate_state_t *s = (climate_state_t *)get_graph_state();
-		climate_update(s, true, true);
-		// the readouts it covers may paint after it in this repaint
-		s->redraw = 1;
+		if (s)
+			s->redraw = 1;
 		return 1;
 	}
+	if (!graph_widget_is_invalidated()) return 0;
 	return graph_draw_current_column(false);
 }
 
@@ -446,12 +444,14 @@ int MAIN start(int *obj) {
 // Preserve its state, but drive the time-based graph directly on each new column.
 int MAIN graph_widget_update(int *obj, int new_position) {
 	if (!graph_enabled()) {
-		get_graph_state()->last_pos_x = -1;
+		graph_state_reset();
 		return ((graph_update_t)graph_update_original)(obj, new_position);
 	}
 	obj[2] = new_position;
 	if (graph_climate) {
-		climate_update((climate_state_t *)get_graph_state(), true, false);
+		climate_state_t *s = (climate_state_t *)get_graph_state();
+		if (s)
+			climate_update(s);
 		return 0;
 	}
 	return graph_draw_current_column(true);

@@ -199,6 +199,38 @@ class ASFirmwarePatches(CompiledPayloadMixin):
     def _supports_compiled_payloads(self):
         return self.asf.cdx_ver.startswith('SX567-') and self._payload_version_key() in self.PAYLOAD_VERSIONS
 
+    def _font_storage_caves(self):
+        """(start, end) of this version's code caves in font storage (priority 1 in
+        patches/s10_code_caves.tsv), which only patch-font-repack frees."""
+        registry = os.path.join(self._payload_repo_dir(), 'patches', 's10_code_caves.tsv')
+        caves = []
+        try:
+            with open(registry, encoding='ascii') as source:
+                for line in source:
+                    fields = line.split()
+                    if (len(fields) == 7 and fields[0] == self._payload_version_key() and
+                            fields[1] == 'cdx' and fields[6] == '1'):
+                        caves.append((int(fields[2], 0), int(fields[3], 0)))
+        except OSError:
+            pass
+        return caves
+
+    def _inject_payload(self, name, data, region=None, empty_byte=0xff):
+        """As CompiledPayloadMixin, with a clear error when the layout put this payload in
+        font storage and patch-font-repack did not free it: the payloads of 0302 and later
+        do not all fit in the erased tail of the image."""
+        try:
+            return super()._inject_payload(name, data, region, empty_byte)
+        except ValueError as exc:
+            if region is None and 'is not empty' in str(exc):
+                storage = self._load_payload_layout()[1][name]['storage']
+                if any(start <= storage < end for start, end in self._font_storage_caves()):
+                    raise ValueError(
+                        "%s: on %s this payload is stored in font storage that "
+                        "--patch-font-repack frees; enable --patch-font-repack" %
+                        (name, self.asf.cdx_ver)) from exc
+            raise
+
     def _enum_option_labels(self, var):
         rec = self.asf.find_var(var)
         count = self.asf.read_u8(rec + self.asf.G8_NUM_OPTIONS)
