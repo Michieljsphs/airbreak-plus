@@ -1425,7 +1425,7 @@ class ASFirmwarePatches(CompiledPayloadMixin):
 
     def custom_patch_settings_header_climate(self):
         """Add a Climate switch for the header climate readout next to Clock."""
-        # Like the Tube Warm-up switch it takes a free on/off slot, but runs after it.
+        # Like the Humid Start switch it takes a free on/off slot, but runs after it.
         hint = 'build without e.g. --patch-st-ibr and --patch-autoepap to add it'
         enable = None
         if self.custom_string_pool:
@@ -1519,7 +1519,7 @@ class ASFirmwarePatches(CompiledPayloadMixin):
         self._custom_detail('Target RH: %s var_id=0x%04X at 0x%08X' % (var, vid, addr))
 
     def custom_patch_settings_tube_warmup(self):
-        """Expose the Tube Warm-up switch and coupling in Accessories."""
+        """Expose the Humid Start switch and coupling in Accessories."""
         # Runs after the fixed-name features and uses what they leave: a label
         # string for each setting and, for the switch, a free on/off slot. The
         # switch comes first, then the coupling.
@@ -1530,29 +1530,29 @@ class ASFirmwarePatches(CompiledPayloadMixin):
             enable = self.custom_claim_free_g8_var(
                 ('RXW', 'RSA', 'RPF', 'RPW', 'RPO', 'RPH', 'RXM', 'RXH'), 'tube_warmup_enable')
         if enable is None:
-            self._custom_detail('Tube Warm-up switch: no free label string or on/off slot; ' + hint)
+            self._custom_detail('Humid Start switch: no free label string or on/off slot; ' + hint)
         else:
-            label = self.redefine_fw_string(-1, {0: 'Tube Warm-up'}, 'tube_warmup_enable_label')
+            label = self.redefine_fw_string(-1, {0: 'Humid Start'}, 'tube_warmup_enable_label')
             self.redefine_g8_var(enable, 0x0007, 0, dep, label, 1,
                                  2, 0, 0x00000003, self.asf.str_id_off_on_base, 0)
             self.custom_menu_add('accessories', enable, self.CUSTOM_MENU_MODE_BITS)
             vid = self.asf.resolve_var_id(enable)
             addr = self._write_payload_u16('tube_warmup', 'tube_warmup_enable_var_id', vid)
-            self._custom_detail('Tube Warm-up: %s var_id=0x%04X at 0x%08X' % (enable, vid, addr))
+            self._custom_detail('Humid Start: %s var_id=0x%04X at 0x%08X' % (enable, vid, addr))
 
         # Plate coupling: raw value is the coupling * 100, 0.10-1.00 in steps
         # of 0.05, default 0.30. Needs only a label string.
         if not self.custom_string_pool:
-            self._custom_detail('Warm-up Coupling: no free label string; ' + hint)
+            self._custom_detail('Start Coupling: no free label string; ' + hint)
             return
         coupling = self.custom_claim_g4_var('RDW', 'tube_warmup_coupling')
-        label = self.redefine_fw_string(-1, {0: 'Warm-up Coupling'}, 'tube_warmup_coupling_label')
+        label = self.redefine_fw_string(-1, {0: 'Start Coupling'}, 'tube_warmup_coupling_label')
         self.redefine_g4_var(coupling, 0x0007, 0, dep, label,
                              30, 100, 10, 2, 100, 5, self.asf.str_id_empty)
         self.custom_menu_add('accessories', coupling, self.CUSTOM_MENU_MODE_BITS)
         vid = self.asf.resolve_var_id(coupling)
         addr = self._write_payload_u16('tube_warmup', 'tube_warmup_coupling_var_id', vid)
-        self._custom_detail('Warm-up Coupling: %s var_id=0x%04X at 0x%08X' % (coupling, vid, addr))
+        self._custom_detail('Start Coupling: %s var_id=0x%04X at 0x%08X' % (coupling, vid, addr))
         if 'header_clock' in self.applied_payloads:
             addr = self._write_payload_u16('header_clock', 'header_climate_coupling_var_id', vid)
             self._custom_detail('Header climate coupling var_id=0x%04X at 0x%08X' % (vid, addr))
@@ -1572,7 +1572,7 @@ class ASFirmwarePatches(CompiledPayloadMixin):
             ('target_rh', self.custom_patch_settings_target_rh),
             ('header_clock', self.custom_patch_settings_header_clock),
             # Last: their switches claim g[8] slots left free by the features
-            # above, Tube Warm-up before Climate.
+            # above, Humid Start before Climate.
             ('tube_warmup', self.custom_patch_settings_tube_warmup),
             ('header_climate', self.custom_patch_settings_header_climate),
         )
@@ -2195,7 +2195,7 @@ class ASFirmwarePatches(CompiledPayloadMixin):
         for offset, original, target, stock in hooks:
             self._replace_bytes_checked(
                 offset, struct.pack('<I', original), struct.pack('<I', target),
-                'tube warm-up ' + stock, accept_existing=True)
+                'humid start ' + stock, accept_existing=True)
             details.append(self._hook_detail(stock, self.asf.FLASH_BASE + offset, target))
         self.applied_payloads.add('tube_warmup')
         return PatchOutcome.ok(None, *details)
@@ -3387,7 +3387,7 @@ PATCH_PHASES = (
                   'Set target RH (default: 85%, y: 85%, n: disabled); custom settings adds a 70-100% menu control.',
                   85.0, 'patch_target_rh', value_type=target_rh_value),
         PatchSpec('patch-tube-warmup',
-                  'Hold the heated tube at the target RH temperature while the humidifier warms up.',
+                  'Humid Start: hold the heated tube at the target RH temperature while the humidifier warms up.',
                   False, 'patch_tube_warmup'),
         PatchSpec('patch-custom-palette', 'Patch the custom color palette.',
                   True, 'custom_palette'),
