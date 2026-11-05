@@ -35,16 +35,23 @@ const unsigned MAGIC = 0x07E49001;
 
 void *get_pointer(ptr_index index, int size, void (*init_fn)(void*)) {
   const int max_pointers = __PTR_LAST;
+  // Returns NULL, and tries again next time, when the heap has no room.
   if (magic_ptr_p->magic != MAGIC) {
-    magic_ptr_p->pointers = malloc(sizeof(void*) * max_pointers);
+    void **pointers = malloc(sizeof(void*) * max_pointers);
+    if (!pointers)
+      return 0;
+    magic_ptr_p->pointers = pointers;
     magic_ptr_p->magic = MAGIC;
     for(int i=0; i<max_pointers; i++) {
       magic_ptr_p->pointers[i] = 0;
     }
   }
   if (magic_ptr_p->pointers[index] == 0) {
-    magic_ptr_p->pointers[index] = malloc(size);
-    init_fn(magic_ptr_p->pointers[index]);
+    void *pointer = malloc(size);
+    if (!pointer)
+      return 0;
+    init_fn(pointer);
+    magic_ptr_p->pointers[index] = pointer;
   }
   return magic_ptr_p->pointers[index];
 }
