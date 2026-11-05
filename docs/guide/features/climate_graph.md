@@ -12,10 +12,12 @@ pressure and flow as before. You can't switch between the two on the device.
 
 ## What it shows
 
-The chart is taller than the pressure graph: it fills the therapy screen from
-just below the title bar down to the humidifier icon (y 90 to 235), over the
-mode and pressure readouts (such as VAuto, PS 4.0 and the two pressures).
-Those readouts are not shown while the chart is on. Time runs from left to
+The chart is much taller than the pressure graph: it fills the therapy screen
+from just below the title bar down to the bottom divider (y 74 to 278), over
+the mode and pressure readouts (such as VAuto, PS 4.0 and the two pressures)
+and the large humidifier icon. The chart is redrawn completely every 7.5
+seconds, so if one of those stock elements repaints itself, it is covered
+again within a few seconds. Time runs from left to
 right: one pixel column every 7.5 seconds, so the 240 columns cover 30
 minutes. A small tick at the bottom marks every 5 minutes.
 
@@ -53,9 +55,9 @@ Tube. If you change a setting, the dashed lines move within 7.5 seconds.
   running. When therapy stops the device leaves the therapy screen, and the
   chart is gone.
 - **Repaint:** the samples are kept in memory, so the chart is redrawn after
-  a menu or an alarm has covered the screen. When the screen is repainted the
-  mode and pressure readouts may flash for a moment before the chart covers
-  them again.
+  a menu or an alarm has covered the screen, or after leaving the therapy
+  screen and coming back. When the screen is repainted, the readouts and the
+  humidifier icon may flash for a moment before the chart covers them again.
 
 `--patch-graph-keep-screen-on` keeps the screen on during therapy for either
 graph.

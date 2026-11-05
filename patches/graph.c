@@ -23,8 +23,10 @@
  */
 #define CHART_TOP 155
 #define CHART_BOTTOM 235
-#define CLIMATE_TOP 90
-#define CLIMATE_HEIGHT (CHART_BOTTOM - CLIMATE_TOP)
+#define CLIMATE_TOP 74
+/* Down to just above the bottom divider, over the humidifier icon. */
+#define CLIMATE_BOTTOM 278
+#define CLIMATE_HEIGHT (CLIMATE_BOTTOM - CLIMATE_TOP)
 
 #define CLIMATE_COLUMNS 240
 /* system_tick_get counts 10 ms ticks: 240 columns of 7.5 s are 30 minutes. */
@@ -162,9 +164,9 @@ STATIC void screen_end(const gui_saved_t *saved) {
  * on a 20-100 % axis, both over the full chart height.
  */
 STATIC int value_y(int series, int v) {
-	int y = series == RH ? CHART_BOTTOM - (v - 20) * CLIMATE_HEIGHT / 80 :
-			       CHART_BOTTOM - (v - 30) * CLIMATE_HEIGHT / 112;
-	return clamp(y, CLIMATE_TOP, CHART_BOTTOM);
+	int y = series == RH ? CLIMATE_BOTTOM - (v - 20) * CLIMATE_HEIGHT / 80 :
+			       CLIMATE_BOTTOM - (v - 30) * CLIMATE_HEIGHT / 112;
+	return clamp(y, CLIMATE_TOP, CLIMATE_BOTTOM);
 }
 
 /* Raw degC * 10 to half degrees, 1..255 (0 means no data). */
@@ -236,14 +238,14 @@ STATIC void climate_draw_column(const climate_state_t *s, int x) {
 	const uint8 *set = s->setpoints;
 
 	GUI_SetColor(0x000000);
-	LCD_FillRect(x, CLIMATE_TOP - 1, x, CHART_BOTTOM + 1);
+	LCD_FillRect(x, CLIMATE_TOP - 1, x, CLIMATE_BOTTOM + 1);
 
 	// faint grid every 10 degC and a tick every 5 minutes
 	GUI_SetColor(COLOR_GRID);
 	for (int t = 40; t <= 140; t += 20)
 		climate_dash(TUBE, t, x, 3);
 	if (x % COLUMNS_PER_TICK == 0)
-		LCD_FillRect(x, CHART_BOTTOM - 3, x, CHART_BOTTOM);
+		LCD_FillRect(x, CLIMATE_BOTTOM - 3, x, CLIMATE_BOTTOM);
 
 	// tube setting and target RH dashed, Min Tube dotted
 	GUI_SetColor(COLOR_TUBE_SET);
@@ -300,30 +302,25 @@ STATIC bool climate_update(climate_state_t *s, bool draw, bool all) {
 	s->last_tick = now;
 	s->last_therapy = therapy;
 
-	/* Setpoints are checked once a column, also after the 30 minutes. */
+	/* Setpoints are checked once a column, also after the 30 minutes.
+	 * The whole chart is redrawn every column (7.5 s), so whatever the
+	 * stock widgets underneath painted over it (the readouts, the
+	 * humidifier icon) is covered again within a column.
+	 */
 	unsigned column = (now - s->start_tick) / TICKS_PER_COLUMN;
-	bool sampled = false;
 	if (column != s->column) {
-		uint8 set[4];
 		s->column = column;
-		climate_setpoints(set);
-		for (int i = 0; i < 4; i++) {
-			if (set[i] != s->setpoints[i])
-				all = true;
-			s->setpoints[i] = set[i];
-		}
-		if (column < CLIMATE_COLUMNS) {
+		climate_setpoints(s->setpoints);
+		if (column < CLIMATE_COLUMNS)
 			climate_sample(s, column);
-			sampled = true;
-		}
+		all = true;
 	}
 
-	if (draw && (all || sampled)) {
+	if (draw && all) {
 		gui_saved_t saved;
 		screen_begin(&saved);
 		for (int x = 0; x < CLIMATE_COLUMNS; x++)
-			if (all || x == (int)column)
-				climate_draw_column(s, x);
+			climate_draw_column(s, x);
 		screen_end(&saved);
 	}
 	return true;
