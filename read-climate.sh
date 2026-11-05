@@ -8,7 +8,7 @@
 #   -w SECONDS   repeat every SECONDS until interrupted
 #   -r ROOM_DEGC also print the ambient RH the same moisture gives at that room
 #                temperature; the sensor sits in the warm case and reads low
-#   -c COUPLING  Warm-up Coupling used for it (default 0.30)
+#   -c COUPLING  Start Coupling used for it (default 0.30)
 #   -k K1        humidifier calibration k1 (default 0.001; k0 is taken as 0)
 # Set -c to the value in the device menu. The estimate is the one the
 # header uses: room air plus the smaller of the plate and heater-power bounds.
