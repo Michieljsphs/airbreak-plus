@@ -3393,7 +3393,7 @@ PATCH_PHASES = (
                   False, 'patch_header_climate'),
         PatchSpec('patch-header-climate-decimal',
                   'Show the climate readout temperatures with one decimal (27.4 instead of 27).',
-                  True, 'patch_header_climate_decimal'),
+                  False, 'patch_header_climate_decimal'),
         PatchSpec('patch-header-climate-always',
                   'Show the climate readout in every screen title (menus too), not only Home and therapy.',
                   False, 'patch_header_climate_always'),
