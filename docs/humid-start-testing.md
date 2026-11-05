@@ -134,7 +134,15 @@ and drier the first minutes are.
 The tube temperature setting is the stock one. Climate (in Configuration) turns
 the header readout on and off.
 
+> **Start Coupling is for testing.** Its default of 0.30 has not been
+> calibrated, and the setting may be removed from the menu in a later version.
+> Don't build a routine around it: use it to find out how the first minutes
+> behave on your device, and expect the menu to change.
+
 ### When to change the coupling
+
+This is a testing aid, and the setting may be removed from the menu later (see
+above).
 
 The coupling is the plate bound: the fraction of the plate's rise above room
 temperature over which the air picks up moisture. It only matters while the
@@ -191,29 +199,20 @@ Log each night with `-c` matching the menu value:
 
 ## Flow and the achievable humidity
 
-The added moisture per heater power is inversely proportional to flow. At the
-plate limit (68 °C, about 54 % duty) the device adds about 540 / flow g/m3. The
-average flow depends on the pressure, the mask's vent and any leak, not on
-whether you are awake or asleep. Your own breathing adds almost nothing to the
-average.
+In the stock humidifier model, the moisture the chamber can add for a given
+heater power falls as the flow rises. The humidity the device can reach may
+therefore decrease with increased flow. The average flow depends on the
+pressure, the mask's vent and any leak, not on whether you are awake or asleep.
+Your own breathing adds little to the average.
 
-At an average pressure of about 11 cmH2O the average flow is typically in the
-region of 30 to 40 L/min, depending on the mask and any leak. These are
-estimates. Using a room moisture of 10.9 g/m3:
+If the humidifier cannot reach the target at your tube setting, the header
+settles below the target. A lower tube setting, a lower target or a lower flow
+(for example a smaller leak) brings them together. How much the flow matters on
+your device is not measured here; a hygrometer at the mask would show it.
 
-| Average flow | RH at a 30 °C tube | Tube setting for 95 % |
-|--------------|--------------------|-----------------------|
-| 40 L/min | about 81 % | about 27 °C |
-| 35 L/min | about 87 % | about 28.3 °C |
-| 32 L/min | about 92 % | about 29.4 °C |
-| 30 L/min | about 95 % | about 30 °C |
-
-At these flows, expect 85 to 90 % at a 30 °C tube. For 95 % set the tube to about
-27 to 28 °C, or accept 85 to 90 %.
-
-The plate stays at exactly 68 °C once it reaches its limit. Raising that limit
-changes a thermal safety limit of the humidifier and is not recommended. ResMed's
-published humidifier output in the user guide is above 10 mg/L at Setting 8.
+The plate stays at its limit once it reaches it (68 °C in the stock firmware).
+Raising that limit changes a thermal safety limit of the humidifier and is not
+recommended.
 
 ### Target RH and the tube setting
 
