@@ -24,9 +24,9 @@ illustrative, not measurements. With stock firmware the tube reaches its setting
 within a few minutes, while the air is still drier than the target. With Humid
 Start the tube stays near room temperature until the water can support the
 target, then follows the water up, so the RH reaches the target sooner and stays
-there. The third chart adds [Min Tube](#min-tube) at 20 °C: the tube heats to
-20 °C at once and waits there, so the first air is warmer, and the RH reaches the
-target about a minute later.
+there. The third chart adds [Min Tube](#min-tube) at 23 °C: the tube heats to
+23 °C at once and waits there, so the first air is warmer, but the RH reaches
+the target later.
 
 - The cap is never lower than 16 °C, the lowest tube setting, or the
   [Min Tube](#min-tube) setting. The tube heater stays off while the measured
