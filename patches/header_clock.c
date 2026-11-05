@@ -74,7 +74,7 @@ static void temp_text(char *buffer, int tenths)
 }
 
 /* Tube and plate temperatures and the estimated RH at the tube temperature,
- * using the same chamber estimate as tube_warmup (humidity_model.h): the room
+ * using the same chamber estimate as humid_start (humidity_model.h): the room
  * air plus the smaller of the plate and heater-power bounds on the moisture
  * the chamber adds.
  */

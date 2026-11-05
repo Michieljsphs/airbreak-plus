@@ -70,9 +70,9 @@ extern int millisecond_timer_expired(void *timer, unsigned ms);
 extern float climate_tube_setpoint_get(struct obj *inputs);
 extern float climate_reference_temperature_get(struct obj *sensors);
 extern void *const climate_inputs_vtable[];
-extern const float tube_warmup_plate_coupling;
-extern const unsigned short tube_warmup_enable_var_id;
-extern const unsigned short tube_warmup_coupling_var_id;
+extern const float humid_start_plate_coupling;
+extern const unsigned short humid_start_enable_var_id;
+extern const unsigned short humid_start_coupling_var_id;
 extern int variable_get_by_id(int var_id);
 
 static float call_f(struct obj *o, int slot) { return ((getf_t)o->vptr[slot])(o); }
@@ -81,16 +81,16 @@ static int call_i(struct obj *o, int slot) { return ((geti_t)o->vptr[slot])(o); 
 /* Custom settings, when installed, supply the switch. */
 static int enabled(void)
 {
-    return tube_warmup_enable_var_id == 0xffffu ||
-           variable_get_by_id(tube_warmup_enable_var_id);
+    return humid_start_enable_var_id == 0xffffu ||
+           variable_get_by_id(humid_start_enable_var_id);
 }
 
 /* Plate bound coupling: the custom setting, else the built-in constant. */
 static float coupling(void)
 {
-    if (tube_warmup_coupling_var_id == 0xffffu)
-        return tube_warmup_plate_coupling;
-    return variable_get_by_id(tube_warmup_coupling_var_id) * 0.01f;
+    if (humid_start_coupling_var_id == 0xffffu)
+        return humid_start_plate_coupling;
+    return variable_get_by_id(humid_start_coupling_var_id) * 0.01f;
 }
 
 static void restart(struct state *s, float plate)
@@ -194,7 +194,7 @@ float start(struct obj *inputs)
 }
 
 /* Replaces the sensors' humidity-model reference temperature. */
-float tube_warmup_reference(struct obj *sensors)
+float humid_start_reference(struct obj *sensors)
 {
     struct obj *inputs = (struct obj *)((u8 *)sensors + SENSORS_TO_INPUTS);
     struct state *s = state_of(inputs, 0);
