@@ -124,7 +124,12 @@ Clinical menu, Accessories:
 |---------|-----------------|---------|
 | Target RH (%) | The humidity the stock controller aims for, and where the cap sits | 85 |
 | Humid Start | Switch for the whole feature | On |
+| Min Tube (C) | The lowest the cap goes, so the first air is at least this warm | 16 |
 | Start Coupling | How warm the chamber air is assumed to be, during warm-up only | 0.30 |
+
+In a cold room, raise Min Tube (for example to 23). The tube then heats to it
+right away and waits there until the RH catches up. The higher it is, the warmer
+and drier the first minutes are.
 
 The tube temperature setting is the stock one. Climate (in Configuration) turns
 the header readout on and off.

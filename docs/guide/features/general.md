@@ -137,8 +137,9 @@ minutes, while the air is still drier than the target. With Humid Start the
 tube stays near room temperature until the water can support the target, then
 follows the water up, so the RH reaches the target sooner and stays there.
 
-- The cap is never lower than 16 °C, the lowest tube setting. The tube heater
-  stays off while the measured tube is above the cap.
+- The cap is never lower than 16 °C, the lowest tube setting, or the
+  [Min Tube](#min-tube) setting. The tube heater stays off while the measured
+  tube is above the cap.
 - The humidity model keeps aiming for the full tube temperature, so the plate
   heats at full demand.
 - It applies only to Auto climate control with a heated tube and the humidifier
@@ -245,6 +246,24 @@ nights, keeping the tube setting, target RH and water level the same, until you 
 condensation near the mask, then keep the previous value. If 0.30 already
 condenses, raise it.
 
+### Min Tube
+
+In a cold room the tube would otherwise stay near 16 °C at the start, and the air
+is cold until the water can support the target RH. Min Tube sets the lowest
+temperature the cap can have. The tube heats to it as soon as possible and stays
+there until the estimated moisture allows more, then the cap follows the water up
+as usual. For example, with Min Tube at 23 °C, the first air is at least 23 °C
+even if the water is still cold.
+
+- The default is **16 °C**, which is the lowest tube setting and the same as
+  without the setting. The range is 16-30 °C, in steps of 1 °C.
+- A higher minimum makes the first minutes warmer and drier, because the tube
+  is hotter than the water can support. The RH at the mask stays below the
+  target until the water catches up. Choose the lowest value that is comfortable.
+- A minimum at or above the tube temperature setting ends Humid Start at once,
+  so the tube behaves as stock.
+- The value is whole °C. It is not converted when the device shows °F.
+
 ### Settings
 
 With custom settings, clinical **Accessories** contains:
@@ -252,10 +271,12 @@ With custom settings, clinical **Accessories** contains:
 | Setting | UART | Values | Default |
 |---------|------|--------|---------|
 | Humid Start | first free on/off slot | Off, On | On |
+| Min Tube (C) | RDH | 16-30 °C, step 1 | 16 |
 | Start Coupling | RDW | 0.10-1.00, step 0.05 | 0.30 |
 
-Without custom settings, or when no label string is left for the coupling, the
-coupling keeps its default of 0.30 (the constant in `patches/humid_start_abi.S`).
+Without custom settings, or when no label string is left for a setting, it
+keeps its default: no minimum beyond 16 °C, and a coupling of 0.30 (the constant
+in `patches/humid_start_abi.S`).
 
 Each setting needs a label string, and the switch also an on/off variable,
 that no other installed feature uses. The `plus` image uses all of them, so
@@ -266,9 +287,9 @@ used; for example, without ST iBR and AutoEPAP:
 make build/stm32-plus.bin AIR10_PATCH_ARGS='--patch-st-ibr n --patch-autoepap n --patch-humid-start y'
 ```
 
-The switch is added first, then Start Coupling. The
-[Header climate](#header-climate) switch, when installed, takes what Tube
-Warm-up leaves. When no label is left for a setting it is skipped: without the
+The switch is added first, then Min Tube, then Start Coupling. The
+[Header climate](#header-climate) switch, when installed, takes what Humid
+Start leaves. When no label is left for a setting it is skipped: without the
 switch Humid Start stays on. The build log reports what was added.
 
 Enable it with `--patch-humid-start y` or `PATCH_HUMID_START=1`. It is off by
