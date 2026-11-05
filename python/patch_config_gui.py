@@ -62,6 +62,10 @@ GUIDE_DIR = os.path.join(REPO, "docs", "guide")
 PATCHING_DOC = os.path.join(GUIDE_DIR, "patching.md")
 P = None   # patch-airsense.py, loaded by main()
 SLOTS = (("g8", "On/off settings"), ("g4", "Value settings"), ("labels", "New labels"))
+PLUS_ENV = ("PATCH_CODE", "PATCH_ASV_TASK_WRAPPER", "PATCH_VAUTO_WRAPPER", "PATCH_S", "PATCH_FALL_TIME",
+            "PATCH_ST_IBR", "PATCH_AUTOEPAP")   # what the plus target in the Makefile sets
+STEPS = (("choose", "1 Choose patches"), ("save", "2 Save"), ("build", "3 Build payloads"), ("patch", "4 Patch"),
+         ("backup", "5 Dump backup"), ("flash", "6 Flash"))   # the checklist above the options
 
 
 def load_patcher():
@@ -318,6 +322,20 @@ class App(tk.Tk):
         self.bold = bold   # the style only keeps the font name
         ttk.Style(self).configure("Changed.TCheckbutton", font=bold)
 
+        checklist = ttk.Frame(self)   # what is done, in the order to do it
+        checklist.pack(fill="x", padx=8, pady=(8, 0))
+        ttk.Label(checklist, text="Steps:").pack(side="left", padx=(0, 10))
+        self.steps = {}
+        for key, text in STEPS:
+            self.steps[key] = ttk.Label(checklist, text=text)
+            self.steps[key].pack(side="left", padx=(0, 18))
+        Tooltip(checklist, lambda: wrap_lines(
+            "The steps in order. A tick means it is done: the options are saved, the payloads are built "
+            "(build/), the patched firmware exists, a backup file exists, and the device was flashed from this "
+            "window. Step 5 matters most: the stock dump is the only way to restore the device."))
+        self.flashed = False   # the device was flashed from this window since the last patch
+        self.running = ""      # title of the running command
+
         panes = ttk.PanedWindow(self, orient="vertical")   # top: options, bottom: patch firmware and log
         panes.pack(fill="both", expand=True, padx=8, pady=8)
         top = ttk.Frame(panes)
@@ -340,8 +358,11 @@ class App(tk.Tk):
         def wheel(event):   # only scroll the options while the mouse is over them
             under = self.winfo_containing(event.x_root, event.y_root)
             if under is not None and str(under).startswith(str(canvas)):
-                canvas.yview_scroll(-event.delta // 120, "units")
-        self.bind_all("<MouseWheel>", wheel)
+                # X11 sends the wheel as buttons 4 and 5, Windows and macOS as <MouseWheel> with a delta
+                up = event.num == 4 or (event.num != 5 and event.delta > 0)
+                canvas.yview_scroll(-1 if up else 1, "units")
+        for sequence in ("<MouseWheel>", "<Button-4>", "<Button-5>"):
+            self.bind_all(sequence, wheel)
 
         usage = ttk.LabelFrame(inner, text="Custom settings menu", padding=(8, 4))   # the counter
         usage.grid(row=0, column=0, columnspan=2, sticky="we", pady=(0, 8), padx=(0, 4))
@@ -373,6 +394,12 @@ class App(tk.Tk):
         ttk.Button(bar, text="Save", command=self.save).pack(side="left")
         ttk.Button(bar, text="Reload", command=self.reload).pack(side="left", padx=(6, 0))
         ttk.Button(bar, text="Reset to defaults", command=self.reset).pack(side="left", padx=(6, 0))
+        plus = ttk.Button(bar, text="Plus preset", command=self.preset_plus)
+        plus.pack(side="left", padx=(6, 0))
+        Tooltip(plus, lambda: wrap_lines(
+            "Selects the patches of build/stm32-plus.bin: graph, Custom VAuto, ASV backup-rate control, Square "
+            "Wave, Fall Time, ST iBR and iVAPS AutoEPAP, with their custom settings. All other options go back to "
+            "their defaults. Save writes the choice."))
         self.status = ttk.Label(bar, text="")
         self.status.pack(side="left", padx=12)
         line = ttk.Frame(top)
@@ -414,21 +441,27 @@ class App(tk.Tk):
         flash.pack(side="left", fill="both", expand=True, padx=(8, 0))
         flash.columnconfigure(1, weight=1)
         found = find_openocd()
-        self.ocd_mode = tk.StringVar(value=settings.get("ocd_mode") or ("windows" if found else "wsl"))
+        mode = {"windows": "local"}.get(settings.get("ocd_mode"), settings.get("ocd_mode"))   # older settings files
+        if os.name != "nt" or mode not in ("local", "wsl"):   # WSL is only an option from Windows
+            mode = "local" if found or os.name != "nt" else "wsl"
+        self.ocd_mode = tk.StringVar(value=mode)
         self.ocd_path = tk.StringVar(value=settings.get("ocd_path") or found)
         self.ocd_interface = tk.StringVar(value=settings.get("ocd_interface") or "stlink")
         self.flash_file = tk.StringVar(value=settings.get("flash_file") or self.outfile.get())
         self.backup = tk.StringVar(value=settings.get("backup") or DEFAULT_BACKUP)
         ttk.Label(flash, text="OpenOCD:").grid(row=0, column=0, sticky="w", pady=(0, 4))
-        mode = ttk.Frame(flash)
-        mode.grid(row=0, column=1, columnspan=2, sticky="w", padx=6, pady=(0, 4))
-        for value, text in (("windows", "Windows openocd.exe"), ("wsl", "WSL (run-ocd.sh)")):
-            ttk.Radiobutton(mode, text=text, value=value, variable=self.ocd_mode,
+        choices = (("local", "Windows openocd.exe"), ("wsl", "WSL (run-ocd.sh)")) if os.name == "nt" else (
+            ("local", "OpenOCD on this system"),)
+        modes = ttk.Frame(flash)
+        modes.grid(row=0, column=1, columnspan=2, sticky="w", padx=6, pady=(0, 4))
+        for value, text in choices:
+            ttk.Radiobutton(modes, text=text, value=value, variable=self.ocd_mode,
                             command=self.ocd_mode_changed).pack(side="left", padx=(0, 12))
-        ttk.Label(mode, text="Adapter:").pack(side="left")
-        ttk.Combobox(mode, textvariable=self.ocd_interface, values=("stlink", "jlink"), state="readonly",
+        ttk.Label(modes, text="Adapter:").pack(side="left")
+        ttk.Combobox(modes, textvariable=self.ocd_interface, values=("stlink", "jlink"), state="readonly",
                      width=7).pack(side="left", padx=(4, 0))
-        ttk.Label(flash, text="openocd.exe:").grid(row=1, column=0, sticky="w", pady=(0, 4))
+        ttk.Label(flash, text="openocd.exe:" if os.name == "nt" else "openocd:").grid(
+            row=1, column=0, sticky="w", pady=(0, 4))
         self.ocd_entry = ttk.Entry(flash, textvariable=self.ocd_path)
         self.ocd_entry.grid(row=1, column=1, sticky="we", padx=6, pady=(0, 4))
         self.ocd_browse = ttk.Button(flash, text="Browse...", command=self.browse_openocd)
@@ -464,6 +497,8 @@ class App(tk.Tk):
         self.log.tag_configure("warn", foreground="#b36b00")
         self.log.tag_configure("pass", foreground="#1b7f2a")
 
+        for var in (self.outfile, self.backup):
+            var.trace_add("write", lambda *_: self.update_steps())
         self.load()
         overrides = env_overrides()
         if overrides:
@@ -625,6 +660,25 @@ class App(tk.Tk):
         except argparse.ArgumentTypeError:
             return True
 
+    def update_steps(self):
+        """Ticks the checklist from what exists on disk and what this window has done."""
+        if self.loading or not hasattr(self, "backup"):
+            return
+        done = {
+            "save": os.path.isfile(CONFIG_FILE) and not self.dirty(),
+            "build": bool(glob.glob(os.path.join(REPO, "build", "*.elf"))),
+            "patch": os.path.isfile(self.outfile.get().strip()),
+            "backup": os.path.isfile(self.backup.get().strip()),
+            "flash": self.flashed,
+        }
+        for key, text in STEPS:
+            label = self.steps[key]
+            if key == "choose":
+                label.config(text=text)
+            else:
+                label.config(text=("✓ " if done[key] else "○ ") + text,
+                             foreground="#1b7f2a" if done[key] else "#888888")
+
     def refresh(self, *_):
         """Spinbox states, bold for options off their default, the command line and the title."""
         if self.loading:
@@ -644,6 +698,7 @@ class App(tk.Tk):
         self.cmdline.set(" ".join(shlex.quote(t) for t in tokens))
         self.title("%s - %s%s" % (TITLE, os.path.basename(CONFIG_FILE),
                                   " *" if tokens != self.saved_tokens else ""))
+        self.update_steps()
 
     def toggled(self, option):
         changed = []
@@ -704,6 +759,17 @@ class App(tk.Tk):
     def reset(self):
         self.apply({option: spec.default for option, spec in self.specs.items()})
         self.status.config(text="Built-in defaults shown; Save writes them")
+
+    def preset_plus(self):
+        """The patches of the plus image (make builds build/stm32-plus.bin with them), the rest at the defaults."""
+        values = {option: spec.default for option, spec in self.specs.items()}
+        for name in PLUS_ENV:
+            flags = AIR10_LEGACY_OPTIONS[name]
+            for flag in flags[::2]:
+                if flag[2:] in values:
+                    values[flag[2:]] = True
+        self.apply(values)
+        self.status.config(text="Plus image patches shown; Save writes them")
 
     def save(self):
         """Writes the options that differ from the built-in defaults, grouped by phase. False when not saved."""
@@ -801,7 +867,9 @@ class App(tk.Tk):
     def run(self, title, command, done, flashing=False):
         """Runs a command with its output in the log; one at a time, all action buttons disabled meanwhile."""
         self.append("=== %s ===" % title)
-        self.done, self.flashing, self.hints = done, flashing, []
+        self.done, self.flashing, self.hints, self.running = done, flashing, [], title
+        if title.startswith("Patching"):
+            self.flashed = False   # the device no longer has the newest patched image
         try:
             self.proc = subprocess.Popen(
                 command, stdin=subprocess.DEVNULL, stdout=subprocess.PIPE, stderr=subprocess.STDOUT, cwd=REPO,
@@ -827,13 +895,13 @@ class App(tk.Tk):
             self.proc.terminate()
 
     def ocd_mode_changed(self):
-        state = "normal" if self.ocd_mode.get() == "windows" else "disabled"
+        state = "normal" if self.ocd_mode.get() == "local" else "disabled"
         self.ocd_entry.config(state=state)
         self.ocd_browse.config(state=state)
 
     def browse_openocd(self):
-        path = filedialog.askopenfilename(initialdir=os.path.dirname(self.ocd_path.get()) or None,
-                                          filetypes=[("OpenOCD", "openocd*.exe"), ("All files", "*.*")])
+        types = [("OpenOCD", "openocd*.exe"), ("All files", "*.*")] if os.name == "nt" else [("All files", "*")]
+        path = filedialog.askopenfilename(initialdir=os.path.dirname(self.ocd_path.get()) or None, filetypes=types)
         if path:
             self.ocd_path.set(os.path.normpath(path))
 
@@ -873,8 +941,9 @@ class App(tk.Tk):
         else:
             exe = self.ocd_path.get().strip()
             if not os.path.isfile(exe):
-                messagebox.showerror(TITLE, "Choose openocd.exe (OpenOCD for Windows, e.g. the xPack build), "
-                                     "or use WSL.")
+                messagebox.showerror(
+                    TITLE, "Choose openocd.exe (OpenOCD for Windows, e.g. the xPack build), or use WSL." if os.name == "nt"
+                    else "openocd was not found. Install OpenOCD (docs/guide/openocd.md) or choose its path.")
                 return None
             args = [exe] + (["-f", "interface/stlink.cfg"] if interface == "stlink" else
                             ["-f", "interface/jlink.cfg", "-c", "transport select swd"])
@@ -970,6 +1039,7 @@ class App(tk.Tk):
     def finished(self):
         code = self.proc.wait()
         if code == 0:
+            self.flashed = self.flashed or self.running.startswith("Flashing")
             self.append("=== Done: %s ===" % self.done, "pass")
         else:
             self.append("=== Failed (exit code %d) ===" % code, "fail")
@@ -979,6 +1049,7 @@ class App(tk.Tk):
         for button in self.action_buttons():
             button.config(state="normal")
         self.stop_btn.config(state="disabled")
+        self.update_steps()
 
     def on_close(self):
         if self.dirty():

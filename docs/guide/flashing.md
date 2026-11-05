@@ -23,6 +23,8 @@ flash_new stm32.bin
 
 ### From the patch options window
 
+See the [patch options window guide](patch_gui.md) for setup on Windows, Linux and WSL.
+
 The Flash device section of `patch-airsense-gui.bat` (or
 `python python/patch_config_gui.py`) runs the same commands without a telnet
 session. Each button starts OpenOCD with `tcl/airsense.cfg`, runs one command
