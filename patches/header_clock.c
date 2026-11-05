@@ -197,8 +197,8 @@ struct root_screen *header_clock_init(struct root_screen *root)
 #ifdef HEADER_CLIMATE
 #include "ram_pointers.h"
 
-/* Climate timer: Accessories settings in hours (raw = hours * 100 in
- * quarter-hour steps, 0 = Off).
+/* Climate timer: Accessories Off/On switches with a time each, in hours
+ * (raw = hours * 100 in quarter-hour steps).
  *  - Humid. off at: once per therapy session, within HUMID_OFF_WINDOW minutes
  *    after the time, switch Humidity Enable (HMX) off so the heated tube dries
  *    with dry air; switch it back on when that therapy session ends.
@@ -216,6 +216,7 @@ struct climate_timer {
     u8 therapy;
 };
 
+extern const u16 climate_timer_humid_off_enable_var_id;
 extern const u16 climate_timer_humid_off_var_id;
 extern int ivars[];
 extern void *malloc(unsigned size);
@@ -247,13 +248,13 @@ static struct climate_timer *climate_timer_state(void)
     return s->magic == CLIMATE_TIMER_MAGIC ? s : 0;
 }
 
-/* Setting in minutes of the day, or -1 when unassigned or Off. */
-static int setting_minutes(u16 var_id)
+/* Timer time in minutes of the day, or -1 when unassigned or switched Off. */
+static int timer_minutes(u16 enable_id, u16 time_id)
 {
-    if (var_id == 0xffffu)
+    if (enable_id == 0xffffu || time_id == 0xffffu || !variable_get_by_id(enable_id))
         return -1;
-    int raw = variable_get_by_id(var_id);
-    if (raw <= 0 || raw >= 2400)
+    int raw = variable_get_by_id(time_id);
+    if (raw < 0 || raw >= 2400)
         return -1;
     return raw * 3 / 5;
 }
@@ -265,7 +266,8 @@ static int in_window(unsigned now, int start, unsigned length)
 
 static void climate_timer(void)
 {
-    int off_at = setting_minutes(climate_timer_humid_off_var_id);
+    int off_at = timer_minutes(climate_timer_humid_off_enable_var_id,
+                               climate_timer_humid_off_var_id);
     if (off_at < 0)
         return;
     struct climate_timer *s = climate_timer_state();

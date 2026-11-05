@@ -1452,28 +1452,46 @@ class ASFirmwarePatches(CompiledPayloadMixin):
         self._custom_detail('Climate: %s var_id=0x%04X at 0x%08X' % (enable, vid, addr))
 
     def custom_patch_settings_climate_timer(self):
-        """Add the Climate timer time (Humidifier off at) to Accessories."""
-        # Runs last and uses what the other features leave: a label string and
-        # a reclaimed g[4] variable per time. Raw value is hours * 100 in
-        # quarter-hour steps (22.25 = 22:15); 0 is Off.
+        """Add the Climate timer switches and times to Accessories."""
+        # Runs last and uses what the other features leave. Each timer is an
+        # Off/On switch (free g[8] slot) and a time (free g[4] slot), two label
+        # strings; the time only shows while its switch is On. The time's raw
+        # value is hours * 100 in quarter-hour steps (22.25 = 22:15).
         dep = self.asf.find_var_table_index(4, 'RGT')
         hint = 'build without e.g. --patch-humid-start or --patch-autoepap to add it'
-        for name, text, symbol in (
-                ('Humidifier off at', 'Hum. off at (h)', 'climate_timer_humid_off_var_id'),):
-            var = None
-            if self.custom_string_pool:
-                var = self.custom_claim_free_g4_var(
-                    ('RDH', 'RDW', 'RCW', 'RCM', 'RCH', 'RCF', 'RDF', 'RDM'), symbol)
-            if var is None:
-                self._custom_detail('%s: no free label string or numeric slot; %s' % (name, hint))
+        g8_candidates = ('RPO', 'RPH', 'RPF', 'RPW', 'RXM', 'RXH', 'RXW', 'RSA')
+        g4_candidates = ('RDH', 'RDW', 'RCW', 'RCM', 'RCH', 'RCF', 'RDF', 'RDM')
+
+        def free(candidates, reclaimed, claims):
+            return any(self.asf.resolve_var_id(name) in reclaimed and
+                       self.asf.resolve_var_id(name) not in claims for name in candidates)
+
+        timers = (
+            ('Humidifier off timer', 'Hum. off timer', 'Hum. off at (h)', 600, 'humid_off'),
+        )
+        for name, switch_text, time_text, default, key in timers:
+            if (len(self.custom_string_pool) < 2 or
+                    not free(g8_candidates, self.custom_g8_reclaimed, self.custom_g8_claims) or
+                    not free(g4_candidates, self.custom_g4_reclaimed, self.custom_g4_claims)):
+                self._custom_detail('%s: no free label strings or slots; %s' % (name, hint))
                 continue
-            label = self.redefine_fw_string(-1, {0: text}, symbol.replace('_var_id', '_label'))
-            self.redefine_g4_var(var, 0x0007, 0, dep, label,
-                                 0, 2375, 0, 2, 100, 25, self.asf.str_id_empty)
-            self.custom_menu_add('accessories', var, self.CUSTOM_MENU_MODE_BITS)
-            vid = self.asf.resolve_var_id(var)
-            addr = self._write_payload_u16('header_clock', symbol, vid)
-            self._custom_detail('%s: %s var_id=0x%04X at 0x%08X' % (name, var, vid, addr))
+            enable_symbol = 'climate_timer_%s_enable_var_id' % key
+            time_symbol = 'climate_timer_%s_var_id' % key
+            switch = self.custom_claim_free_g8_var(g8_candidates, enable_symbol)
+            time = self.custom_claim_free_g4_var(g4_candidates, time_symbol)
+            switch_label = self.redefine_fw_string(-1, {0: switch_text}, enable_symbol[:-7] + '_label')
+            time_label = self.redefine_fw_string(-1, {0: time_text}, time_symbol[:-7] + '_label')
+            self.redefine_g8_var(switch, 0x0007, 0, dep, switch_label, 0,
+                                 2, 0, 0x00000003, self.asf.str_id_off_on_base, 0)
+            self.redefine_g4_var(time, 0x0007, 0, dep, time_label,
+                                 default, 2375, 0, 2, 100, 25, self.asf.str_id_empty)
+            self.custom_menu_add('accessories', switch, self.CUSTOM_MENU_MODE_BITS)
+            self.custom_menu_add('accessories', time, self.CUSTOM_MENU_MODE_BITS)
+            self.custom_menu_add_condition(time, switch)
+            for var, symbol in ((switch, enable_symbol), (time, time_symbol)):
+                vid = self.asf.resolve_var_id(var)
+                addr = self._write_payload_u16('header_clock', symbol, vid)
+                self._custom_detail('%s: %s var_id=0x%04X at 0x%08X' % (name, var, vid, addr))
 
     def custom_patch_settings_backlight(self):
         """Expose persistent Backlight controls on a generated LCD page."""

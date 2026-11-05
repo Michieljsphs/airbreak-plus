@@ -30,8 +30,15 @@ header_climate_always:
     .byte 0
 .size header_climate_always, . - header_climate_always
 
-// Custom-settings Climate timer times (raw = hours * 100); 0xffff = unused.
+// Custom-settings Climate timer switches and times (raw = hours * 100);
+// 0xffff = unused.
 .align 1
+.global climate_timer_humid_off_enable_var_id
+.type climate_timer_humid_off_enable_var_id, %object
+climate_timer_humid_off_enable_var_id:
+    .short 0xffff
+.size climate_timer_humid_off_enable_var_id, . - climate_timer_humid_off_enable_var_id
+
 .global climate_timer_humid_off_var_id
 .type climate_timer_humid_off_var_id, %object
 climate_timer_humid_off_var_id:
