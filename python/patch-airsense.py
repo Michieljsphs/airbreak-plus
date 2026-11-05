@@ -12,6 +12,7 @@
 # See LICENSE in main repository for distribution license and additional restrictions.
 
 import argparse
+from collections import namedtuple
 from contextlib import redirect_stdout
 from dataclasses import dataclass
 import datetime
@@ -170,6 +171,7 @@ class ASFirmwarePatches(CompiledPayloadMixin):
     def __init__(self, asf):
         self.asf = asf
         self.palette_colors = ''   # --palette-colors, canonical ROLE=RRGGBB list
+        self.hide_menu_items = ''  # --hide-menu-items, canonical MENU_ITEMS key list
         self.applied_payloads = set()
         self.enabled_custom_settings_features = set()
         self.mop_callback_handlers = {}
@@ -490,6 +492,14 @@ class ASFirmwarePatches(CompiledPayloadMixin):
             if vid in self.custom_g8_reclaimed and vid not in self.custom_g8_claims:
                 return self.custom_claim_g8_var(request, owner)
         return None
+
+    def custom_menu_hidden(self, key):
+        """True when --hide-menu-items leaves this MENU_ITEMS entry out; notes its built-in value."""
+        if key not in (self.hide_menu_items or '').split(','):
+            return False
+        item = next(item for item in MENU_ITEMS if item.key == key)
+        self._custom_detail('%s: hidden (--hide-menu-items), built-in value: %s' % (item.label, item.hidden_value))
+        return True
 
     def custom_claim_g4_var(self, request, owner=None):
         """Claim one exact reclaimed g[4] variable and return its UART name."""
@@ -1190,6 +1200,8 @@ class ASFirmwarePatches(CompiledPayloadMixin):
 
     def custom_patch_settings_myasv(self):
         """Expose reclaimed custom VAuto settings and pass their var_ids to the wrapper."""
+        if self.custom_menu_hidden('custom_vauto'):
+            return
         # Claim stable storage-backed variables and allocate reclaimed localized
         # string IDs for their new menu labels.
         myasv_var = self.custom_claim_g8_var('RPO', 'my_asv_enable')
@@ -1289,6 +1301,8 @@ class ASFirmwarePatches(CompiledPayloadMixin):
 
     def custom_patch_settings_squarewave(self):
         """Expose the squarewave runtime switch and pass its var_id to the payload."""
+        if self.custom_menu_hidden('square_wave'):
+            return
         square_var = self.custom_claim_g8_var('RPF', 'squarewave_enable')
         square_label = self.redefine_fw_string(-1, {0: 'Square Wave'}, 'squarewave_label')
         square_dep = self.asf.find_var_table_index(4, 'RGT')
@@ -1308,6 +1322,8 @@ class ASFirmwarePatches(CompiledPayloadMixin):
 
     def custom_patch_settings_fall_time(self):
         """Expose an optional stock-waveform fall duration in Therapy."""
+        if self.custom_menu_hidden('fall_time'):
+            return
         time_var = self.custom_claim_g4_var('RCW', 'fall_time_duration')
         time_label = self.redefine_fw_string(-1, {0: 'Fall Time'}, 'fall_time_duration_label')
         dep = self.asf.find_var_table_index(4, 'RGT')
@@ -1325,6 +1341,8 @@ class ASFirmwarePatches(CompiledPayloadMixin):
 
     def custom_patch_settings_st_ibr(self):
         """Expose ST iBR; the native RRT setting supplies both rate modes."""
+        if self.custom_menu_hidden('ibr'):
+            return
         var = self.custom_claim_g8_var('RXW', 'st_ibr_enable')
         label = self.redefine_fw_string(-1, {0: 'iBR'}, 'st_ibr_label')
         dep = self.asf.find_var_table_index(4, 'RGT')
@@ -1338,6 +1356,8 @@ class ASFirmwarePatches(CompiledPayloadMixin):
 
     def custom_patch_settings_autoepap(self):
         """Expose iVAPS AutoEPAP and its paired pressure bounds."""
+        if self.custom_menu_hidden('autoepap'):
+            return
         enable = self.custom_claim_g8_var('RSA', 'autoepap_enable')
         lower = self.custom_claim_g4_var('RDF', 'autoepap_min_epap')
         upper = self.custom_claim_g4_var('RDM', 'autoepap_max_epap')
@@ -1377,6 +1397,8 @@ class ASFirmwarePatches(CompiledPayloadMixin):
 
     def custom_patch_settings_graph(self):
         """Expose the graph/stock-gauge switch in clinical Options."""
+        if self.custom_menu_hidden('monitoring'):
+            return
         graph_var = self.custom_claim_g8_var('RXH', 'graph_enable')
         graph_dep = self.asf.find_var_table_index(4, 'RGT')
 
@@ -1394,6 +1416,8 @@ class ASFirmwarePatches(CompiledPayloadMixin):
 
     def custom_patch_settings_asv_task_wrapper(self):
         """Expose the stock ASV/ASVAuto backup-rate runtime switch."""
+        if self.custom_menu_hidden('backup_rate'):
+            return
         backup_var = self.custom_claim_g8_var('RPW', 'asv_backup_rate')
         backup_label = self.asf.read_u16(self.asf.find_var('BRE') + self.asf.G8_NAME_STR)
         backup_dep = self.asf.find_var_table_index(4, 'RGT')
@@ -1414,7 +1438,9 @@ class ASFirmwarePatches(CompiledPayloadMixin):
                             (backup_var, backup_vid, backup_label, backup_addr))
 
     def custom_patch_settings_header_clock(self):
-        var = self.custom_claim_g8_var('RXF', 'header_clock')
+        if self.custom_menu_hidden('clock'):
+            return
+        var =self.custom_claim_g8_var('RXF', 'header_clock')
         label = self.redefine_fw_string(-1, {0: 'Clock'}, 'header_clock_label')
         dep = self.asf.find_var_table_index(4, 'RGT')
         self.redefine_g8_var(var, 0x0007, 0, dep, label, 0,
@@ -1427,7 +1453,9 @@ class ASFirmwarePatches(CompiledPayloadMixin):
     def custom_patch_settings_header_climate(self):
         """Add a Climate switch for the header climate readout next to Clock."""
         # Like the Humid Start switch it takes a free on/off slot, but runs after it.
-        hint = 'build without e.g. --patch-st-ibr and --patch-autoepap to add it'
+        if self.custom_menu_hidden('climate'):
+            return
+        hint = 'hide other menu items (--hide-menu-items) or build without e.g. --patch-st-ibr to add it'
         enable = None
         if self.custom_string_pool:
             enable = self.custom_claim_free_g8_var(
@@ -1505,6 +1533,8 @@ class ASFirmwarePatches(CompiledPayloadMixin):
 
     def custom_patch_settings_target_rh(self):
         """Expose the climate model target as a persistent percentage."""
+        if self.custom_menu_hidden('target_rh'):
+            return
         if not 70 <= self.target_rh_percent <= 100 or self.target_rh_percent != int(self.target_rh_percent):
             raise ValueError('Target RH menu requires a whole percentage from 70 to 100; '
                              'disable custom settings to use a different fixed target')
@@ -1525,14 +1555,15 @@ class ASFirmwarePatches(CompiledPayloadMixin):
         # string for each setting and, for the switch, a free on/off slot. The
         # switch comes first, then Min Tube, then the coupling.
         dep = self.asf.find_var_table_index(4, 'RGT')
-        hint = 'build without e.g. --patch-st-ibr and --patch-autoepap to add it'
+        hint = 'hide other menu items (--hide-menu-items) or build without e.g. --patch-st-ibr to add it'
         enable = None
-        if self.custom_string_pool:
+        hidden = self.custom_menu_hidden('humid_start')
+        if self.custom_string_pool and not hidden:
             enable = self.custom_claim_free_g8_var(
                 ('RXW', 'RSA', 'RPF', 'RPW', 'RPO', 'RPH', 'RXM', 'RXH'), 'humid_start_enable')
-        if enable is None:
+        if enable is None and not hidden:
             self._custom_detail('Humid Start switch: no free label string or on/off slot; ' + hint)
-        else:
+        elif enable is not None:
             label = self.redefine_fw_string(-1, {0: 'Humid Start'}, 'humid_start_enable_label')
             self.redefine_g8_var(enable, 0x0007, 0, dep, label, 1,
                                  2, 0, 0x00000003, self.asf.str_id_off_on_base, 0)
@@ -1543,7 +1574,9 @@ class ASFirmwarePatches(CompiledPayloadMixin):
 
         # Minimum tube temperature: raw value is whole degC, 16-30, default 16
         # (no minimum beyond the lowest tube setting). Needs only a label string.
-        if not self.custom_string_pool:
+        if self.custom_menu_hidden('min_tube'):
+            pass
+        elif not self.custom_string_pool:
             self._custom_detail('Min Tube: no free label string; ' + hint)
         else:
             min_tube = self.custom_claim_g4_var('RDH', 'humid_start_min_tube')
@@ -1557,6 +1590,8 @@ class ASFirmwarePatches(CompiledPayloadMixin):
 
         # Plate coupling: raw value is the coupling * 100, 0.10-1.00 in steps
         # of 0.05, default 0.30. Needs only a label string.
+        if self.custom_menu_hidden('start_coupling'):
+            return
         if not self.custom_string_pool:
             self._custom_detail('Start Coupling: no free label string; ' + hint)
             return
@@ -3312,6 +3347,45 @@ def palette_colors_value(v):
     return ','.join('%s=%s' % (key, colors[key]) for key in PALETTE_KEYS if key in colors)
 
 
+# Custom settings menu items that --hide-menu-items can leave out of the menu.
+# A hidden item claims no reclaimed variable or label string, and its payload
+# keeps the built-in value it uses without a menu item.
+MenuItem = namedtuple('MenuItem', 'key label source g8 g4 labels free_g8 hidden_value')
+MENU_ITEMS = (
+    MenuItem('custom_vauto', 'Custom VAuto', 'wrapper_limit_max_pdiff', ('RPO', 'RPH', 'RXM'), ('RCM',),
+             ('Custom VAuto', 'Custom T/C', 'ASV Max', 'ASV Sens'), False,
+             'Custom VAuto and Custom T/C on, ASV Max 2 x pressure support, ASV Sens normal'),
+    MenuItem('backup_rate', 'Backup Rate', 'asv_task_wrapper', ('RPW',), (), (), False, 'backup rate Off'),
+    MenuItem('monitoring', 'Monitoring', 'graph', ('RXH',), (), (), False, 'graph shown'),
+    MenuItem('square_wave', 'Square Wave', 'squarewave', ('RPF',), (), ('Square Wave',), False, 'On'),
+    MenuItem('fall_time', 'Fall Time', 'fall_time', (), ('RCW',), ('Fall Time',), False,
+             'Off: stock fall'),
+    MenuItem('ibr', 'iBR', 'st_ibr', ('RXW',), (), ('iBR',), False, 'Off'),
+    MenuItem('autoepap', 'AutoEPAP', 'autoepap', ('RSA',), ('RDF', 'RDM'), ('AutoEPAP',), False,
+             'Off: fixed EPAP'),
+    MenuItem('target_rh', 'Target RH (%)', 'target_rh', (), ('RCH',), ('Target RH (%)',), False,
+             'the --patch-target-rh value'),
+    MenuItem('clock', 'Clock', 'header_clock', ('RXF',), (), ('Clock',), False, 'clock shown'),
+    MenuItem('humid_start', 'Humid Start', 'humid_start', (), (), ('Humid Start',), True, 'On'),
+    MenuItem('min_tube', 'Min Tube (C)', 'humid_start', (), ('RDH',), ('Min Tube (C)',), False,
+             '16 C: no minimum'),
+    MenuItem('start_coupling', 'Start Coupling', 'humid_start', (), ('RDW',), ('Start Coupling',), False,
+             '0.30'),
+    MenuItem('climate', 'Climate', 'header_climate', (), (), ('Climate',), True, 'readout shown'),
+)
+MENU_ITEM_KEYS = tuple(item.key for item in MENU_ITEMS)
+
+
+def menu_items_value(v):
+    """Parse KEY[,KEY...] into a canonical comma list in MENU_ITEMS order."""
+    keys = set()
+    for key in filter(None, (part.strip().lower() for part in v.split(','))):
+        if key not in MENU_ITEM_KEYS:
+            raise argparse.ArgumentTypeError('unknown menu item %s; expected: %s' % (key, ', '.join(MENU_ITEM_KEYS)))
+        keys.add(key)
+    return ','.join(key for key in MENU_ITEM_KEYS if key in keys)
+
+
 def target_rh_value(v):
     """Accept a percentage, or a boolean word selecting 85% / no patch."""
     try:
@@ -3550,6 +3624,11 @@ def build_argument_parser():
                         metavar='ROLE=RRGGBB,...',
                         help='Colors for --patch-custom-palette; roles left out keep the built-in '
                              'palette. Roles: %s.' % ', '.join(PALETTE_KEYS))
+    parser.add_argument('--hide-menu-items', type=menu_items_value, default='',
+                        metavar='ITEM,...',
+                        help='Leave these items out of the custom settings menu, freeing their variables '
+                             'and labels for others; the feature keeps its built-in value. Items: %s.'
+                             % ', '.join(MENU_ITEM_KEYS))
     parser.add_argument('--overwrite', action='store_true',
                         help='Overwrite output file if it already exists.')
     parser.add_argument('--force-deprecated', action='store_true',
@@ -3644,6 +3723,7 @@ def run_patcher(args, detail_log=None):
     build_identity = firmware_build_identity(repo_dir)
     patches = ASFirmwarePatches(asf)
     patches.palette_colors = args.palette_colors
+    patches.hide_menu_items = args.hide_menu_items
 
     apply_patch_phases(patches, args, detail_log)
 

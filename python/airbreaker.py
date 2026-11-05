@@ -149,8 +149,10 @@ def menu_resources():
     """Which custom settings menu resources each patch uses, read from the patcher source:
     {option: {"g8": [vars], "g4": [vars], "labels": [texts], "free_g8": (candidates, labels) or None}} and the
     pool size of each resource. free_g8 is a setting that takes the first unclaimed on/off variable of the
-    candidates, if any is left (Climate, Humid Start); the labels after that claim are only used with it."""
+    candidates, if any is left (Climate, Humid Start); the labels after that claim are only used with it.
+    Also returns {feature source: option}, to place the menu items of P.MENU_ITEMS under their patch."""
     patches = P.ASFirmwarePatches
+    options = {}
     pools = {"labels": None}   # reclaimed string IDs: the count depends on the firmware
     reclaim = inspect.getsource(patches.custom_patch_settings_reclaim_reminders)
     for names, table in re.findall(r"for var in \(([^)]*)\):\s*self\.custom_reclaim_g(\d)_var", reclaim):
@@ -169,8 +171,9 @@ def menu_resources():
         for spec in P.iter_patch_specs():   # the patch that activates this feature
             if spec.method == "patch_" + source or "add('%s')" % source in inspect.getsource(getattr(patches, spec.method)):
                 resources[spec.option] = used
+                options[source] = spec.option
                 break
-    return resources, pools
+    return resources, pools, options
 
 
 class Tooltip:
@@ -305,7 +308,10 @@ class App(tk.Tk):
         self.parser = options_parser()
         self.specs = {spec.option: spec for spec in P.iter_patch_specs()}
         self.docs = patch_docs()
-        self.resources, self.pools = menu_resources()
+        self.resources, self.pools, sources = menu_resources()
+        self.item_option = {item.key: sources.get(item.source) for item in P.MENU_ITEMS}
+        self.shown = {}       # menu item key -> BooleanVar: in the device menu (unticked: --hide-menu-items)
+        self.item_checks = {}  # menu item key -> its Checkbutton
         self.enabled = {}   # option -> BooleanVar: patch selected
         self.values = {}    # option -> StringVar: parameter of a patch with a value (target RH)
         self.spins = {}     # option -> Spinbox of that parameter, disabled while the patch is unticked
@@ -384,7 +390,8 @@ class App(tk.Tk):
             "Start Coupling), and the patcher adds each one only while one is left. Settings that do not get a "
             "menu item keep a built-in value: Humid Start and the Climate readout stay on, Min Tube is 16 C and "
             "Start Coupling is 0.30. Tick Verbose and patch to see which were added. Free some by unticking "
-            "patches with menu settings, for example ST iBR or iVAPS AutoEPAP."))
+            "'Show in menu' for settings you do not need on the device, or by unticking patches with menu "
+            "settings, for example ST iBR or iVAPS AutoEPAP."))
         Tooltip(usage, lambda: self.usage_text(None))
 
         columns = [ttk.Frame(inner) for _ in range(2)]   # one LabelFrame per patch phase, in two columns
@@ -398,6 +405,14 @@ class App(tk.Tk):
             frame = ttk.LabelFrame(columns[i], text=phase, padding=8)
             frame.pack(fill="x", pady=(0, 8))
             frame.columnconfigure(0, weight=1)
+            if any(self.item_option[item.key] == spec.option for spec in specs for item in P.MENU_ITEMS):
+                head = ttk.Label(frame, text="Show\nin menu", foreground="#666666", justify="center",
+                                 font=("Segoe UI", 8))
+                head.grid(row=0, column=2, padx=(4, 0))
+                Tooltip(head, lambda: wrap_lines(
+                    "Settings these patches add to the custom settings menu on the device. Untick one to leave it "
+                    "out of the menu: that frees its slot and label for other settings, and the feature keeps its "
+                    "built-in value. Saved as --hide-menu-items."))
             for spec in specs:
                 self.add_option(frame, spec)
 
@@ -534,21 +549,60 @@ class App(tk.Tk):
         for widget in (check, name):
             Tooltip(widget, lambda: self.tooltip_text(spec))
         self.checks[spec.option] = check
+        self.add_menu_items(frame, spec, row)
         if spec.option == PALETTE_OPTION:
             self.add_palette(frame, row + 1)
-        if not spec.value_type and not hint:
-            return
-        sub = ttk.Frame(frame)
-        sub.grid(row=row + 1, column=0, columnspan=2, sticky="w", padx=(22, 0), pady=(0, 2))
-        if spec.value_type:   # only percentages today (patch-target-rh)
-            self.values[spec.option] = tk.StringVar()
-            self.values[spec.option].trace_add("write", self.refresh)
-            self.spins[spec.option] = ttk.Spinbox(sub, from_=0, to=100, increment=1, width=6,
-                                                  textvariable=self.values[spec.option])
-            self.spins[spec.option].pack(side="left")
-            ttk.Label(sub, text="%").pack(side="left", padx=(2, 8))
-        if hint:
-            ttk.Label(sub, text=hint.strip(), foreground="#666666").pack(side="left")
+        if spec.value_type or hint:
+            sub = ttk.Frame(frame)
+            sub.grid(row=row + 1, column=0, columnspan=2, sticky="w", padx=(22, 0), pady=(0, 2))
+            if spec.value_type:   # only percentages today (patch-target-rh)
+                self.values[spec.option] = tk.StringVar()
+                self.values[spec.option].trace_add("write", self.refresh)
+                self.spins[spec.option] = ttk.Spinbox(sub, from_=0, to=100, increment=1, width=6,
+                                                      textvariable=self.values[spec.option])
+                self.spins[spec.option].pack(side="left")
+                ttk.Label(sub, text="%").pack(side="left", padx=(2, 8))
+            if hint:
+                ttk.Label(sub, text=hint.strip(), foreground="#666666").pack(side="left")
+        items = [item for item in P.MENU_ITEMS if self.item_option[item.key] == spec.option]
+        for item in items[1:]:   # further settings of this patch: one line each, named
+            row = frame.grid_size()[1]
+            name = ttk.Label(frame, text=item.label, foreground="#666666")
+            name.grid(row=row, column=0, columnspan=2, sticky="e")
+            Tooltip(name, lambda i=item: self.menu_item_text(i))
+            self.add_menu_item(frame, item, row)
+
+    def add_menu_items(self, frame, spec, row):
+        """The 'Show in menu' checkbox at the end of the patch line, for the first custom settings menu item the
+        patch adds (--hide-menu-items); add_option puts any further ones on lines of their own."""
+        items = [item for item in P.MENU_ITEMS if self.item_option[item.key] == spec.option]
+        if items:
+            self.add_menu_item(frame, items[0], row)
+
+    def add_menu_item(self, frame, item, row):
+        var = self.shown[item.key] = tk.BooleanVar(value=True)
+        var.trace_add("write", self.refresh)
+        check = ttk.Checkbutton(frame, variable=var, padding=0)
+        check.grid(row=row, column=2, padx=(4, 0))
+        Tooltip(check, lambda i=item: self.menu_item_text(i))
+        self.item_checks[item.key] = check
+
+    def menu_item_text(self, item):
+        frees = [text for text in ("%d on/off setting%s" % (len(item.g8), "s" * (len(item.g8) > 1)) if item.g8 else "",
+                                   "free on/off setting" if item.free_g8 else "",
+                                   "%d value setting%s" % (len(item.g4), "s" * (len(item.g4) > 1)) if item.g4 else "",
+                                   "%d label%s" % (len(item.labels), "s" * (len(item.labels) > 1)) if item.labels
+                                   else "") if text]
+        return wrap_lines(
+            "%s in the custom settings menu (needs --patch-custom-settings).\n\nUntick to leave it out of the device "
+            "menu: it then frees %s for other settings, and the feature uses its built-in value: %s.\n\n"
+            "Saved as --hide-menu-items %s." % (item.label, ", ".join(frees) or "nothing", item.hidden_value,
+                                                item.key))
+
+    def hidden_text(self):
+        """--hide-menu-items value: the unticked menu items, '' when all are shown."""
+        return ",".join(item.key for item in P.MENU_ITEMS
+                        if item.key in self.shown and not self.shown[item.key].get())
 
     def add_palette(self, frame, row):
         """One color swatch per palette role; a click opens a color picker."""
@@ -637,13 +691,20 @@ class App(tk.Tk):
             return None
         used = {key: [] for key, _ in SLOTS}
         used["omitted"] = []
-        selected = [resources for option, resources in self.resources.items() if values.get(option) is not False]
-        for resources in selected:
+        hidden = [item for item in P.MENU_ITEMS if item.key in self.shown and not self.shown[item.key].get()]
+        gone = {key: {name for item in hidden for name in getattr(item, key)} for key, _ in SLOTS}
+        selected = [(option, resources) for option, resources in self.resources.items()
+                    if values.get(option) is not False]
+        for _, resources in selected:
             for key, _ in SLOTS:
-                used[key] += resources[key]
-        for resources in selected:
+                used[key] += [name for name in resources[key] if name not in gone[key]]
+        for option, resources in selected:
             if resources["free_g8"]:
                 candidates, labels = resources["free_g8"]
+                labels = [label for label in labels if label not in gone["labels"]]
+                if any(item.free_g8 and self.item_option[item.key] == option for item in hidden):
+                    used["labels"] += labels   # no switch: the rest only needs labels
+                    continue
                 free = [var for var in candidates if var not in used["g8"]]
                 if free:
                     used["g8"].append(free[0])
@@ -700,13 +761,16 @@ class App(tk.Tk):
         palette = self.palette_text()
         if palette:
             out += ["--palette-colors", palette]
+        hidden = self.hidden_text()
+        if hidden:
+            out += ["--hide-menu-items", hidden]
         return out + self.extra
 
     def extra_tokens(self, ns):
         """Non-patch options set in the config file (--force-deprecated, --log-file, ...)."""
         tokens = []
         for action in self.parser._actions:
-            if action.dest in map(dest, self.specs) or action.dest == "palette_colors":
+            if action.dest in map(dest, self.specs) or action.dest in ("palette_colors", "hide_menu_items"):
                 continue
             value = getattr(ns, action.dest)
             if value != action.default:
@@ -714,12 +778,15 @@ class App(tk.Tk):
                 tokens += [name] if action.nargs == 0 else [name, str(value)]
         return tokens
 
-    def apply(self, values, palette=""):
-        """Shows values (option -> value) and palette (a --palette-colors value) in the window."""
+    def apply(self, values, palette="", hidden=""):
+        """Shows values (option -> value), palette (a --palette-colors value) and hidden (a --hide-menu-items
+        value) in the window."""
         self.loading = True
         chosen = dict(item.split("=") for item in palette.split(",") if item)
         for key, _, _, custom, _ in P.PALETTE_ROLES:
             self.palette[key].set(chosen.get(key, custom))
+        for key, var in self.shown.items():
+            var.set(key not in hidden.split(","))
         for option, spec in self.specs.items():
             value = values[option]
             self.enabled[option].set(value is not False)
@@ -767,6 +834,10 @@ class App(tk.Tk):
                 for widget in (cell, *cell.winfo_children()):
                     if isinstance(widget, (ttk.Label, ttk.Button)):
                         widget.state(["!disabled"] if on else ["disabled"])
+        menu = self.enabled["patch-custom-settings"].get()
+        for key, check in self.item_checks.items():
+            option = self.item_option[key]
+            check.state(["!disabled"] if menu and self.enabled[option].get() else ["disabled"])
         try:
             values = self.current()
         except argparse.ArgumentTypeError as exc:
@@ -805,7 +876,7 @@ class App(tk.Tk):
     def load(self):
         """Reads patch-airsense.config with the patcher's own option types; no file means the built-in defaults."""
         values = {option: spec.default for option, spec in self.specs.items()}
-        palette = ""
+        palette = hidden = ""
         self.extra, self.foreign, self.saved_tokens = [], False, []
         try:
             with open(CONFIG_FILE, encoding="utf-8") as f:
@@ -823,6 +894,7 @@ class App(tk.Tk):
                 ns = self.parser.parse_args(shlex.split(text, comments=True))
                 values = {option: getattr(ns, dest(option)) for option in self.specs}
                 palette = ns.palette_colors
+                hidden = ns.hide_menu_items
                 self.extra = self.extra_tokens(ns)
                 self.status.config(text="Loaded %s" % CONFIG_FILE)
             except ValueError as exc:
@@ -830,7 +902,7 @@ class App(tk.Tk):
                 messagebox.showerror(TITLE, "%s could not be read:\n\n%s\n\nThe built-in defaults are shown; "
                                      "Save replaces the file." % (CONFIG_FILE, exc))
                 self.status.config(text="Could not read %s" % os.path.basename(CONFIG_FILE))
-        self.apply(values, palette)
+        self.apply(values, palette, hidden)
         if self.saved_tokens is not None:
             self.saved_tokens = self.tokens(values)
         self.refresh()
@@ -879,6 +951,9 @@ class App(tk.Tk):
         palette = self.palette_text()
         if palette:
             lines += ["# Custom palette colors", "--palette-colors " + palette, ""]
+        hidden = self.hidden_text()
+        if hidden:
+            lines += ["# Left out of the custom settings menu", "--hide-menu-items " + hidden, ""]
         if self.extra:
             lines += ["# Other options", " ".join(shlex.quote(t) for t in self.extra), ""]
         if not tokens:

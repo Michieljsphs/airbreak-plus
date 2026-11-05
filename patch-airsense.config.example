@@ -21,6 +21,11 @@
 # --palette-colors text=FFFFFF,accent=00AA66
 # --patch-past-date y
 # --patch-custom-settings y
+# Leave menu items out of the custom settings menu to free their slots and
+# labels for others; the feature keeps its built-in value. Items: custom_vauto,
+# backup_rate, monitoring, square_wave, fall_time, ibr, autoepap, target_rh,
+# clock, humid_start, min_tube, start_coupling, climate.
+# --hide-menu-items clock,start_coupling
 # --patch-uart-stream-schema y
 # --patch-edf-merge y
 # --patch-fw-vidspoof y
