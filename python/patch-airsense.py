@@ -3575,7 +3575,7 @@ PATCH_PHASES = (
         PatchSpec('patch-fw-graph', 'Add the therapy pressure graph.',
                   False, 'patch_graph'),
         PatchSpec('patch-graph-climate',
-                  'Show the climate graph instead of the pressure graph: plate and tube temperatures and estimated RH over the first hour of therapy.',
+                  'Show the climate graph instead of the pressure graph: plate and tube temperatures and estimated RH over the first 30 minutes of therapy, replacing the mode and pressure readouts.',
                   False, 'patch_graph_climate'),
         PatchSpec('patch-graph-keep-screen-on',
                   'Keep the screen awake during therapy while Monitoring is enabled.',
