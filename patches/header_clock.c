@@ -199,23 +199,30 @@ struct root_screen *header_clock_init(struct root_screen *root)
 
 /* Climate timer: Accessories Off/On switches with a time each, in hours
  * (raw = hours * 100 in quarter-hour steps).
+ *  - Warm-up at: on Home, out of therapy, with a humidifier attached, set WUP
+ *    (the Run Warmup button) once in the WARMUP_WINDOW minutes after the time.
  *  - Humid. off at: once per therapy session, within HUMID_OFF_WINDOW minutes
  *    after the time, switch Humidity Enable (HMX) off so the heated tube dries
  *    with dry air; switch it back on when that therapy session ends.
  * The state lives in RAM, so a power cut while the humidifier is switched off
  * leaves HMX off.
  */
+#define WARMUP_WINDOW 10u
 #define HUMID_OFF_WINDOW (4u * 60u)
 #define MINUTES_PER_DAY (24u * 60u)
+#define WUP_RUNNING 1
 #define CLIMATE_TIMER_MAGIC 0x434c544du
 
 struct climate_timer {
     unsigned magic;
+    u8 warmup_fired;
     u8 off_done;
     u8 switched_off;
     u8 therapy;
 };
 
+extern const u16 climate_timer_warmup_enable_var_id;
+extern const u16 climate_timer_warmup_var_id;
 extern const u16 climate_timer_humid_off_enable_var_id;
 extern const u16 climate_timer_humid_off_var_id;
 extern int ivars[];
@@ -240,6 +247,7 @@ static struct climate_timer *climate_timer_state(void)
         if (!(s = malloc(sizeof(*s))))
             return 0;
         s->magic = CLIMATE_TIMER_MAGIC;
+        s->warmup_fired = 0;
         s->off_done = 0;
         s->switched_off = 0;
         s->therapy = 0;
@@ -266,9 +274,11 @@ static int in_window(unsigned now, int start, unsigned length)
 
 static void climate_timer(void)
 {
+    int warmup_at = timer_minutes(climate_timer_warmup_enable_var_id,
+                                  climate_timer_warmup_var_id);
     int off_at = timer_minutes(climate_timer_humid_off_enable_var_id,
                                climate_timer_humid_off_var_id);
-    if (off_at < 0)
+    if (warmup_at < 0 && off_at < 0)
         return;
     struct climate_timer *s = climate_timer_state();
     if (!s)
@@ -290,6 +300,15 @@ static void climate_timer(void)
             if (!variable_get_by_id(VAR_ID_HMX))
                 variable_set_by_id(VAR_ID_HMX, 1);
         }
+    }
+
+    if (!in_window(now, warmup_at, WARMUP_WINDOW)) {
+        s->warmup_fired = 0;
+    } else if (!s->warmup_fired && !therapy && humidifier &&
+               variable_get_by_id(VAR_ID_ZML) == 0) {
+        s->warmup_fired = 1;
+        if (variable_get_by_id(VAR_ID_WUP) != WUP_RUNNING)
+            variable_set_by_id(VAR_ID_WUP, WUP_RUNNING);
     }
 
     if (therapy && !s->off_done && in_window(now, off_at, HUMID_OFF_WINDOW)) {

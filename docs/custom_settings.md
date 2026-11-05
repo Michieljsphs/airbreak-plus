@@ -29,8 +29,8 @@ Settings are assigned when their corresponding patch or payload is active.
 | Therapy graph | Monitoring | RXH | g[8] | CSG |
 | [Header clock](guide/features/general.md#header-clock) | Clock | RXF | g[8] | CSG |
 | [Header climate](guide/features/general.md#header-climate) | Climate | first free of RXW, RSA, RPF, RPW, RPO, RPH, RXM, RXH, after Humid Start; omitted when none or no label string is free | g[8] | CSG |
-| [Climate timer](guide/features/climate_timer.md) | Hum. off timer | first free of RPO, RPH, RPF, RPW, RXM, RXH, RXW, RSA, after the Climate switch | g[8] | CSG |
-| [Climate timer](guide/features/climate_timer.md) | Hum. off at (h) | first free of RDH, RDW, RCW, RCM, RCH, RCF, RDF, RDM; shown while its switch is On. Each timer is omitted when no switch, time or two label strings are free | g[4] | CSG |
+| [Climate timer](guide/features/climate_timer.md) | Warm-up timer, Hum. off timer | first free of RPO, RPH, RPF, RPW, RXM, RXH, RXW, RSA, after the Climate switch | g[8] | CSG |
+| [Climate timer](guide/features/climate_timer.md) | Warm-up at (h), Hum. off at (h) | first free of RDH, RDW, RCW, RCM, RCH, RCF, RDF, RDM; shown while its switch is On. Each timer is omitted when no switch, time or two label strings are free | g[4] | CSG |
 | [Square Wave](guide/features/squarewave.md) | Square Wave | RPF | g[8] | CSG |
 | [Fall Time](guide/features/general.md#fall-time) | Fall Time | RCW | g[4] | CSG |
 | [ST iBR](guide/features/general.md#st-ibr) | iBR | RXW | g[8] | CSG |

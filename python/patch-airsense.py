@@ -1467,6 +1467,7 @@ class ASFirmwarePatches(CompiledPayloadMixin):
                        self.asf.resolve_var_id(name) not in claims for name in candidates)
 
         timers = (
+            ('Warm-up timer', 'Warm-up timer', 'Warm-up at (h)', 2200, 'warmup'),
             ('Humidifier off timer', 'Hum. off timer', 'Hum. off at (h)', 600, 'humid_off'),
         )
         for name, switch_text, time_text, default, key in timers:
@@ -3458,7 +3459,7 @@ PATCH_PHASES = (
                   'Show the climate readout in every screen title (menus too), not only Home and therapy.',
                   False, 'patch_header_climate_always'),
         PatchSpec('patch-climate-timer',
-                  'Climate timer: switch the humidifier off during therapy at a set time so the heated tube dries (Accessories menu; SX567 only).',
+                  'Climate timer: start the humidifier warm-up and switch the humidifier off during therapy at set times (Accessories menu; SX567 only).',
                   False, 'patch_climate_timer'),
         PatchSpec('patch-target-rh',
                   'Set target RH (default: 85%, y: 85%, n: disabled); custom settings adds a 70-100% menu control.',
