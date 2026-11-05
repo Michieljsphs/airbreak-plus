@@ -90,8 +90,14 @@ tools, follow the [Windows](#windows) route instead.
 
 ## A tour of the window
 
-The window has two parts. The top part is the options; the bottom part patches
-and flashes. You can drag the divider between them.
+A row of **Steps** runs along the top: choose patches, save, build payloads,
+patch, dump backup, flash. A green tick means the step is done: the options are
+saved, the payloads are built, the patched firmware exists, a backup file exists,
+and the device was flashed from this window. Work through them from left to
+right; hover the row for a reminder.
+
+Below it, the top part is the options and the bottom part patches and flashes.
+You can drag the divider between them.
 
 **Options (top)**
 
@@ -109,6 +115,10 @@ and flashes. You can drag the divider between them.
 - **Save** writes `patch-airsense.config`. **Reload** reads it again.
   **Reset to defaults** shows the built-in defaults; nothing is written until
   you press Save.
+- **Plus preset** selects the patches of `build/stm32-plus.bin` (graph, Custom
+  VAuto, ASV backup-rate control, Square Wave, Fall Time, ST iBR and iVAPS
+  AutoEPAP) and puts everything else back to its default. Add more patches
+  on top, then Save.
 - **Command line** shows your saved options in command-line form. Copy it to
   use as `AIR10_PATCH_ARGS` with `make`.
 - The title bar shows `*` when there are unsaved changes.
@@ -183,15 +193,17 @@ flash can leave the device without working firmware.
 
 ### Which OpenOCD
 
-| Setting | Use it when |
-|---------|-------------|
-| **Windows openocd.exe** | You have OpenOCD on Windows (for example the xPack build). The window looks in the usual install folders; otherwise press **Browse...** and choose `openocd.exe`. On Linux and in WSL this option means the `openocd` in your path |
+| Choice | Use it when |
+|--------|-------------|
+| **Windows openocd.exe** | You have OpenOCD on Windows (for example the xPack build). The window looks in the usual install folders; otherwise press **Browse...** and choose `openocd.exe` |
+| **OpenOCD on this system** | Linux and WSL: the only choice. It uses the `openocd` in your path, shown in the box below, or one you choose with **Browse...** |
 | **WSL (run-ocd.sh)** | You run the window on Windows and OpenOCD lives in WSL. It starts `run-ocd.sh`, which attaches the programmer with usbipd |
 
 For WSL you need `openocd` and `usbutils` installed there (`sudo apt install
 openocd usbutils`) and the one-time `usbipd bind`; see the
 [WSL setup](wsl_setup.md#forward-an-swd-programmer-into-wsl2-optional).
 
+The **WSL (run-ocd.sh)** choice appears only when the window runs on Windows.
 The **Adapter** list switches between an ST-Link and a J-Link.
 
 ## Platform notes
@@ -208,8 +220,8 @@ The **Adapter** list switches between an ST-Link and a J-Link.
 - If OpenOCD cannot open the programmer, you may need a udev rule or group
   membership. The OpenOCD package normally installs the rules; unplug and
   replug the programmer after installing.
-- Scroll the option list with its scroll bar. Mouse-wheel scrolling is set up
-  for Windows and may not move the list on your system.
+- The mouse wheel scrolls the option list while the pointer is over it; the scroll
+  bar always works.
 
 **WSL**
 
