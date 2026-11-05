@@ -302,7 +302,7 @@ as the demanded duty.
 | Estimated moisture is flat after the first 3 minutes | The power bound took over early. The coupling is probably too high; try 0.20 to 0.25 |
 | Condensation | Lower the target, or raise the coupling a little so the tube warms earlier |
 | Nothing changes when you toggle the switch | Warm-up only works in Auto climate control with a heated tube and the humidifier on |
-| A setting is missing from the menu | The build ran out of label strings. See `docs/guide/features/general.md` |
+| A setting is missing from the menu | The build ran out of label strings. See `docs/guide/features/humid_start.md` |
 
 ## Warm-up can restart
 
