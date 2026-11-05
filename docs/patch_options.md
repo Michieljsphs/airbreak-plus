@@ -59,6 +59,9 @@ Each patcher's `--help` lists available options and defaults.
 
 ### Graphical editor
 
+A step-by-step guide for Windows, Linux and WSL is in the
+[patch options window guide](guide/patch_gui.md).
+
 `patch-airsense-gui.bat` (Windows, no console) or `python python/patch_config_gui.py`
 opens a window for the Air 10 `patch-airsense.config`. Patches are grouped by
 phase and read from `patch-airsense.py`, so the list always matches the patcher.
