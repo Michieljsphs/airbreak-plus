@@ -373,6 +373,12 @@ class App(tk.Tk):
             Tooltip(self.usage[key], lambda k=key: self.usage_text(k))
         self.usage_note = ttk.Label(usage, foreground="#b36b00")   # settings dropped for lack of a free slot
         self.usage_note.pack(side="left")
+        Tooltip(self.usage_note, lambda: wrap_lines(
+            "These settings need a free on/off variable (Humid Start, Climate) or a free label string (Min Tube, "
+            "Start Coupling), and the patcher adds each one only while one is left. Settings that do not get a "
+            "menu item keep a built-in value: Humid Start and the Climate readout stay on, Min Tube is 16 C and "
+            "Start Coupling is 0.30. Tick Verbose and patch to see which were added. Free some by unticking "
+            "patches with menu settings, for example ST iBR or iVAPS AutoEPAP."))
         Tooltip(usage, lambda: self.usage_text(None))
 
         columns = [ttk.Frame(inner) for _ in range(2)]   # one LabelFrame per patch phase, in two columns
@@ -613,7 +619,8 @@ class App(tk.Tk):
             self.usage[key].config(text="%s: %d%s" % (label, len(used[key]), " / %d" % pool if pool else ""),
                                    foreground="#b00020" if over else "")
         omitted = used["omitted"] if used else []
-        self.usage_note.config(text="Left out, no free on/off setting: " + ", ".join(omitted) if omitted else "")
+        self.usage_note.config(text="May be left out, no free on/off setting or label: " + ", ".join(omitted)
+                               if omitted else "")
 
     def current(self):
         """option -> value as the patcher takes it: True/False, or the percentage of a patch with a value.
