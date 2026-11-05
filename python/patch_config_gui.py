@@ -142,7 +142,7 @@ def menu_resources():
     """Which custom settings menu resources each patch uses, read from the patcher source:
     {option: {"g8": [vars], "g4": [vars], "labels": [texts], "free_g8": (candidates, labels) or None}} and the
     pool size of each resource. free_g8 is a setting that takes the first unclaimed on/off variable of the
-    candidates, if any is left (Climate, Tube Warm-up); the labels after that claim are only used with it."""
+    candidates, if any is left (Climate, Humid Start); the labels after that claim are only used with it."""
     patches = P.ASFirmwarePatches
     pools = {"labels": None}   # reclaimed string IDs: the count depends on the firmware
     reclaim = inspect.getsource(patches.custom_patch_settings_reclaim_reminders)
@@ -404,7 +404,7 @@ class App(tk.Tk):
         self.build_btn = ttk.Button(actions, text="Build payloads (make binaries)", command=self.build)
         self.build_btn.pack(side="left", padx=(6, 0))
         Tooltip(self.build_btn, lambda: wrap_lines(
-            "Compiles the payloads the patcher loads from build/ (graph, Custom VAuto, Tube Warm-up, ...). Needed "
+            "Compiles the payloads the patcher loads from build/ (graph, Custom VAuto, Humid Start, ...). Needed "
             "once, and again after changing patches/. Runs: %s" % " ".join(build_command() or ["make", "binaries"])))
         self.stop_btn = ttk.Button(actions, text="Stop", command=self.stop, state="disabled")
         self.stop_btn.pack(side="left", padx=(6, 0))
