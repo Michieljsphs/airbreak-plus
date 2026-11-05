@@ -110,7 +110,7 @@ Without this patch, the stock 85% target remains unchanged.
 The percentage is a target, not a measurement of humidity at the mask.
 Higher targets increase condensation risk; 100% targets saturation.
 
-## Tube Warm-up
+## Humid Start
 
 At the start of therapy, the heated tube normally reaches its temperature
 within minutes, while the humidifier plate takes much longer to heat the water.
@@ -127,13 +127,13 @@ As the plate warms, the estimate rises, the cap follows it up, and the tube
 warms with it, so the air never gets much warmer than the humidity can support.
 
 <p align="center">
-  <img src="../../images/tube-warmup-comparison.svg" alt="Relative humidity and tube temperature over the first minutes of therapy, with stock firmware and with Tube Warm-up" width="720">
+  <img src="../../images/tube-warmup-comparison.svg" alt="Relative humidity and tube temperature over the first minutes of therapy, with stock firmware and with Humid Start" width="720">
 </p>
 
 The charts show the idea with a 30 °C tube setting and an 85% target. The axis
 values are real units, but the curves and the time axis are illustrative, not
 measurements. With stock firmware the tube reaches its setting within a few
-minutes, while the air is still drier than the target. With Tube Warm-up the
+minutes, while the air is still drier than the target. With Humid Start the
 tube stays near room temperature until the water can support the target, then
 follows the water up, so the RH reaches the target sooner and stays there.
 
@@ -175,7 +175,7 @@ The device has no humidity sensor in the air path, so the moisture the chamber
 adds is estimated. The stock humidifier is open loop: it sets the heater duty
 from the moisture the air needs, `duty = k0 + k1 × flow × ΔAH` with flow in
 L/min and ΔAH in g/m³, using a calibration the device loads at boot, and only
-limits the plate near 63-68 °C. Tube Warm-up estimates the added moisture as the
+limits the plate near 63-68 °C. Humid Start estimates the added moisture as the
 smaller of two bounds:
 
 | Bound | Estimate | Fits |
@@ -205,7 +205,7 @@ would exceed saturation, since air cannot hold more than that. In steady state
 it is the stock model's own prediction, which could be off in either direction.
 It has not been checked against a hygrometer.
 
-### Warm-up Coupling
+### Start Coupling
 
 The coupling is the fraction of the plate's rise above room temperature over
 which the air leaving the chamber is assumed to pick up moisture. It scales the
@@ -251,8 +251,8 @@ With custom settings, clinical **Accessories** contains:
 
 | Setting | UART | Values | Default |
 |---------|------|--------|---------|
-| Tube Warm-up | first free on/off slot | Off, On | On |
-| Warm-up Coupling | RDW | 0.10-1.00, step 0.05 | 0.30 |
+| Humid Start | first free on/off slot | Off, On | On |
+| Start Coupling | RDW | 0.10-1.00, step 0.05 | 0.30 |
 
 Without custom settings, or when no label string is left for the coupling, the
 coupling keeps its default of 0.30 (the constant in `patches/tube_warmup_abi.S`).
@@ -266,10 +266,10 @@ used; for example, without ST iBR and AutoEPAP:
 make build/stm32-plus.bin AIR10_PATCH_ARGS='--patch-st-ibr n --patch-autoepap n --patch-tube-warmup y'
 ```
 
-The switch is added first, then Warm-up Coupling. The
+The switch is added first, then Start Coupling. The
 [Header climate](#header-climate) switch, when installed, takes what Tube
 Warm-up leaves. When no label is left for a setting it is skipped: without the
-switch Tube Warm-up stays on. The build log reports what was added.
+switch Humid Start stays on. The build log reports what was added.
 
 Enable it with `--patch-tube-warmup y` or `PATCH_TUBE_WARMUP=1`. It is off by
 default and requires font repacking (on by default).
@@ -298,10 +298,10 @@ Menu screens keep their own titles unless [Always show](#always-show) is on. The
 page counter (for example `1/3`) is hidden while the readout is shown.
 
 The device has no humidity sensor in the air path, so the RH value is
-estimated in the same way as [Tube Warm-up](#tube-warm-up): the room air plus
+estimated in the same way as [Humid Start](#humid-start): the room air plus
 the smaller of the plate and heater-power bounds on the added moisture,
 divided by the saturation humidity at the tube temperature. The plate bound
-uses the same Warm-up Coupling (default `0.3`, in `patches/header_clock_abi.S`).
+uses the same Start Coupling (default `0.3`, in `patches/header_clock_abi.S`).
 Treat the value as a guide to the trend, not a measurement. It is probably too
 high in the first minutes, can read 100% when the estimate is above saturation,
 and has not been checked against a hygrometer.
@@ -309,7 +309,7 @@ and has not been checked against a hygrometer.
 With custom settings, clinical **Configuration** gets a **Climate** switch
 (Off, On; default On) next to **Clock**. Off shows the clock, or the stock
 title, again. The switch needs a free on/off variable and label string, like
-the Tube Warm-up switch, and gets them after it; without one the readout stays on.
+the Humid Start switch, and gets them after it; without one the readout stays on.
 
 Enable it with `--patch-header-climate y` or `PATCH_HEADER_CLIMATE=1`. It is off
 by default, needs the header clock patch (on by default), and is independent

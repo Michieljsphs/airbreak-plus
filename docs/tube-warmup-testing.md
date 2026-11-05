@@ -1,13 +1,13 @@
-# Tube Warm-up: field manual
+# Humid Start: field manual
 
-Notes for testing the Tube Warm-up and header climate readout on the device.
+Notes for testing the Humid Start and header climate readout on the device.
 The estimate has not been checked against a hygrometer, so treat every number
 as a guide until you have measured it yourself.
 
 ## What it does
 
 At the start of therapy the stock device heats the tube straight away, while the
-water chamber needs many minutes. The early air is warm and dry. Tube Warm-up
+water chamber needs many minutes. The early air is warm and dry. Humid Start
 caps the tube setpoint at the temperature where the estimated humidity gives
 your target RH, and lets that cap rise as the plate warms. The cap is never
 below 16 °C, the lowest tube setting, and the tube heater stays off while the
@@ -123,8 +123,8 @@ Clinical menu, Accessories:
 | Setting | What it changes | Default |
 |---------|-----------------|---------|
 | Target RH (%) | The humidity the stock controller aims for, and where the cap sits | 85 |
-| Tube Warm-up | Switch for the whole feature | On |
-| Warm-up Coupling | How warm the chamber air is assumed to be, during warm-up only | 0.30 |
+| Humid Start | Switch for the whole feature | On |
+| Start Coupling | How warm the chamber air is assumed to be, during warm-up only | 0.30 |
 
 The tube temperature setting is the stock one. Climate (in Configuration) turns
 the header readout on and off.
@@ -248,7 +248,7 @@ is very different, the estimate can be changed in the source.
    ./read-climate.sh -w 10 -c 0.30 -r 20 | tee climate-log.txt
    ```
 
-   `-c` must match Warm-up Coupling in the device menu. `-r` is the real room
+   `-c` must match Start Coupling in the device menu. `-r` is the real room
    temperature. Besides the variables, each reading then prints the estimated
    absolute humidity at the mask end, the RH at the tube (not limited to 100 %
    here) and the dew point. Add `-k` if your calibration `k1` is not 0.001. Use
