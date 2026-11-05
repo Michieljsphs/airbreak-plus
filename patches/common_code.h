@@ -145,17 +145,7 @@ float remap01c(float s, float start, float end); // Version that clamps to 0-1
 float lerp(float from, float to, float coeff);
 
 
-typedef enum {
-  PTR_HISTORY,
-  PTR_SQUAREWAVE_DATA,
-  PTR_TRACKING,
-  PTR_ASV_DATA,
-  PTR_FEATURES,
-  PTR_TRIGGERCYCLE,
-  PTR_GRAPH_DATA,
-
-  __PTR_LAST,
-} ptr_index;
+#include "ram_pointers.h"
 
 void *get_pointer(ptr_index index, int size, void (*init_fn)(void*));
 

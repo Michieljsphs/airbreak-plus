@@ -23,15 +23,8 @@ float lerp(float from, float to, float coeff) {
 
 
 
-typedef struct {
-  unsigned magic;
-  void** pointers;
-} magic_ptr_t;
-
-// NSTUB defines magic_ptr as an absolute symbol at the RAM address.
-extern magic_ptr_t magic_ptr __attribute__((section(".absolute")));
 #define magic_ptr_p (&magic_ptr)
-const unsigned MAGIC = 0x07E49001;
+#define MAGIC RAM_POINTERS_MAGIC
 
 void *get_pointer(ptr_index index, int size, void (*init_fn)(void*)) {
   const int max_pointers = __PTR_LAST;

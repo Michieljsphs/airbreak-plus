@@ -496,6 +496,14 @@ class ASFirmwarePatches(CompiledPayloadMixin):
             request, owner, self.custom_g4_reclaimed,
             self.custom_g4_claims, 4)
 
+    def custom_claim_free_g4_var(self, candidates, owner):
+        """Claim the first unclaimed reclaimed g[4] candidate, or return None."""
+        for request in candidates:
+            vid = self.asf.resolve_var_id(request)
+            if vid in self.custom_g4_reclaimed and vid not in self.custom_g4_claims:
+                return self.custom_claim_g4_var(request, owner)
+        return None
+
     def redefine_g8_var(self, var, flags, callback, dep_head, name_str, default,
                         num_options, param_0a, perm_mask, base_str, param_12):
         """Rewrite a g[8] descriptor with caller-provided raw fields."""
@@ -1443,6 +1451,30 @@ class ASFirmwarePatches(CompiledPayloadMixin):
         addr = self._write_payload_u16('header_clock', 'header_climate_var_id', vid)
         self._custom_detail('Climate: %s var_id=0x%04X at 0x%08X' % (enable, vid, addr))
 
+    def custom_patch_settings_climate_timer(self):
+        """Add the Climate timer time (Humidifier off at) to Accessories."""
+        # Runs last and uses what the other features leave: a label string and
+        # a reclaimed g[4] variable per time. Raw value is hours * 100 in
+        # quarter-hour steps (22.25 = 22:15); 0 is Off.
+        dep = self.asf.find_var_table_index(4, 'RGT')
+        hint = 'build without e.g. --patch-humid-start or --patch-autoepap to add it'
+        for name, text, symbol in (
+                ('Humidifier off at', 'Hum. off at (h)', 'climate_timer_humid_off_var_id'),):
+            var = None
+            if self.custom_string_pool:
+                var = self.custom_claim_free_g4_var(
+                    ('RDH', 'RDW', 'RCW', 'RCM', 'RCH', 'RCF', 'RDF', 'RDM'), symbol)
+            if var is None:
+                self._custom_detail('%s: no free label string or numeric slot; %s' % (name, hint))
+                continue
+            label = self.redefine_fw_string(-1, {0: text}, symbol.replace('_var_id', '_label'))
+            self.redefine_g4_var(var, 0x0007, 0, dep, label,
+                                 0, 2375, 0, 2, 100, 25, self.asf.str_id_empty)
+            self.custom_menu_add('accessories', var, self.CUSTOM_MENU_MODE_BITS)
+            vid = self.asf.resolve_var_id(var)
+            addr = self._write_payload_u16('header_clock', symbol, vid)
+            self._custom_detail('%s: %s var_id=0x%04X at 0x%08X' % (name, var, vid, addr))
+
     def custom_patch_settings_backlight(self):
         """Expose persistent Backlight controls on a generated LCD page."""
         low_var = 'ATH'
@@ -1589,6 +1621,7 @@ class ASFirmwarePatches(CompiledPayloadMixin):
             # above, Humid Start before Climate.
             ('humid_start', self.custom_patch_settings_humid_start),
             ('header_climate', self.custom_patch_settings_header_climate),
+            ('climate_timer', self.custom_patch_settings_climate_timer),
         )
         active = self.applied_payloads | self.enabled_custom_settings_features
         return [feature for source, feature in feature_patches if source in active]
@@ -3026,6 +3059,15 @@ class ASFirmwarePatches(CompiledPayloadMixin):
         self.asf.write_u8(address - self.asf.FLASH_BASE, 1)
         return PatchOutcome.ok("Climate readout in every title at 0x%08X" % address)
 
+    def patch_climate_timer(self):
+        """Add the Humidifier off at time; the custom settings assign it."""
+        if 'header_clock' not in self.applied_payloads:
+            return PatchOutcome.skip("header clock payload not installed")
+        if not self.asf.cdx_ver.startswith('SX567-'):
+            return PatchOutcome.skip("unsupported CDX version %s" % self.asf.cdx_ver)
+        self.enabled_custom_settings_features.add('climate_timer')
+        return PatchOutcome.ok("Climate timer enabled; times are assigned with the custom settings")
+
     def patch_backlight_adapt(self):
         """improved backlight response to ambient light"""
         if self.asf.cdx_ver in ('SX584-0204', 'SX584-0205'):
@@ -3397,6 +3439,9 @@ PATCH_PHASES = (
         PatchSpec('patch-header-climate-always',
                   'Show the climate readout in every screen title (menus too), not only Home and therapy.',
                   False, 'patch_header_climate_always'),
+        PatchSpec('patch-climate-timer',
+                  'Climate timer: switch the humidifier off during therapy at a set time so the heated tube dries (Accessories menu; SX567 only).',
+                  False, 'patch_climate_timer'),
         PatchSpec('patch-target-rh',
                   'Set target RH (default: 85%, y: 85%, n: disabled); custom settings adds a 70-100% menu control.',
                   85.0, 'patch_target_rh', value_type=target_rh_value),
@@ -3467,6 +3512,7 @@ PATCH_DEPENDENCIES = {
     'patch-graph-keep-screen-on': ('patch-fw-graph',),
     'patch-header-climate': ('patch-header-clock',),
     'patch-header-climate-always': ('patch-header-climate',),
+    'patch-climate-timer': ('patch-header-clock', 'patch-custom-settings'),
     'patch-humid-start': ('patch-font-repack',),
     'patch-fw-vauto-wrapper': ('patch-fw-common-code',),
     'patch-fw-squarewave': ('patch-fw-common-code', 'patch-fw-vauto-wrapper'),

@@ -29,6 +29,7 @@ Settings are assigned when their corresponding patch or payload is active.
 | Therapy graph | Monitoring | RXH | g[8] | CSG |
 | [Header clock](guide/features/general.md#header-clock) | Clock | RXF | g[8] | CSG |
 | [Header climate](guide/features/general.md#header-climate) | Climate | first free of RXW, RSA, RPF, RPW, RPO, RPH, RXM, RXH, after Humid Start; omitted when none or no label string is free | g[8] | CSG |
+| [Climate timer](guide/features/climate_timer.md) | Hum. off at (h) | first free of RDH, RDW, RCW, RCM, RCH, RCF, RDF, RDM, after the Climate switch; each omitted when none or no label string is free | g[4] | CSG |
 | [Square Wave](guide/features/squarewave.md) | Square Wave | RPF | g[8] | CSG |
 | [Fall Time](guide/features/general.md#fall-time) | Fall Time | RCW | g[4] | CSG |
 | [ST iBR](guide/features/general.md#st-ibr) | iBR | RXW | g[8] | CSG |
@@ -56,7 +57,8 @@ requests custom settings:
 2. rename the Reminder persistence group from `RGL` to `CSG`
 3. reclaim selected Reminder variables and string IDs
 4. let each active feature activate or redefine its variables; the Humid Start and then the
-   Climate switch run last and take any on/off variable left unclaimed
+   Climate switch run last and take any on/off variable left unclaimed, then the
+   Climate timer takes any numeric variable left
 5. extend the CSG member list with any additional persistent firmware variables
 6. emit the custom menu registry into reclaimed CDX space
 7. inject the clinical menu hooks

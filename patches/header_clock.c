@@ -194,12 +194,121 @@ struct root_screen *header_clock_init(struct root_screen *root)
     return root;
 }
 
+#ifdef HEADER_CLIMATE
+#include "ram_pointers.h"
+
+/* Climate timer: Accessories settings in hours (raw = hours * 100 in
+ * quarter-hour steps, 0 = Off).
+ *  - Humid. off at: once per therapy session, within HUMID_OFF_WINDOW minutes
+ *    after the time, switch Humidity Enable (HMX) off so the heated tube dries
+ *    with dry air; switch it back on when that therapy session ends.
+ * The state lives in RAM, so a power cut while the humidifier is switched off
+ * leaves HMX off.
+ */
+#define HUMID_OFF_WINDOW (4u * 60u)
+#define MINUTES_PER_DAY (24u * 60u)
+#define CLIMATE_TIMER_MAGIC 0x434c544du
+
+struct climate_timer {
+    unsigned magic;
+    u8 off_done;
+    u8 switched_off;
+    u8 therapy;
+};
+
+extern const u16 climate_timer_humid_off_var_id;
+extern int ivars[];
+extern void *malloc(unsigned size);
+extern void variable_set_by_id(int var_id, int value);
+
+/* Same table as common_code.c get_pointer, which may run first or not at all. */
+static struct climate_timer *climate_timer_state(void)
+{
+    magic_ptr_t *slot = &magic_ptr;
+    if (slot->magic != RAM_POINTERS_MAGIC) {
+        void **pointers = malloc(sizeof(void *) * __PTR_LAST);
+        if (!pointers)
+            return 0;
+        for (unsigned i = 0; i < __PTR_LAST; ++i)
+            pointers[i] = 0;
+        slot->pointers = pointers;
+        slot->magic = RAM_POINTERS_MAGIC;
+    }
+    struct climate_timer *s = slot->pointers[PTR_CLIMATE_TIMER];
+    if (!s) {
+        if (!(s = malloc(sizeof(*s))))
+            return 0;
+        s->magic = CLIMATE_TIMER_MAGIC;
+        s->off_done = 0;
+        s->switched_off = 0;
+        s->therapy = 0;
+        slot->pointers[PTR_CLIMATE_TIMER] = s;
+    }
+    return s->magic == CLIMATE_TIMER_MAGIC ? s : 0;
+}
+
+/* Setting in minutes of the day, or -1 when unassigned or Off. */
+static int setting_minutes(u16 var_id)
+{
+    if (var_id == 0xffffu)
+        return -1;
+    int raw = variable_get_by_id(var_id);
+    if (raw <= 0 || raw >= 2400)
+        return -1;
+    return raw * 3 / 5;
+}
+
+static int in_window(unsigned now, int start, unsigned length)
+{
+    return start >= 0 && (now + MINUTES_PER_DAY - (unsigned)start) % MINUTES_PER_DAY < length;
+}
+
+static void climate_timer(void)
+{
+    int off_at = setting_minutes(climate_timer_humid_off_var_id);
+    if (off_at < 0)
+        return;
+    struct climate_timer *s = climate_timer_state();
+    if (!s)
+        return;
+
+    unsigned time = variable_get_by_id(VAR_ID_TIC);
+    unsigned hour = (time >> 16) & 0xff, minute = (time >> 8) & 0xff;
+    if (hour >= 24 || minute >= 60)
+        return;
+    unsigned now = hour * 60 + minute;
+    int therapy = ivars[0x6f] != 0;
+    int humidifier = variable_get_by_id(VAR_ID_HUM) != 0;
+
+    if (therapy != s->therapy) {
+        s->therapy = therapy;
+        s->off_done = 0;
+        if (!therapy && s->switched_off) {
+            s->switched_off = 0;
+            if (!variable_get_by_id(VAR_ID_HMX))
+                variable_set_by_id(VAR_ID_HMX, 1);
+        }
+    }
+
+    if (therapy && !s->off_done && in_window(now, off_at, HUMID_OFF_WINDOW)) {
+        s->off_done = 1;
+        if (humidifier && variable_get_by_id(VAR_ID_HMX)) {
+            variable_set_by_id(VAR_ID_HMX, 0);
+            s->switched_off = 1;
+        }
+    }
+}
+#endif
+
 void header_clock_update(struct root_screen *root, int changed)
 {
     gui_root_screen_layout_right_widgets(root, changed);
     if (++root->clock_update_count < 10)
         return;
     root->clock_update_count = 0;
+#ifdef HEADER_CLIMATE
+    climate_timer();
+#endif
     u16 value = current_title(root, 0);
     if (value != root->clock_time) {
         const short rect[4] = {0, 0, 239, 32};
