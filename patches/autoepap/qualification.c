@@ -1,5 +1,5 @@
 /* Locate inspiratory onset from the rising edge around the flow peak. */
-static int qualify_onset(const Span *span, int *onset, int *ambiguous, int *half_peak) {
+int qualify_onset(const Span *span, int *onset, int *ambiguous, int *half_peak) {
     int peak = 0;
     *ambiguous = 0;
     *onset = 0;
@@ -26,7 +26,7 @@ static int qualify_onset(const Span *span, int *onset, int *ambiguous, int *half
 }
 
 /* Peak decline changes the temporary onset-fit window. */
-static int qualify_peak_end(const Span *span, int start) {
+int qualify_peak_end(const Span *span, int start) {
     int best = start;
     float peak = sample(span, start), drop = peak * 0.2f;
     for (int i = start; i < span->count; ++i) {
@@ -38,7 +38,7 @@ static int qualify_peak_end(const Span *span, int start) {
 }
 
 /* Negative runs at the tail are compared with positive mean flow. */
-static int qualify_end(const Span *span) {
+int qualify_end(const Span *span) {
     float positive = 0.0f;
     int positive_count = 0, has_negative = 0;
     for (int i = 0; i < span->count; ++i) {
@@ -70,7 +70,7 @@ static int qualify_end(const Span *span) {
     return end;
 }
 
-static int qualify_window(const Span *span, float target, Span *result) {
+int qualify_window(const Span *span, float target, Span *result) {
     *result = *span;
     if (!qualify_breath(span, target)) { result->count = 0; return 0; }
     Span fitting = *span;

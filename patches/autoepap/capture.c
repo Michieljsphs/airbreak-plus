@@ -7,7 +7,7 @@ typedef struct {
 
 /* Capture phase boundaries in the circular flow buffer. Slots hold the cursor,
  * two window pairs, two phase starts, and the measured inspiratory duration. */
-static void capture_update(Capture *c, unsigned events, float flow, float *samples, int *slots) {
+void capture_update(Capture *c, unsigned events, float flow, float *samples, int *slots) {
     if (c->sequence != 3) c->ready = 0;
     if (++c->cursor == 1000) c->cursor = 0;
     samples[c->cursor] = flow;
@@ -54,7 +54,7 @@ static void capture_update(Capture *c, unsigned events, float flow, float *sampl
 }
 
 /* Two-pass observer acknowledgement is retained across the 10 Hz/100 Hz tasks. */
-static unsigned capture_notifications(Capture *c) {
+unsigned capture_notifications(Capture *c) {
     unsigned events = 0;
     if (c->window_observer) { c->window_observer = 0; c->window_notice = 2; }
     else if (c->window_notice == 1) { events |= 1u << 15; c->window_observer = 1; }

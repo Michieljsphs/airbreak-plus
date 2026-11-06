@@ -1,6 +1,6 @@
 
 /* Ring spans exclude their end position. */
-static int segment_features(const Span *span, float first, float last, float out[7]) {
+int segment_features(const Span *span, float first, float last, float out[7]) {
     int begin = round_positive((float)span->count * first);
     int end = round_positive((float)span->count * last);
     int n = end - begin;
@@ -50,7 +50,7 @@ static int segment_features(const Span *span, float first, float last, float out
 }
 
 /* Two windows supply eight persistent feature outputs. */
-static int produce_segments(const Span *span, float out[8]) {
+int produce_segments(const Span *span, float out[8]) {
     float result[7];
     int valid = 0;
     if (segment_features(span, 0.3f, 0.85f, result)) {
@@ -67,7 +67,7 @@ static int produce_segments(const Span *span, float out[8]) {
 }
 
 /* Combine the cropped regression and excess flow before the fitted segment. */
-static float produce_fit(const Span *span, int rise, int fall, float target, float out[5]) {
+float produce_fit(const Span *span, int rise, int fall, float target, float out[5]) {
     float fit[4];
     if (!cropped_flow_fit(span, rise, fall, target, fit)) return 0.0f;
     if (rise < 10) rise = 10;
@@ -93,7 +93,7 @@ typedef struct {
 } ShapeHistory;
 
 /* Source span, including the cyclic-counter fields. */
-static void shape_history_reset(ShapeHistory *h) {
+void shape_history_reset(ShapeHistory *h) {
     h->pending = 0;
     h->cursor = h->high = 7;
     h->low = 0;
@@ -112,7 +112,7 @@ static void shape_history_push(ShapeHistory *h, float value) {
 }
 
 /* Missing eligible breaths are zero entries, not held values. */
-static void shape_history_insert(ShapeHistory *h, float value) {
+void shape_history_insert(ShapeHistory *h, float value) {
     if (h->pending > 0) --h->pending;
     while (h->pending > 0) {
         shape_history_push(h, 0.0f);
@@ -122,7 +122,7 @@ static void shape_history_insert(ShapeHistory *h, float value) {
 }
 
 /* Blend successive breaths through their smaller membership. */
-static float shape_history_evaluate(ShapeHistory *h) {
+float shape_history_evaluate(ShapeHistory *h) {
     while (h->pending > 0) {
         shape_history_push(h, 0.0f);
         --h->pending;
@@ -139,7 +139,7 @@ static float shape_history_evaluate(ShapeHistory *h) {
 }
 
 /* Convert qualified flow shape and ventilation deficit into an EPAP increment. */
-static float shape_pressure(ShapeHistory *h, const Span *span, int qualified,
+float shape_pressure(ShapeHistory *h, const Span *span, int qualified,
                      float target_va, float dead_space, float index,
                      float membership, float current_epap, float reference_flow,
                      float *ventilation_factor) {
