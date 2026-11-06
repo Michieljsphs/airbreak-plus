@@ -148,7 +148,7 @@ The device has no humidity sensor in the air path, so the RH value is
 estimated in the same way as [Humid Start](humid_start.md): the room air plus
 the smaller of the plate and heater-power bounds on the added moisture,
 divided by the saturation humidity at the tube temperature. The plate bound
-uses the same Start Coupling (default `0.25`, in `patches/header_clock_abi.S`).
+uses the same Start Coupling (default `0.25`, in `patches/header_climate_abi.S`).
 Treat the value as a guide to the trend, not a measurement. It is probably too
 high in the first minutes, can read 100% when the estimate is above saturation,
 and has not been checked against a hygrometer.
