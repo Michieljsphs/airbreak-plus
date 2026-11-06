@@ -43,7 +43,7 @@
 # --patch-graph-keep-screen-on n
 
 # Climate graph instead of the pressure graph (PATCH_GRAPH_CLIMATE=1):
-# first 30 minutes of plate/tube temperature and estimated RH; requires the graph.
+# first 60 minutes of plate/tube temperature and estimated RH; requires the graph.
 # --patch-graph-climate n
 
 # Replacement ILI9325/ILI9328 LCD (PATCH_S10_LCD=1).
