@@ -3,12 +3,12 @@
  *
  * Two charts, chosen when patching (graph_climate):
  * - pressure: a scrolling strip of flow and pressure below the pressure gauge;
- * - climate: the first 30 minutes of therapy, one column per 7.5 s, with the
+ * - climate: the first 60 minutes of therapy, one column per 15 s, with the
  *   plate and tube temperatures and the estimated RH (humidity_model.h), plus
  *   dashed lines for the tube setting, the Humid Start Min Tube and the target
  *   RH. It also takes the space of the mode and pressure readouts (VAuto,
  *   PS 4.0, 7.2, 11.2), which are no longer redrawn while it is shown. The
- *   chart stops after 30 minutes so it is still there in the morning.
+ *   chart stops after 60 minutes so it is still there in the morning.
  */
 #include "stubs.h"
 #include "common_code.h"
@@ -29,9 +29,9 @@
 #define CLIMATE_HEIGHT (CLIMATE_BOTTOM - CLIMATE_TOP)
 
 #define CLIMATE_COLUMNS 240
-/* The therapy timer counts 10 ms ticks: 240 columns of 7.5 s are 30 minutes. */
-#define TICKS_PER_COLUMN 750
-/* A grid tick every 5 minutes. */
+/* The therapy timer counts 10 ms ticks: 240 columns of 15 s are 60 minutes. */
+#define TICKS_PER_COLUMN 1500
+/* A grid tick every 10 minutes. */
 #define COLUMNS_PER_TICK 40
 
 typedef struct {
@@ -49,7 +49,7 @@ typedef struct {
 	/* Therapy timer at the last update; it going back is a new session. */
 	unsigned last_therapy;
 	/* Column of the therapy time at the last update; keeps counting after
-	 * the 30 minutes.
+	 * the 60 minutes.
 	 */
 	unsigned column;
 	uint8 active;
@@ -248,7 +248,7 @@ STATIC void climate_draw_column(const climate_state_t *s, int x) {
 	 */
 	LCD_FillRect(x, CLIMATE_TOP - 1, x, CLIMATE_BOTTOM);
 
-	// faint grid every 10 degC and a tick every 5 minutes
+	// faint grid every 10 degC and a tick every 10 minutes
 	GUI_SetColor(COLOR_GRID);
 	for (int t = 40; t <= 140; t += 20)
 		climate_dash(TUBE, t, x, 3);
@@ -276,7 +276,7 @@ STATIC void climate_draw_column(const climate_state_t *s, int x) {
 	}
 }
 
-/* Samples a column every 7.5 s of therapy time for the first 30 minutes,
+/* Samples a column every 15 s of therapy time for the first 60 minutes,
  * and redraws the whole chart on a new column or after a repaint; a new
  * session clears the chart. Columns are counted from the therapy timer, so
  * the chart starts at the start of therapy even when the therapy screen was
@@ -300,8 +300,8 @@ STATIC void climate_update(climate_state_t *s) {
 	}
 	s->last_therapy = therapy;
 
-	/* Setpoints are checked once a column, also after the 30 minutes.
-	 * The whole chart is redrawn every column (7.5 s), so whatever the
+	/* Setpoints are checked once a column, also after the 60 minutes.
+	 * The whole chart is redrawn every column (15 s), so whatever the
 	 * stock widgets underneath painted over it (the readouts, the
 	 * humidifier icon) is covered again within a column.
 	 */

@@ -2,7 +2,7 @@
 
 The therapy graph can show the humidifier climate instead of pressure and
 flow. It is meant for checking [Humid Start](humid_start.md): it records the
-first 30 minutes of therapy and then stops, so in the morning that half hour
+first 60 minutes of therapy and then stops, so in the morning that hour
 is still on the screen.
 
 Choose the graph when patching. Tick **patch-graph-climate** in the patch
@@ -15,11 +15,11 @@ pressure and flow as before. You can't switch between the two on the device.
 The chart is much taller than the pressure graph: it fills the therapy screen
 from just below the title bar down to the bottom divider (y 74 to 278), over
 the mode and pressure readouts (such as VAuto, PS 4.0 and the two pressures)
-and the large humidifier icon. The chart is redrawn completely every 7.5
+and the large humidifier icon. The chart is redrawn completely every 15
 seconds, so if one of those stock elements repaints itself, it is covered
 again within a few seconds. Time runs from left to
-right: one pixel column every 7.5 seconds, so the 240 columns cover 30
-minutes. A small tick at the bottom marks every 5 minutes.
+right: one pixel column every 15 seconds, so the 240 columns cover 60
+minutes. A small tick at the bottom marks every 10 minutes.
 
 | Line | Colour | Scale |
 |------|--------|-------|
@@ -44,7 +44,7 @@ use. It is a guide to the trend, not a measurement.
 The Min Tube line appears only with the Humid Start Min Tube setting in the
 menu, Humid Start switched on, and Min Tube above 16 °C and below the tube
 setting. Without a heated tube there is no tube line, tube setting or Min
-Tube. If you change a setting, the dashed lines move within 7.5 seconds.
+Tube. If you change a setting, the dashed lines move within 15 seconds.
 
 ## When it starts and stops
 
@@ -52,7 +52,7 @@ Tube. If you change a setting, the dashed lines move within 7.5 seconds.
   from the therapy timer, so the left edge is always the start of therapy,
   also when the therapy screen or Monitoring was off at first; the minutes
   before the chart was first shown stay empty.
-- **After 30 minutes:** sampling stops and the chart stays as it is until
+- **After 60 minutes:** sampling stops and the chart stays as it is until
   therapy stops.
 - **Seeing it:** wake the screen with a button press while therapy is still
   running. When therapy stops the device leaves the therapy screen, and the
