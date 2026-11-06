@@ -79,10 +79,13 @@ void MAIN start() {
     return;
   }
 
+  triggercycle_t *trc = get_triggercycle();
+  update_triggercycle_settings(trc);
+
   history_t *hist = get_history();
   update_history(hist);
   tracking_t *tr = get_tracking();
-  update_tracking(tr, hist);
+  update_tracking(tr, hist, trc->real_trigger, trc->real_cycle);
   asv_data_t *asv = get_asv_data();
   float asv_max = custom_asv_max_cm();
   asv->asv_sens = custom_asv_sens_multiplier();
@@ -91,12 +94,9 @@ void MAIN start() {
 
   features_t *feat = GET_PTR(PTR_FEATURES, features_t, init_features);
 
-  apply_jitter(hist, true);
-
   float dps = 0.0f;
   bool triggercycle_toggle = custom_g8_toggle(wrapper_limit_max_pdiff_triggercycle_var_id, true);
 
-  triggercycle_t *trc = get_triggercycle();
   trc->custom_trigger = trc->custom_cycle = false; // Default state is off.
   if (triggercycle_toggle && (*therapy_mode == MODE_S)) {
     trc->custom_trigger = true;
@@ -112,6 +112,7 @@ void MAIN start() {
 
   if (*therapy_mode == MODE_VAUTO) {
 
+    // The pre-ramp reference is EPAP + PS/2, so this uses EPAP - PS/2.
     float current_eps = clamp((*cmd_epap - vauto_ps) * 0.2f, 0.4f, 1.6f);
 
     int t = hist->tick;
@@ -150,13 +151,12 @@ void MAIN start() {
       new_ps += feat->ips_fa;
     }
 
-    new_ps = *cmd_ps + (new_ps - ps); // Correction for the bizarre way VAuto handles the *cmd_ps fvar
+    // Convert support above EPAP back to the signed midpoint-relative waveform.
+    new_ps = *cmd_ps + (new_ps - ps);
   }
 
   const float orig_ps = *cmd_ps;
   *cmd_ps = new_ps;
   pressure_limit_max_difference(); // Execute the original function
   *cmd_ps = orig_ps;
-
-  apply_jitter(hist, false);
 }

@@ -1,8 +1,9 @@
 # AirbreakDownload
 
-`patch-cellular-download` adds the `AirbreakDownload` root to JSON RPC. It
-uses the firmware's cellular HTTP client and upgrade staging storage to fetch
-one file into `nor:2:\UPGRADE\Upgrade.abc`.
+`patch-cellular-download` registers the `AirbreakDownload` JSON RPC root through
+the shared [RPC dispatcher](patch_rpc_dispatcher.md). It uses the firmware's
+cellular HTTP client and upgrade staging storage to fetch one file into
+`nor:2:\UPGRADE\Upgrade.abc`.
 
 The patch downloads and retains the file. It does not validate or install it.
 
@@ -21,8 +22,10 @@ absolute path; an optional port may follow the host. The server must return a
 `Content-Length` header, and the response may contain up to 2252800 bytes.
 
 A request is rejected while another local or cloud firmware download occupies
-the native upgrade path. Local requests do not require cloud registration or
-a pending broker command.
+the native upgrade path. Optional `"force":true` replaces `external` metadata
+after the native fetch task has reset, starting the supplied URL from byte zero.
+The maintenance downloader exposes this as `--force`. Local requests do not
+require cloud registration or a pending broker command.
 
 ## Read the state
 
@@ -47,7 +50,7 @@ The result has this form:
 | `downloading` | The native FileFetcher has accepted the request. |
 | `complete` | The complete response has been stored in upgrade staging. |
 | `error` | The native fetch or storage path failed. |
-| `external` | Stock firmware-change metadata occupies the upgrade path. |
+| `external` | The upgrade path is populated without a local request marker. |
 | `unavailable` | The cellular FileFetcher task is not available. |
 
 `bytesStored` is the native persistent transfer counter. `size` is zero while
@@ -77,8 +80,3 @@ The bootloader service commands are documented in
 [as11_flash](../tools/as11_flash.md#bootloader-service). The staging format and
 extraction commands are documented in
 [as11_nor_tool](../tools/as11_nor_tool.md#staged-upgrade).
-
-## Firmware support
-
-The patch supports application versions 8.6.0 and 8.7.0 and requires the shared
-[RPC dispatcher](patch_rpc_dispatcher.md).
