@@ -1598,7 +1598,7 @@ class ASFirmwarePatches(CompiledPayloadMixin):
             self._custom_detail('Min Tube: %s var_id=0x%04X at 0x%08X' % (min_tube, vid, addr))
 
         # Plate coupling: raw value is the coupling * 100, 0.10-1.00 in steps
-        # of 0.05, default 0.30. Needs only a label string.
+        # of 0.05, default 0.25. Needs only a label string.
         if self.custom_menu_hidden('start_coupling'):
             return
         if not self.custom_string_pool:
@@ -1607,7 +1607,7 @@ class ASFirmwarePatches(CompiledPayloadMixin):
         coupling = self.custom_claim_g4_var('RDW', 'humid_start_coupling')
         label = self.redefine_fw_string(-1, {0: 'Start Coupling'}, 'humid_start_coupling_label')
         self.redefine_g4_var(coupling, 0x0007, 0, dep, label,
-                             30, 100, 10, 2, 100, 5, self.asf.str_id_empty)
+                             25, 100, 10, 2, 100, 5, self.asf.str_id_empty)
         self.custom_menu_add('accessories', coupling, self.CUSTOM_MENU_MODE_BITS)
         vid = self.asf.resolve_var_id(coupling)
         addr = self._write_payload_u16('humid_start', 'humid_start_coupling_var_id', vid)
@@ -3379,7 +3379,7 @@ MENU_ITEMS = (
     MenuItem('min_tube', 'Min Tube (C)', 'humid_start', (), ('RDH',), ('Min Tube (C)',), False,
              '16 C: no minimum'),
     MenuItem('start_coupling', 'Start Coupling', 'humid_start', (), ('RDW',), ('Start Coupling',), False,
-             '0.30'),
+             '0.25'),
     MenuItem('climate', 'Climate', 'header_climate', (), (), ('Climate',), True, 'readout shown'),
 )
 MENU_ITEM_KEYS = tuple(item.key for item in MENU_ITEMS)

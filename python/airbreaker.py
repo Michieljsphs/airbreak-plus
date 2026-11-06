@@ -418,7 +418,7 @@ class App(tk.Tk):
             "These settings need a free on/off variable (Humid Start, Climate) or a free label string (Min Tube, "
             "Start Coupling), and the patcher adds each one only while one is left. Settings that do not get a "
             "menu item keep a built-in value: Humid Start and the Climate readout stay on, Min Tube is 16 C and "
-            "Start Coupling is 0.30. Tick Verbose and patch to see which were added. Free some by unticking "
+            "Start Coupling is 0.25. Tick Verbose and patch to see which were added. Free some by unticking "
             "'Show in menu' for settings you do not need on the device, or by unticking patches with menu "
             "settings, for example ST iBR or iVAPS AutoEPAP."))
         Tooltip(usage, lambda: self.usage_text(None))

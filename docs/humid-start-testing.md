@@ -74,10 +74,10 @@ coupling) is a guess.
 
 ### Where the bounds cross
 
-With a coupling of 0.30 the power bound became the smaller one after about 2 to
+With the earlier coupling of 0.30 the power bound became the smaller one after about 2 to
 3 minutes in test runs. After that the estimate was flat at about 13 g/m3,
 while the plate was still climbing from 56 to 68 °C. Real moisture almost
-certainly kept rising over those minutes, so 0.30 is probably too generous.
+certainly kept rising over those minutes, so 0.30 was probably too generous, and 0.25 is now the default.
 
 ### Calibrating the coupling from steady state
 
@@ -125,7 +125,7 @@ Clinical menu, Accessories:
 | Target RH (%) | The humidity the stock controller aims for, and where the cap sits | 85 |
 | Humid Start | Switch for the whole feature | On |
 | Min Tube (C) | The lowest the cap goes, so the first air is at least this warm | 16 |
-| Start Coupling | How warm the chamber air is assumed to be, during warm-up only | 0.30 |
+| Start Coupling | How warm the chamber air is assumed to be, during warm-up only | 0.25 |
 
 In a cold room, raise Min Tube (for example to 23). The tube then heats to it
 right away and waits there until the RH catches up. The higher it is, the warmer
@@ -134,7 +134,7 @@ and drier the first minutes are.
 The tube temperature setting is the stock one. Climate (in Configuration) turns
 the header readout on and off.
 
-> **Start Coupling is for testing.** Its default of 0.30 has not been
+> **Start Coupling is for testing.** Its default of 0.25 (tested on one device; 0.30 was the earlier default) has not been
 > calibrated, and the setting may be removed from the menu in a later version.
 > Don't build a routine around it: use it to find out how the first minutes
 > behave on your device, and expect the menu to change.
@@ -156,8 +156,8 @@ and the early air is drier.
 
 | Symptom at the start | Change |
 |----------------------|--------|
-| Tube warms while the air is still dry | Lower the coupling (0.30 to 0.25) |
-| Tube is held cold for a long time, or you see condensation early on | Raise the coupling (0.30 to 0.40) |
+| Tube warms while the air is still dry | Lower the coupling (0.25 to 0.20) |
+| Tube is held cold for a long time, or you see condensation early on | Raise the coupling (0.25 to 0.35) |
 | Header shows far above target for several minutes and the tube is already heating hard | Nothing. The tube is catching up, not held by a setting |
 
 Change it in steps of 0.05 and compare the first 10 minutes of a session. A
@@ -311,7 +311,7 @@ immediately. If the plate has cooled, the tube can be held back again briefly.
 
 ## Limits
 
-- The coupling (0.30) is not calibrated. About 0.18 is the steady-state estimate.
+- The coupling (0.25) is only tested on one device. About 0.18 is the steady-state estimate.
 - The estimate was tuned on one device and one calibration (`k0 = 0`,
   `k1 = 0.001`).
 - The estimate is not a proven upper bound; it can be off in either direction.

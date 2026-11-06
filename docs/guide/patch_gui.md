@@ -105,7 +105,7 @@ You can drag the divider between them.
   selected patches use (on/off settings, value settings and new labels). If a
   setting does not fit it is left out, and an orange note names the ones that may
   be. A setting without a menu item keeps a built-in value: Humid Start and the
-  Climate readout stay on, Min Tube is 16 C and Start Coupling is 0.30. Hover the
+  Climate readout stay on, Min Tube is 16 C and Start Coupling is 0.25. Hover the
   counter or the note for the details. See [custom settings](../custom_settings.md).
 - **Patch groups**: one box per patch phase. Each patch has a checkbox, its
   option name (for example `--patch-humid-start`) and some have a value box.

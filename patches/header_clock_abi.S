@@ -45,7 +45,7 @@ header_climate_var_id:
 .global header_climate_plate_coupling
 .type header_climate_plate_coupling, %object
 header_climate_plate_coupling:
-    .float 0.3
+    .float 0.25
 .size header_climate_plate_coupling, . - header_climate_plate_coupling
 
 // Custom-settings plate coupling (raw = coupling * 100), shared with

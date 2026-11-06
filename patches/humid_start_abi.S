@@ -11,7 +11,7 @@
 .global humid_start_plate_coupling
 .type humid_start_plate_coupling, %object
 humid_start_plate_coupling:
-    .float 0.3
+    .float 0.25
 .size humid_start_plate_coupling, . - humid_start_plate_coupling
 
 /* Custom-settings variable for the on/off switch; 0xffff keeps the feature

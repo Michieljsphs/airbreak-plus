@@ -163,10 +163,10 @@ With custom settings, clinical **Accessories** contains:
 |---------|------|--------|---------|
 | Humid Start | first free on/off slot | Off, On | On |
 | Min Tube (C) | RDH | 16-30 °C, step 1 | 16 |
-| Start Coupling | RDW | 0.10-1.00, step 0.05 | 0.30 |
+| Start Coupling | RDW | 0.10-1.00, step 0.05 | 0.25 |
 
 Without custom settings, or when no label string is left for a setting, it
-keeps its default: no minimum beyond 16 °C, and a coupling of 0.30 (the constant
+keeps its default: no minimum beyond 16 °C, and a coupling of 0.25 (the constant
 in `patches/humid_start_abi.S`).
 
 Each setting needs a label string, and the switch also an on/off variable,
