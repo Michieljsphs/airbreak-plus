@@ -485,11 +485,20 @@ class ASFirmwarePatches(CompiledPayloadMixin):
             request, owner, self.custom_g8_reclaimed,
             self.custom_g8_claims, 8)
 
+    # Display-only slot first: the others hold therapy switches (iBR, AutoEPAP,
+    # Square Wave, Backup Rate, Custom VAuto), whose stored value would carry
+    # over if a later build gives the slot back to its feature.
+    FREE_SWITCH_SLOTS = ('RXH', 'RXW', 'RSA', 'RPF', 'RPW', 'RPO', 'RPH', 'RXM')
+
     def custom_claim_free_g8_var(self, candidates, owner):
         """Claim the first unclaimed reclaimed g[8] candidate, or return None."""
         for request in candidates:
             vid = self.asf.resolve_var_id(request)
             if vid in self.custom_g8_reclaimed and vid not in self.custom_g8_claims:
+                if request != 'RXH':
+                    self._custom_detail('WARNING: %s uses the %s slot of a therapy switch; after '
+                                        'flashing, check iBR, AutoEPAP, Square Wave and Backup Rate '
+                                        'in the menu' % (owner, request))
                 return self.custom_claim_g8_var(request, owner)
         return None
 
@@ -1440,7 +1449,7 @@ class ASFirmwarePatches(CompiledPayloadMixin):
     def custom_patch_settings_header_clock(self):
         if self.custom_menu_hidden('clock'):
             return
-        var =self.custom_claim_g8_var('RXF', 'header_clock')
+        var = self.custom_claim_g8_var('RXF', 'header_clock')
         label = self.redefine_fw_string(-1, {0: 'Clock'}, 'header_clock_label')
         dep = self.asf.find_var_table_index(4, 'RGT')
         self.redefine_g8_var(var, 0x0007, 0, dep, label, 0,
@@ -1459,7 +1468,7 @@ class ASFirmwarePatches(CompiledPayloadMixin):
         enable = None
         if self.custom_string_pool:
             enable = self.custom_claim_free_g8_var(
-                ('RXW', 'RSA', 'RPF', 'RPW', 'RPO', 'RPH', 'RXM', 'RXH'), 'header_climate')
+                self.FREE_SWITCH_SLOTS, 'header_climate')
         if enable is None:
             self._custom_detail('Climate switch: no free label string or on/off slot; ' + hint)
             return
@@ -1560,7 +1569,7 @@ class ASFirmwarePatches(CompiledPayloadMixin):
         hidden = self.custom_menu_hidden('humid_start')
         if self.custom_string_pool and not hidden:
             enable = self.custom_claim_free_g8_var(
-                ('RXW', 'RSA', 'RPF', 'RPW', 'RPO', 'RPH', 'RXM', 'RXH'), 'humid_start_enable')
+                self.FREE_SWITCH_SLOTS, 'humid_start_enable')
         if enable is None and not hidden:
             self._custom_detail('Humid Start switch: no free label string or on/off slot; ' + hint)
         elif enable is not None:

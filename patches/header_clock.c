@@ -90,7 +90,7 @@ static u16 current_climate(char *text)
 
     float coupling = header_climate_coupling_var_id == 0xffffu ?
         header_climate_plate_coupling :
-        variable_get_by_id(header_climate_coupling_var_id) * 0.01f;
+        coupling_from_raw(variable_get_by_id(header_climate_coupling_var_id));
     struct humidity_coeffs coeffs;
     humidity_coeffs_read(&coeffs);
     float outlet = humidity_outlet(&coeffs,

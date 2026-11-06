@@ -31,6 +31,16 @@ struct humidity_coeffs {
 extern int humidity_model_coefficients_get(void *unused, float *k0, float *k1,
                                            float *k2, float *k3, float *k4);
 
+/* The Start Coupling setting (raw = coupling * 100) raised to its menu minimum,
+ * so a stale stored value cannot starve or flood the estimate.
+ */
+static inline float coupling_from_raw(int raw)
+{
+    if (raw < 10)
+        raw = 10;
+    return raw * 0.01f;
+}
+
 /* Stock saturation absolute humidity, g/m3. */
 static __attribute__((noinline)) float ah_sat(float t)
 {

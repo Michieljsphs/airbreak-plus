@@ -91,7 +91,7 @@ static float coupling(void)
 {
     if (humid_start_coupling_var_id == 0xffffu)
         return humid_start_plate_coupling;
-    return variable_get_by_id(humid_start_coupling_var_id) * 0.01f;
+    return coupling_from_raw(variable_get_by_id(humid_start_coupling_var_id));
 }
 
 /* Lowest the cap goes: the custom Min Tube setting (whole degC), never below
