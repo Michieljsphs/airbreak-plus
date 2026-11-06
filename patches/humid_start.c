@@ -99,13 +99,13 @@ static float coupling(void)
  */
 static float cap_floor(void)
 {
-    float lowest = MIN_TUBE_TEMP;
+    int lowest = (int)MIN_TUBE_TEMP;
     if (humid_start_min_tube_var_id != 0xffffu) {
-        float setting = (float)variable_get_by_id(humid_start_min_tube_var_id);
+        int setting = variable_get_by_id(humid_start_min_tube_var_id);
         if (setting > lowest)
             lowest = setting;
     }
-    return lowest;
+    return (float)lowest;
 }
 
 static void restart(struct state *s, float plate)
