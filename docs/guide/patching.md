@@ -120,7 +120,7 @@ Monitoring is On. This option requires the graph patch, includes the
 
 Optionally enable `--patch-graph-climate Y` (or `PATCH_GRAPH_CLIMATE=1`) to
 show the [climate graph](features/climate_graph.md) instead of the pressure
-graph: plate and tube temperatures and estimated RH over the first 30
+graph: plate and tube temperatures and estimated RH over the first 60
 minutes of therapy, in a taller chart that replaces the mode and pressure
 readouts, with dashed lines for the tube setting, Min Tube and target RH. It
 requires the graph patch and is off by default.

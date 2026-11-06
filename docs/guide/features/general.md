@@ -120,7 +120,7 @@ humidity sooner. It adds a Humid Start switch, a Min Tube setting and a Start
 Coupling setting to the Accessories menu.
 
 See [Humid Start](humid_start.md) for how it works, the settings and tuning.
-The [climate graph](climate_graph.md) shows the first 30 minutes of therapy, so you
+The [climate graph](climate_graph.md) shows the first 60 minutes of therapy, so you
 can check it in the morning.
 
 ## Header Clock

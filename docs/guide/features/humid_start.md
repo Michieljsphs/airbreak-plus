@@ -188,5 +188,5 @@ default and requires font repacking (on by default).
 
 To see how a night started, build with the
 [climate graph](climate_graph.md) (`--patch-graph-climate y`). It records the
-plate and tube temperatures and the estimated RH for the first 30 minutes, with the
+plate and tube temperatures and the estimated RH for the first 60 minutes, with the
 tube setting, Min Tube and target RH as dashed lines.
