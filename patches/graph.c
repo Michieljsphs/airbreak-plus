@@ -243,7 +243,10 @@ STATIC void climate_draw_column(const climate_state_t *s, int x) {
 	static const unsigned colors[3] = { COLOR_PLATE, COLOR_TUBE, COLOR_RH };
 
 	GUI_SetColor(0x000000);
-	LCD_FillRect(x, CLIMATE_TOP, x, CLIMATE_BOTTOM);
+	/* One row above the chart too: the bottom row of the stock readout text
+	 * (VAuto, 7.2, 11.2) sits there and shows through otherwise.
+	 */
+	LCD_FillRect(x, CLIMATE_TOP - 1, x, CLIMATE_BOTTOM);
 
 	// faint grid every 10 degC and a tick every 5 minutes
 	GUI_SetColor(COLOR_GRID);
