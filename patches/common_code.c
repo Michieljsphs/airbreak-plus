@@ -63,7 +63,6 @@ void init_history(history_t *hist) {
     hist->cmd_ipap[i] = 0.0f;
   }
   hist->tick = -1;
-  hist->last_jitter = 0;
 }
 
 void update_history(history_t *hist) {
@@ -102,18 +101,6 @@ bool is_cmd_ipap_constant(history_t *hist) {
   const int t1 = t & (HISTORY_LENGTH - 1);
   const int t2 = (t-4) & (HISTORY_LENGTH - 1);
   return absf(hist->cmd_ipap[t1] - hist->cmd_ipap[t2]) <= 0.041f;
-}
-
-
-void apply_jitter(history_t *hist, bool undo) {
-  if (undo) { // Undo the previous
-    hist->last_jitter *= -1;
-  } else { // Get new jitter value
-    hist->last_jitter = 1 - ((*pap_timer)/4) % 2 * 2;
-  }
-  // FIXME: This needs to be relative to either EPAP or IPAP, the "is the PS sufficiently different to trigger a redraw?" routine is relative to pressure.
-  const float amtf = 0.01f * hist->last_jitter;
-  *cmd_ps += amtf; *cmd_epap_ramp -= amtf;
 }
 
 
@@ -159,7 +146,7 @@ tracking_t* get_tracking() {
   return GET_PTR(PTR_TRACKING, tracking_t, init_tracking);
 }
 
-void update_tracking(tracking_t *tr, history_t *hist) {
+void update_tracking(tracking_t *tr, history_t *hist, float configured_trigger, float configured_cycle) {
   const unsigned now = tim_read_tim5();
   // Initialize if it's the first time or more than 0.1s elapsed, suggesting that the therapy was stopped and re-started.
   if ((now - tr->last_time) > 100000) { init_tracking(tr); }
@@ -195,8 +182,8 @@ void update_tracking(tracking_t *tr, history_t *hist) {
     tr->current.ti += 0.01f;
     inplace(max, &tr->current.inh_maxflow, *flow_compensated);
 
-    // If cycle would normally happen, start pre_cycle, for use when custom cycle is used
-    if (*flow_compensated < tr->current.inh_maxflow * sens_cycle) {
+    // Track the configured cycle threshold, not Custom T/C's live override.
+    if (*flow_compensated < tr->current.inh_maxflow * configured_cycle) {
       if (tr->st_pre_cycle < 255) { tr->st_pre_cycle += 1; }
     }
     else { tr->st_pre_cycle = max(tr->st_pre_cycle - 1, 0); } // Don't just reset it
@@ -207,7 +194,8 @@ void update_tracking(tracking_t *tr, history_t *hist) {
 
     // If flow extrapolated 80ms(~blower delay) into the future crosses threshold, increment pretrigger
     const float flow2 = max(*flow_compensated, *flow_compensated + get_delta_flow(hist, 4)*8.0f); // Flow extrapolated 80ms into the future
-    if (flow2 > sens_trigger) { tr->st_pre_trigger += 1; } // Slightly higher than baseline trigger sens
+    // Track the configured trigger threshold, not Custom T/C's live override.
+    if (flow2 > configured_trigger) { tr->st_pre_trigger += 1; }
     else { tr->st_pre_trigger = 0; } // This has to reset, flow doesn't slow down during the start of a breath
   }
 
