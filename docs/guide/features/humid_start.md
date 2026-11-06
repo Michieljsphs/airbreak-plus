@@ -45,8 +45,8 @@ the target later.
 Warm-up ends when the first of these happens:
 
 - the cap reaches the tube temperature setting;
-- the plate has stopped rising: it is checked every 4 minutes, and must have
-  risen less than 0.2 °C per minute on average while at least 8 °C above the
+- the plate has stopped rising: it is checked every 8 minutes, and must have
+  risen less than 0.05 °C per minute on average while at least 8 °C above the
   ambient reading;
 - 60 minutes have passed.
 
