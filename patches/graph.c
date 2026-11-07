@@ -38,7 +38,7 @@
  * timer runs on through such a gap (a menu, the screen off); between two
  * nights it stood still while therapy was off.
  */
-#define SESSION_GAP_MS 600000
+#define SESSION_GAP_MS 1800000
 #define SESSION_TIMER_TICKS 30000
 
 typedef struct {
