@@ -52,10 +52,10 @@ Tube. If you change a setting, the dashed lines move within 15 seconds.
   from the therapy timer, so the left edge is always the start of therapy,
   also when the therapy screen or Monitoring was off at first; the minutes
   before the chart was first shown stay empty. The therapy timer does not
-  restart at zero every night, so the chart takes a new session to be one
-  where it was not updated for 10 minutes while the therapy timer advanced
-  less than 5 minutes (therapy was off in between), or where the timer went
-  back. Show the therapy screen within 5 minutes of starting therapy, or the
+  restart at zero every night, so the chart takes a new night to start when
+  therapy has been off for more than 30 minutes: the chart was not updated
+  for 30 minutes while the therapy timer advanced less than 5 minutes. The
+  chart also clears if the timer goes back. Show the therapy screen within 5 minutes of starting therapy, or the
   new night is taken as the old one going on.
 - **After 60 minutes:** sampling stops and the chart stays as it is until
   therapy stops.
