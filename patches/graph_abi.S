@@ -65,3 +65,17 @@ graph_coupling_var_id:
 .type graph_climate, %object
 graph_climate:
 	.byte 0
+
+/* Chart width (--graph-width): 10 ms therapy timer ticks per column, and
+ * columns between grid ticks. The defaults are 60 minutes, a tick per 10.
+ */
+.align 2
+.global graph_ticks_per_column
+.type graph_ticks_per_column, %object
+graph_ticks_per_column:
+	.word 1500
+
+.global graph_columns_per_tick
+.type graph_columns_per_tick, %object
+graph_columns_per_tick:
+	.word 40

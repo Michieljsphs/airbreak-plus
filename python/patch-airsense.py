@@ -169,6 +169,7 @@ class ASFirmwarePatches(CompiledPayloadMixin):
         
     def __init__(self, asf):
         self.asf = asf
+        self.graph_width_minutes = 60  # --graph-width, climate chart width
         self.applied_payloads = set()
         self.enabled_custom_settings_features = set()
         self.mop_callback_handlers = {}
@@ -2333,6 +2334,17 @@ class ASFirmwarePatches(CompiledPayloadMixin):
         address = self._elf_symbol_addr(elf_path, 'graph_climate')
         self.asf.write_u8(address - self.asf.FLASH_BASE, 1)
         details = ["Climate graph instead of pressure graph at 0x%08X" % address]
+        # 240 columns; the therapy timer counts 10 ms, so a minute is 6000 ticks.
+        width = self.graph_width_minutes
+        ticks_per_column = width * 6000 // GRAPH_COLUMNS
+        tick_minutes = 10 if width <= 120 else 30 if width <= 360 else 60
+        columns_per_tick = max(1, tick_minutes * GRAPH_COLUMNS // width)
+        self.asf.write_u32(self._elf_symbol_addr(elf_path, 'graph_ticks_per_column')
+                           - self.asf.FLASH_BASE, ticks_per_column)
+        self.asf.write_u32(self._elf_symbol_addr(elf_path, 'graph_columns_per_tick')
+                           - self.asf.FLASH_BASE, columns_per_tick)
+        details.append("Chart width %d:%02d, %d s per column, grid every %d min"
+                       % (width // 60, width % 60, ticks_per_column // 100, tick_minutes))
         if self.asf.cdx_ver in self.BUTTON_HOOK_SITES:
             # Holding Home for 5 s clears the chart and starts it again.
             self.button_hook_add('home_hold', 'graph', 'graph_chart_reset',
@@ -3275,6 +3287,26 @@ def str2bool(v):
     raise argparse.ArgumentTypeError('Boolean value expected.')
 
 
+GRAPH_COLUMNS = 240
+GRAPH_WIDTH_MIN, GRAPH_WIDTH_MAX = 10, 12 * 60
+
+
+def graph_width_value(v):
+    """Chart width as H:MM, returned in minutes."""
+    hours, sep, minutes = v.strip().partition(':')
+    try:
+        if not sep:
+            raise ValueError
+        total = int(hours) * 60 + int(minutes)
+        if not 0 <= int(minutes) < 60:
+            raise ValueError
+    except ValueError:
+        raise argparse.ArgumentTypeError('Width as hours:minutes, such as 1:00 or 8:30, expected.') from None
+    if not GRAPH_WIDTH_MIN <= total <= GRAPH_WIDTH_MAX:
+        raise argparse.ArgumentTypeError('Width from 0:10 to 12:00 expected.')
+    return total
+
+
 def target_rh_value(v):
     """Accept a percentage, or a boolean word selecting 85% / no patch."""
     try:
@@ -3502,6 +3534,10 @@ def build_argument_parser():
             help=(patch.description.replace('%', '%%') if patch.value_type else
                   '%s (default: %s)' % (patch.description, state)))
 
+    parser.add_argument('--graph-width', type=graph_width_value, default=60,
+                        metavar='H:MM',
+                        help='Time the climate graph covers, from 0:10 to 12:00 (default: 1:00). '
+                             'Used with --patch-graph-climate.')
     parser.add_argument('--overwrite', action='store_true',
                         help='Overwrite output file if it already exists.')
     parser.add_argument('--force-deprecated', action='store_true',
@@ -3595,6 +3631,7 @@ def run_patcher(args, detail_log=None):
     repo_dir = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
     build_identity = firmware_build_identity(repo_dir)
     patches = ASFirmwarePatches(asf)
+    patches.graph_width_minutes = args.graph_width
 
     apply_patch_phases(patches, args, detail_log)
 

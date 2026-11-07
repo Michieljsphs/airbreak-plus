@@ -10,6 +10,17 @@ options window, or use `--patch-graph-climate y` (`PATCH_GRAPH_CLIMATE=1`). It
 needs the graph patch (`--patch-fw-graph`). Without it the graph shows
 pressure and flow as before. You can't switch between the two on the device.
 
+## Chart width
+
+The chart covers 60 minutes by default. `--graph-width H:MM` sets another
+width, from `0:10` to `12:00`, for example `--graph-width 8:00` for a whole
+night. The chart is always 240 pixel columns wide, so each column covers the
+width divided by 240: 15 seconds for 1 hour, 2 minutes for 8 hours. The tick
+marks at the bottom are every 10 minutes up to 2 hours, every 30 minutes up
+to 6 hours and every hour beyond. The dashed setpoint lines and the samples
+update once per column, so on a long chart a changed setting shows up after up
+to a column's time. The chart stops sampling when it is full.
+
 ## What it shows
 
 The chart is much taller than the pressure graph: it fills the therapy screen
@@ -19,7 +30,8 @@ and the large humidifier icon. The chart is redrawn completely every 15
 seconds, so if one of those stock elements repaints itself, it is covered
 again within a few seconds. Time runs from left to
 right: one pixel column every 15 seconds, so the 240 columns cover 60
-minutes. A small tick at the bottom marks every 10 minutes.
+minutes (see [Chart width](#chart-width)). A small tick at the bottom marks
+every 10 minutes.
 
 | Line | Colour | Scale |
 |------|--------|-------|
@@ -60,7 +72,7 @@ Tube. If you change a setting, the dashed lines move within 15 seconds.
 - **Starting over by hand:** hold the Home button for 5 seconds during
   therapy to clear the chart and start it again from that moment. Without the
   climate chart, or with therapy off, the hold does what it did before.
-- **After 60 minutes:** sampling stops and the chart stays as it is until
+- **When the chart is full:** after 60 minutes, or the chosen width, sampling stops and the chart stays as it is until
   therapy stops.
 - **Seeing it:** wake the screen with a button press while therapy is still
   running. When therapy stops the device leaves the therapy screen, and the

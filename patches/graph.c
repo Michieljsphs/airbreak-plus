@@ -3,7 +3,8 @@
  *
  * Two charts, chosen when patching (graph_climate):
  * - pressure: a scrolling strip of flow and pressure below the pressure gauge;
- * - climate: the first 60 minutes of therapy, one column per 15 s, with the
+ * - climate: the first 60 minutes of therapy (or the width
+ *   set with --graph-width), one column per 15 s, with the
  *   plate and tube temperatures and the estimated RH (humidity_model.h), plus
  *   dashed lines for the tube setting, the Humid Start Min Tube and the target
  *   RH. It also takes the space of the mode and pressure readouts (VAuto,
@@ -29,10 +30,10 @@
 #define CLIMATE_HEIGHT (CLIMATE_BOTTOM - CLIMATE_TOP)
 
 #define CLIMATE_COLUMNS 240
-/* The therapy timer counts 10 ms ticks: 240 columns of 15 s are 60 minutes. */
-#define TICKS_PER_COLUMN 1500
-/* A grid tick every 10 minutes. */
-#define COLUMNS_PER_TICK 40
+/* The therapy timer counts 10 ms ticks. The time per column and the grid
+ * spacing are set when patching (--graph-width); by default 240 columns of
+ * 15 s (1500 ticks) are 60 minutes, with a grid tick every 10 minutes.
+ */
 /* A new session: the chart was not updated for this long, while the therapy
  * timer advanced by less than SESSION_TIMER_TICKS. Within one session the
  * timer runs on through such a gap (a menu, the screen off); between two
@@ -99,6 +100,8 @@ extern void millisecond_timer_init(void *timer, unsigned elapsed);
 extern int millisecond_timer_expired(void *timer, unsigned ms);
 extern float climate_target_rh_get(void);
 extern const uint8 graph_climate;
+extern const uint32 graph_ticks_per_column;
+extern const uint32 graph_columns_per_tick;
 extern const unsigned short graph_humid_start_var_id;
 extern const unsigned short graph_min_tube_var_id;
 extern const unsigned short graph_coupling_var_id;
@@ -273,7 +276,7 @@ STATIC void climate_draw_column(const climate_state_t *s, int x) {
 	GUI_SetColor(COLOR_GRID);
 	for (int t = 40; t <= 140; t += 20)
 		climate_dash(TUBE, t, x, 3);
-	if (x % COLUMNS_PER_TICK == 0)
+	if (x % graph_columns_per_tick == 0)
 		LCD_FillRect(x, CLIMATE_BOTTOM - 3, x, CLIMATE_BOTTOM);
 
 	// tube setting and target RH dashed, Min Tube dotted
@@ -297,7 +300,7 @@ STATIC void climate_draw_column(const climate_state_t *s, int x) {
 	}
 }
 
-/* Samples a column every 15 s of therapy time for the first 60 minutes,
+/* Samples a column every 15 s of therapy time (by default) for the chart width,
  * and redraws the whole chart on a new column or after a repaint; a new
  * session clears the chart. Columns are counted from the therapy timer, so
  * the chart starts at the start of therapy even when the therapy screen was
@@ -338,11 +341,11 @@ STATIC void climate_update(climate_state_t *s) {
 	s->last_therapy = therapy;
 
 	/* Setpoints are checked once a column, also after the 60 minutes.
-	 * The whole chart is redrawn every column (15 s), so whatever the
+	 * The whole chart is redrawn every column, so whatever the
 	 * stock widgets underneath painted over it (the readouts, the
 	 * humidifier icon) is covered again within a column.
 	 */
-	unsigned column = (therapy - s->session_start) / TICKS_PER_COLUMN;
+	unsigned column = (therapy - s->session_start) / graph_ticks_per_column;
 	if (column != s->column) {
 		s->column = column;
 		climate_setpoints(s);
