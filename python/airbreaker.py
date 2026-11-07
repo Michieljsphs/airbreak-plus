@@ -343,6 +343,22 @@ def wsl_path(path):
     return result.stdout.strip() if result.returncode == 0 and result.stdout.strip() else None
 
 
+WSL_TOOLS = (("make", "make"), ("arm-none-eabi-gcc", "gcc-arm-none-eabi"), ("arm-none-eabi-nm", "binutils-arm-none-eabi"),
+             ("python3", "python3"))   # (command, apt package) the build and the patcher need in WSL
+
+
+def wsl_missing_packages():
+    """apt packages of the WSL_TOOLS whose command is not in WSL; [] when all are there (or WSL cannot be asked)."""
+    script = "for t in %s; do command -v $t >/dev/null || echo $t; done" % " ".join(t for t, _ in WSL_TOOLS)
+    try:
+        result = subprocess.run([shutil.which("wsl.exe"), "--exec", "bash", "-c", script], capture_output=True,
+                                text=True, creationflags=NO_WINDOW)
+    except OSError:
+        return []
+    missing = result.stdout.split()
+    return [pkg for tool, pkg in WSL_TOOLS if tool in missing]
+
+
 def patch_command(infile, outfile, verbose):
     """patch-airsense.py INPUT OUTPUT PATCH --overwrite and the extra environment it needs: Windows Python, or
     python3 in WSL (use_wsl) with the paths translated and the override variables passed through WSLENV. None
@@ -1114,6 +1130,8 @@ class App(tk.Tk):
         if os.path.abspath(infile) == os.path.abspath(outfile):
             messagebox.showerror(TITLE, "The output would overwrite the original firmware image.")
             return
+        if not self.ensure_wsl_tools():
+            return
         if self.dirty() and not self.save():
             return
         self.save_settings()
@@ -1128,8 +1146,24 @@ class App(tk.Tk):
         for name in env_overrides():
             self.append("Note: %s from the environment overrides %s" % (name, os.path.basename(CONFIG_FILE)), "warn")
 
+    def ensure_wsl_tools(self):
+        """False when WSL lacks make, the ARM toolchain or python3: offers to install them (as root, so no sudo
+        password is needed) with the output in the log; click the action again when it is done."""
+        packages = wsl_missing_packages() if use_wsl() else []
+        if not packages:
+            return True
+        if messagebox.askyesno(TITLE, "WSL is missing: %s.\n\nInstall them now with apt (needs internet, takes a "
+                               "minute)?" % ", ".join(packages)):
+            self.run("Installing in WSL: %s" % " ".join(packages),
+                     [shutil.which("wsl.exe"), "-u", "root", "--exec", "bash", "-c",
+                      "apt-get update && DEBIAN_FRONTEND=noninteractive apt-get install -y " + " ".join(packages)],
+                     "installed; click the button again")
+        return False
+
     def build(self):
         """Builds the compiled payloads the patcher loads from build/ (make binaries)."""
+        if not self.ensure_wsl_tools():
+            return
         command = build_command()
         if command is None:
             messagebox.showerror(TITLE, "make was not found. On Windows the payloads are built in WSL with make and "
