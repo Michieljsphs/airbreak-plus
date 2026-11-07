@@ -36,9 +36,11 @@ temperature:
 - Held just below a cap that is only 1 to 3 °C above it, it heated at about
   0.3 to 0.6 °C per minute.
 
-So the cap not only limits the temperature, it also sets how hard the heater
-works. A higher cap, from a lower target or a higher coupling, makes the tube
-warm both higher and faster.
+With the setpoint equal to the cap, the tube lagged below it and the RH read
+above the target. While the tube is below the cap, the setpoint now leads the
+cap by twice the remaining gap, never above your tube setting, so the tube
+follows the cap closely. A higher cap, from a lower target or a higher
+coupling, still makes the tube warm both higher and faster.
 
 ## How the moisture is estimated
 
