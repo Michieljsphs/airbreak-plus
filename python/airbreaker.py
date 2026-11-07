@@ -9,7 +9,8 @@ Hovering a patch shows its entry from docs/guide/patching.md and the linked feat
 and the custom settings menu items it adds. The counter above the patches shows how many of the reclaimed
 Reminder variables (the menu slots) and labels the selected patches use; both are read from the patcher.
 Patch saves the config and runs patch-airsense.py INPUT OUTPUT PATCH --overwrite, with its output in the
-log. Build payloads runs make binaries (through WSL on Windows) to compile the payloads the patcher loads
+log; on Windows it runs in WSL unless arm-none-eabi-nm is on the Windows PATH, since the patcher reads the
+payload ELFs with the ARM binutils. Build payloads runs make binaries (through WSL on Windows) to compile the payloads the patcher loads
 from build/. Flash device does over SWD what docs/guide/flashing.md does in the OpenOCD telnet console: each
 button runs OpenOCD once with tcl/airsense.cfg and one of its commands (dump, flash_new, ...), either a
 Windows openocd.exe or run-ocd.sh in WSL. The paths and choices are remembered in ~/.airbreak_patch_gui.json.
@@ -320,6 +321,42 @@ def find_openocd():
             if hits:
                 return os.path.normpath(hits[0])
     return ""
+
+
+NO_WINDOW = getattr(subprocess, "CREATE_NO_WINDOW", 0)
+
+
+def use_wsl():
+    """Windows without the ARM toolchain: make and the patcher (which runs arm-none-eabi-nm, objdump and objcopy
+    on the payload ELFs) run in WSL, where docs/guide/wsl_setup.md installs them."""
+    return os.name == "nt" and not shutil.which("arm-none-eabi-nm") and bool(shutil.which("wsl.exe"))
+
+
+def wsl_path(path):
+    """The WSL path of a Windows path, or None when WSL cannot translate it."""
+    path = os.path.realpath(path)   # also expands 8.3 names such as MICHIE~1, which WSL does not know
+    try:
+        result = subprocess.run([shutil.which("wsl.exe") or "wsl.exe", "--exec", "wslpath", "-a",
+                                 path.replace("\\", "/")], capture_output=True, text=True, creationflags=NO_WINDOW)
+    except OSError:
+        return None
+    return result.stdout.strip() if result.returncode == 0 and result.stdout.strip() else None
+
+
+def patch_command(infile, outfile, verbose):
+    """patch-airsense.py INPUT OUTPUT PATCH --overwrite and the extra environment it needs: Windows Python, or
+    python3 in WSL (use_wsl) with the paths translated and the override variables passed through WSLENV. None
+    when WSL cannot reach a file."""
+    args = ["PATCH", "--overwrite"] + (["-v"] if verbose else [])
+    if not use_wsl():
+        return [python_exe(), "-u", PATCHER, infile, outfile] + args, {}
+    paths = [wsl_path(infile), wsl_path(outfile)]
+    if None in paths:
+        return None
+    passed = [name for name in list(AIR10_LEGACY_OPTIONS) + ["PATCH_TARGET_RH", "AIR10_PATCH_ARGS"]
+              if name in os.environ]
+    env = {"WSLENV": ":".join(filter(None, [os.environ.get("WSLENV", "")] + passed))} if passed else {}
+    return [shutil.which("wsl.exe"), "--cd", REPO, "--exec", "python3", "-u", "python/patch-airsense.py"] +         paths + args, env
 
 
 def python_exe():
@@ -1081,10 +1118,13 @@ class App(tk.Tk):
             return
         self.save_settings()
         os.makedirs(os.path.dirname(os.path.abspath(outfile)), exist_ok=True)
-        self.run("Patching %s -> %s" % (infile, outfile),
-                 [python_exe(), "-u", PATCHER, infile, outfile, "PATCH", "--overwrite"] +
-                 (["-v"] if self.verbose.get() else []),
-                 "%s written" % outfile)
+        command = patch_command(infile, outfile, self.verbose.get())
+        if command is None:
+            messagebox.showerror(TITLE, "WSL cannot reach the firmware image or the output file. Move them to a "
+                                 "local drive, or put the ARM toolchain (arm-none-eabi-nm) on the Windows PATH.")
+            return
+        self.run("Patching %s -> %s%s" % (infile, outfile, " (in WSL)" if use_wsl() else ""), command[0],
+                 "%s written" % outfile, env=command[1])
         for name in env_overrides():
             self.append("Note: %s from the environment overrides %s" % (name, os.path.basename(CONFIG_FILE)), "warn")
 
@@ -1097,7 +1137,7 @@ class App(tk.Tk):
             return
         self.run("Building payloads: %s" % " ".join(command[command.index("make"):]), command, "payloads built")
 
-    def run(self, title, command, done, flashing=False):
+    def run(self, title, command, done, flashing=False, env=None):
         """Runs a command with its output in the log; one at a time, all action buttons disabled meanwhile."""
         self.append("=== %s ===" % title)
         self.done, self.flashing, self.hints, self.running = done, flashing, [], title
@@ -1106,8 +1146,7 @@ class App(tk.Tk):
         try:
             self.proc = subprocess.Popen(
                 command, stdin=subprocess.DEVNULL, stdout=subprocess.PIPE, stderr=subprocess.STDOUT, cwd=REPO,
-                env={**os.environ, "PYTHONIOENCODING": "utf-8"},
-                creationflags=getattr(subprocess, "CREATE_NO_WINDOW", 0))
+                env={**os.environ, "PYTHONIOENCODING": "utf-8", **(env or {})}, creationflags=NO_WINDOW)
         except OSError as exc:
             self.append("Could not start %s: %s" % (command[0], exc), "fail")
             return
@@ -1142,7 +1181,7 @@ class App(tk.Tk):
         """A file argument for the airsense.cfg commands: relative to the repo (OpenOCD runs there) when inside
         it, otherwise absolute, converted to a WSL path in WSL mode. Braced for Tcl. None, after telling the
         user, when WSL cannot reach the file."""
-        path = os.path.realpath(path)   # also expands 8.3 names such as MICHIE~1, which WSL does not know
+        path = os.path.realpath(path)
         try:
             rel = os.path.relpath(path, REPO)
         except ValueError:   # another drive
@@ -1150,14 +1189,12 @@ class App(tk.Tk):
         if not rel.startswith(os.pardir):
             path = rel
         elif self.ocd_mode.get() == "wsl":
-            result = subprocess.run(["wsl.exe", "--exec", "wslpath", "-a", path.replace("\\", "/")],
-                                    capture_output=True, text=True,
-                                    creationflags=getattr(subprocess, "CREATE_NO_WINDOW", 0))
-            if result.returncode != 0 or not result.stdout.strip():
+            translated = wsl_path(path)
+            if translated is None:
                 messagebox.showerror(TITLE, "WSL cannot reach %s. Move the file into the repository folder "
                                      "or use Windows openocd.exe." % path)
                 return None
-            path = result.stdout.strip()
+            path = translated
         return "{%s}" % path.replace("\\", "/")
 
     def openocd_command(self, commands):
