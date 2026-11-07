@@ -2516,6 +2516,19 @@ class ASFirmwarePatches(CompiledPayloadMixin):
                              consume=True, on_release=False)
         return PatchOutcome.ok(None, *details)
 
+    def patch_humidifier_hold(self):
+        """Holding Home for 2 s toggles the humidifier (HMX)."""
+        if self.asf.cdx_ver in ('SX584-0204', 'SX584-0205') or self.asf.cdx_ver not in self.BUTTON_HOOK_SITES:
+            return PatchOutcome.skip("unsupported CDX version %s" % self.asf.cdx_ver)
+        name = 'humidifier_hold'
+        data, _, _ = self._load_versioned_payload(name)
+        flash, _ = self._inject_payload(name, data)
+        self.applied_payloads.add(name)
+        self.button_hook_add('home_hold', name, 'humidifier_hold_toggle',
+                             hold_ms=2000, consume=True, on_release=False)
+        return PatchOutcome.ok(self._payload_detail(name, len(data), flash),
+                               "Home held 2 s switches the humidifier off and on")
+
     def patch_graph_keep_screen_on(self):
         """Request keep-awake during therapy while Monitoring is enabled."""
         if 'graph' not in self.applied_payloads:
@@ -3218,6 +3231,8 @@ PATCH_PHASES = (
                   True, 'patch_backlight_adapt'),
         PatchSpec('patch-keep-backlight', 'Toggle screen keep-awake by holding the encoder.',
                   True, 'enable_keep_backlight'),
+        PatchSpec('patch-humidifier-hold', 'Switch the humidifier off and on by holding Home for 2 s.',
+                  False, 'patch_humidifier_hold'),
         PatchSpec('patch-header-clock', 'Add a clock to the Home and therapy-screen headers.',
                   True, 'patch_header_clock'),
         PatchSpec('patch-target-rh',
