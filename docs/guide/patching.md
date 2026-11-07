@@ -107,6 +107,7 @@ environment variables.
 | `PATCH_FALL_TIME=1` | Add [Fall Time](features/general.md#fall-time) in S/ST/T/PAC/iVAPS through custom settings |
 | `PATCH_ST_IBR=1` | Add [adaptive backup timing in ST](features/general.md#st-ibr) through custom settings |
 | `PATCH_AUTOEPAP=1` | Add [iVAPS AutoEPAP](features/general.md#ivaps-autoepap); requires font repacking and expanded heap |
+| `PATCH_HUMID_START=1` | Humid Start: hold the heated tube at the target RH temperature during [humidifier warm-up](features/humid_start.md); SX567 only, requires font repacking |
 
 With custom settings, `Monitoring` in clinical Options enables or disables the
 flow and pressure graph. Without custom settings, the graph remains enabled.

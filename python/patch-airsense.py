@@ -482,6 +482,23 @@ class ASFirmwarePatches(CompiledPayloadMixin):
             request, owner, self.custom_g8_reclaimed,
             self.custom_g8_claims, 8)
 
+    # Display-only slot first: the others hold therapy switches (iBR, AutoEPAP,
+    # Square Wave, Backup Rate, Custom VAuto), whose stored value would carry
+    # over if a later build gives the slot back to its feature.
+    FREE_SWITCH_SLOTS = ('RXH', 'RXW', 'RSA', 'RPF', 'RPW', 'RPO', 'RPH', 'RXM')
+
+    def custom_claim_free_g8_var(self, candidates, owner):
+        """Claim the first unclaimed reclaimed g[8] candidate, or return None."""
+        for request in candidates:
+            vid = self.asf.resolve_var_id(request)
+            if vid in self.custom_g8_reclaimed and vid not in self.custom_g8_claims:
+                if request != 'RXH':
+                    self._custom_detail('WARNING: %s uses the %s slot of a therapy switch; after '
+                                        'flashing, check iBR, AutoEPAP, Square Wave and Backup Rate '
+                                        'in the menu' % (owner, request))
+                return self.custom_claim_g8_var(request, owner)
+        return None
+
     def custom_claim_g4_var(self, request, owner=None):
         """Claim one exact reclaimed g[4] variable and return its UART name."""
         return self._custom_claim_var(
@@ -1490,6 +1507,56 @@ class ASFirmwarePatches(CompiledPayloadMixin):
         addr = self._write_payload_u16('target_rh', 'target_rh_var_id', vid)
         self._custom_detail('Target RH: %s var_id=0x%04X at 0x%08X' % (var, vid, addr))
 
+    def custom_patch_settings_humid_start(self):
+        """Expose the Humid Start switch, Min Tube and coupling in Accessories."""
+        # Runs after the fixed-name features and uses what they leave: a label
+        # string for each setting and, for the switch, a free on/off slot. The
+        # switch comes first, then Min Tube, then the coupling.
+        dep = self.asf.find_var_table_index(4, 'RGT')
+        hint = 'build without e.g. --patch-st-ibr to add it'
+        enable = None
+        if self.custom_string_pool:
+            enable = self.custom_claim_free_g8_var(
+                self.FREE_SWITCH_SLOTS, 'humid_start_enable')
+        if enable is None:
+            self._custom_detail('Humid Start switch: no free label string or on/off slot; ' + hint)
+        else:
+            label = self.redefine_fw_string(-1, {0: 'Humid Start'}, 'humid_start_enable_label')
+            self.redefine_g8_var(enable, 0x0007, 0, dep, label, 1,
+                                 2, 0, 0x00000003, self.asf.str_id_off_on_base, 0)
+            self.custom_menu_add('accessories', enable, self.CUSTOM_MENU_MODE_BITS)
+            vid = self.asf.resolve_var_id(enable)
+            addr = self._write_payload_u16('humid_start', 'humid_start_enable_var_id', vid)
+            self._custom_detail('Humid Start: %s var_id=0x%04X at 0x%08X' % (enable, vid, addr))
+
+        # Minimum tube temperature: raw value is whole degC, 16-30, default 16
+        # (no minimum beyond the lowest tube setting). Needs only a label string.
+        if not self.custom_string_pool:
+            self._custom_detail('Min Tube: no free label string; ' + hint)
+        else:
+            min_tube = self.custom_claim_g4_var('RDH', 'humid_start_min_tube')
+            label = self.redefine_fw_string(-1, {0: 'Min Tube (C)'}, 'humid_start_min_tube_label')
+            self.redefine_g4_var(min_tube, 0x0007, 0, dep, label,
+                                 16, 30, 16, 0, 1, 1, self.asf.str_id_empty)
+            self.custom_menu_add('accessories', min_tube, self.CUSTOM_MENU_MODE_BITS)
+            vid = self.asf.resolve_var_id(min_tube)
+            addr = self._write_payload_u16('humid_start', 'humid_start_min_tube_var_id', vid)
+            self._custom_detail('Min Tube: %s var_id=0x%04X at 0x%08X' % (min_tube, vid, addr))
+
+        # Plate coupling: raw value is the coupling * 100, 0.10-1.00 in steps
+        # of 0.05, default 0.25. Needs only a label string.
+        if not self.custom_string_pool:
+            self._custom_detail('Start Coupling: no free label string; ' + hint)
+            return
+        coupling = self.custom_claim_g4_var('RDW', 'humid_start_coupling')
+        label = self.redefine_fw_string(-1, {0: 'Start Coupling'}, 'humid_start_coupling_label')
+        self.redefine_g4_var(coupling, 0x0007, 0, dep, label,
+                             25, 100, 10, 2, 100, 5, self.asf.str_id_empty)
+        self.custom_menu_add('accessories', coupling, self.CUSTOM_MENU_MODE_BITS)
+        vid = self.asf.resolve_var_id(coupling)
+        addr = self._write_payload_u16('humid_start', 'humid_start_coupling_var_id', vid)
+        self._custom_detail('Start Coupling: %s var_id=0x%04X at 0x%08X' % (coupling, vid, addr))
+
     def custom_patch_settings_collect_features(self):
         """Return active custom-settings feature functions."""
         feature_patches = (
@@ -1504,6 +1571,8 @@ class ASFirmwarePatches(CompiledPayloadMixin):
             ('backlight_adapt', self.custom_patch_settings_backlight),
             ('target_rh', self.custom_patch_settings_target_rh),
             ('header_clock', self.custom_patch_settings_header_clock),
+            # Last: its switch claims a g[8] slot left free by the features above.
+            ('humid_start', self.custom_patch_settings_humid_start),
         )
         active = self.applied_payloads | self.enabled_custom_settings_features
         return [feature for source, feature in feature_patches if source in active]
@@ -2093,6 +2162,41 @@ class ASFirmwarePatches(CompiledPayloadMixin):
         self.applied_payloads.add('target_rh')
         return PatchOutcome.ok('Climate model target RH: %g%% (Auto and Manual)' % percent,
                                self._payload_detail('target_rh', len(data), flash))
+
+    def patch_humid_start(self):
+        """Hold the heated tube at the target RH's temperature while the plate warms."""
+        # Climate inputs vtable slot +0x3c (HTS getter) and sensors slot +0x1c
+        # (humidity-model reference temperature).
+        sites = {
+            'SX567-0302': (0xf3a70, 0xf5834),
+            'SX567-0305': (0xf4184, 0xf5f48),
+            'SX567-0306': (0xf4188, 0xf5f4c),
+            'SX567-0401': (0xf43e8, 0xf61ac),
+            'SX567-0402': (0xf4660, 0xf6424),
+        }.get(self.asf.cdx_ver)
+        if sites is None:
+            return PatchOutcome.skip("unsupported CDX version %s" % self.asf.cdx_ver)
+
+        data, _, elf_path = self._load_versioned_payload('humid_start')
+        hooks = []
+        for offset, stock, wrapper in zip(sites, (
+                'climate_tube_setpoint_get', 'climate_reference_temperature_get'),
+                ('start', 'humid_start_reference')):
+            original = self._elf_symbol_addr(elf_path, stock) | 1
+            target = self._elf_symbol_addr(elf_path, wrapper) | 1
+            if self.asf.read_u32(offset) not in (original, target):
+                raise ValueError('patch_humid_start: unexpected %s pointer at 0x%X' % (stock, offset))
+            hooks.append((offset, original, target, stock))
+
+        flash, _ = self._inject_payload('humid_start', data)
+        details = [self._payload_detail('humid_start', len(data), flash)]
+        for offset, original, target, stock in hooks:
+            self._replace_bytes_checked(
+                offset, struct.pack('<I', original), struct.pack('<I', target),
+                'humid start ' + stock, accept_existing=True)
+            details.append(self._hook_detail(stock, self.asf.FLASH_BASE + offset, target))
+        self.applied_payloads.add('humid_start')
+        return PatchOutcome.ok(None, *details)
 
     def patch_defaults(self):
         defaults = (
@@ -3223,6 +3327,9 @@ PATCH_PHASES = (
         PatchSpec('patch-target-rh',
                   'Set target RH (default: 85%, y: 85%, n: disabled); custom settings adds a 70-100% menu control.',
                   85.0, 'patch_target_rh', value_type=target_rh_value),
+        PatchSpec('patch-humid-start',
+                  'Humid Start: hold the heated tube at the target RH temperature while the humidifier warms up.',
+                  False, 'patch_humid_start'),
         PatchSpec('patch-custom-palette', 'Patch the custom color palette.',
                   True, 'custom_palette'),
         PatchSpec('patch-past-date', 'Allow setting past date in the menu and over UART.',
@@ -3285,6 +3392,7 @@ PATCH_DEPENDENCIES = {
     'patch-ivaps-settings': ('patch-custom-settings',),
     'patch-fw-graph': ('patch-fw-common-code',),
     'patch-graph-keep-screen-on': ('patch-fw-graph',),
+    'patch-humid-start': ('patch-font-repack',),
     'patch-fw-vauto-wrapper': ('patch-fw-common-code',),
     'patch-fw-squarewave': ('patch-fw-common-code', 'patch-fw-vauto-wrapper'),
 }

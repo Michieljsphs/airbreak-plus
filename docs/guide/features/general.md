@@ -110,6 +110,17 @@ Without this patch, the stock 85% target remains unchanged.
 The percentage is a target, not a measurement of humidity at the mask.
 Higher targets increase condensation risk; 100% targets saturation.
 
+## Humid Start
+
+At the start of therapy, the heated tube normally reaches its temperature
+within minutes, while the humidifier plate takes much longer to heat the water.
+Until then the air is warm but dry. This optional patch (SX567 only) holds
+the tube back while the humidifier warms up, so the air reaches the target
+humidity sooner. It adds a Humid Start switch, a Min Tube setting and a Start
+Coupling setting to the Accessories menu.
+
+See [Humid Start](humid_start.md) for how it works, the settings and tuning.
+
 ## Header Clock
 
 Enable **Clock** in clinical **Configuration** to replace the Home and active
