@@ -183,3 +183,10 @@ NSTUB(0x080AA021, autoepap_timing_tail_resume)
 NSTUB_VAR(0x200002EC, stock_flow_samples)
 NSTUB(0x0806C2CB, g4_numeric_set_dynamic_min)
 NSTUB(0x0806C2DD, g4_numeric_set_dynamic_max)
+
+// Climate control: inputs/sensors interfaces used by the tube and plate controllers
+NSTUB_VAR(0x080F3A34, climate_inputs_vtable)
+NSTUB(0x080D2217, climate_tube_setpoint_get)
+NSTUB(0x080D222F, climate_reference_temperature_get)
+// Stock humidity model calibration k0..k4
+NSTUB(0x080D1F0D, humidity_model_coefficients_get)
