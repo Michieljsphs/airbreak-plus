@@ -33,6 +33,13 @@
 #define TICKS_PER_COLUMN 1500
 /* A grid tick every 10 minutes. */
 #define COLUMNS_PER_TICK 40
+/* A new session: the chart was not updated for this long, while the therapy
+ * timer advanced by less than SESSION_TIMER_TICKS. Within one session the
+ * timer runs on through such a gap (a menu, the screen off); between two
+ * nights it stood still while therapy was off.
+ */
+#define SESSION_GAP_MS 600000
+#define SESSION_TIMER_TICKS 30000
 
 typedef struct {
 	int last_pos_x;
@@ -48,6 +55,12 @@ typedef struct {
 	graph_state_t base;
 	/* Therapy timer at the last update; it going back is a new session. */
 	unsigned last_therapy;
+	/* Therapy timer at the start of this session: the timer is not
+	 * restarted at zero for each session.
+	 */
+	unsigned session_start;
+	/* Time since the last update, for a gap between sessions. */
+	unsigned seen[3];
 	/* Column of the therapy time at the last update; keeps counting after
 	 * the 60 minutes.
 	 */
@@ -80,6 +93,8 @@ extern void gui_method_fc104_setup_and_invalidate(
 	uint32 hwin, int left, int top, int right, int bottom);
 extern void memcpy_unrolled(void *destination, const void *source,
 			    unsigned size);
+extern void millisecond_timer_init(void *timer, unsigned elapsed);
+extern int millisecond_timer_expired(void *timer, unsigned ms);
 extern float climate_target_rh_get(void);
 extern const uint8 graph_climate;
 extern const unsigned short graph_humid_start_var_id;
@@ -89,8 +104,12 @@ extern const float graph_plate_coupling;
 
 STATIC void init_graph_state(graph_state_t *state) {
 	state->last_pos_x = -1;
-	if (graph_climate)
-		((climate_state_t *)state)->active = ((climate_state_t *)state)->redraw = 0;
+	if (graph_climate) {
+		climate_state_t *s = (climate_state_t *)state;
+		s->active = s->redraw = 0;
+		s->last_therapy = s->session_start = 0;
+		millisecond_timer_init(s->seen, 0);
+	}
 }
 
 /* NULL when the heap had no room for it: the graph then draws nothing. */
@@ -281,6 +300,12 @@ STATIC void climate_draw_column(const climate_state_t *s, int x) {
  * session clears the chart. Columns are counted from the therapy timer, so
  * the chart starts at the start of therapy even when the therapy screen was
  * not shown then.
+ *
+ * The therapy screen, and with it this update, is gone while therapy is off,
+ * so the stop is rarely seen here. A new session is the timer going back, or
+ * a long gap since the last update over which the timer hardly advanced: it
+ * then stood still while therapy was off, and the session started where it
+ * stopped.
  */
 STATIC void climate_update(climate_state_t *s) {
 	if (*therapy_mode == MODE_OFF) {
@@ -290,7 +315,15 @@ STATIC void climate_update(climate_state_t *s) {
 	unsigned therapy = *pap_timer;
 	bool all = s->redraw;
 	s->redraw = 0;
-	if (!s->active || therapy < s->last_therapy) {
+	bool gap = millisecond_timer_expired(s->seen, SESSION_GAP_MS);
+	millisecond_timer_init(s->seen, 0);
+	bool restarted = therapy < s->last_therapy;
+	if (!s->active || restarted ||
+	    (gap && therapy - s->last_therapy < SESSION_TIMER_TICKS)) {
+		/* From zero after a restart, else from where the timer stopped
+		 * at the end of the last session (zero after power-up).
+		 */
+		s->session_start = restarted ? 0 : s->last_therapy;
 		uint8 *p = &s->data[0][0];
 		for (unsigned i = 0; i < sizeof(s->data); i++)
 			p[i] = 0;
@@ -305,7 +338,7 @@ STATIC void climate_update(climate_state_t *s) {
 	 * stock widgets underneath painted over it (the readouts, the
 	 * humidifier icon) is covered again within a column.
 	 */
-	unsigned column = therapy / TICKS_PER_COLUMN;
+	unsigned column = (therapy - s->session_start) / TICKS_PER_COLUMN;
 	if (column != s->column) {
 		s->column = column;
 		climate_setpoints(s);
