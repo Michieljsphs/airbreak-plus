@@ -36,9 +36,13 @@ the target later.
 - It applies only to Auto climate control with a heated tube and the humidifier
   active.
 - How fast the tube warms depends on how far its setpoint is above the measured
-  temperature. A cap only 1 to 3 °C above the tube heats it slowly (about 0.3 to
-  0.6 °C per minute in tests); a released tube heated at about 2 °C per minute.
-  A higher cap therefore makes the tube warm both higher and faster.
+  temperature. A setpoint only 1 to 3 °C above the tube heats it slowly (about
+  0.3 to 0.6 °C per minute in tests); a released tube heated at about 2 °C per
+  minute. A setpoint equal to the cap therefore left the tube lagging below it,
+  and the RH read above the target during warm-up. While the tube is below the
+  cap, the setpoint now leads the cap by twice the remaining gap, never above
+  the tube setting, so the heater works harder and the tube follows the cap
+  closely. The lead falls back to zero as the tube reaches the cap.
 
 ## When warm-up ends
 

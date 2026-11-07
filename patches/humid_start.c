@@ -5,10 +5,18 @@
  * dry. While the plate warms, cap the tube setpoint where the estimated moisture
  * the chamber adds (humidity_model.h) gives the target RH, and let the stock
  * model aim for HTS so the plate keeps heating at full demand. The cap is never
- * below the lowest tube setting (16 degC) or the Min Tube setting. The cap ends once
- * it reaches HTS, the plate stops rising, or the warm-up time limit expires.
- * The stock model keeps aiming for HTS until the measured tube is within a
- * degree of it, so the plate does not cool when the tube is released.
+ * below the lowest tube setting (16 degC) or the Min Tube setting.
+ *
+ * The tube heater works in proportion to the gap between its setpoint and the
+ * measured tube, so a tube just below the cap barely heats and lags behind it.
+ * While the tube is below the cap the setpoint therefore leads the cap by
+ * twice the remaining gap, never above HTS, and falls back to the cap as the
+ * tube reaches it.
+ *
+ * The cap ends once it reaches HTS, the plate stops rising, or the warm-up
+ * time limit expires. The stock model keeps aiming for HTS until the measured
+ * tube is within a degree of it, so the plate does not cool when the tube is
+ * released.
  */
 #include "s10_vars.h"
 #include "humidity_model.h"
@@ -44,6 +52,10 @@ enum {
 
 /* The lowest tube temperature setting, degC. */
 #define MIN_TUBE_TEMP 16.0f
+/* Setpoint lead over the cap, as a multiple of the tube's gap below it. The
+ * setpoint is never above HTS, so the tube never heats faster than stock.
+ */
+#define TRACK_GAIN 2.0f
 /* How close the measured tube must get to HTS before the stock reference
  * temperature takes over again, degC.
  */
@@ -57,11 +69,12 @@ struct state {
     unsigned magic;
     unsigned seen[3];
     unsigned sample[3];
+    /* Words, not bytes: Thumb has short loads for them at these offsets. */
+    unsigned minutes;
+    unsigned done;
+    unsigned capping;
     float last_plate;
     struct humidity_coeffs coeffs;
-    u8 minutes;
-    u8 done;
-    u8 capping;
 };
 
 extern void *malloc(unsigned size);
@@ -134,10 +147,6 @@ static struct state *state_of(struct obj *inputs, int create)
     for (unsigned i = 0; i < INPUT_SLOTS; ++i)
         s->methods[i] = climate_inputs_vtable[i];
     s->magic = STATE_MAGIC;
-    s->capping = 0;
-    millisecond_timer_init(s->seen, 0);
-    /* The first plate sample must not read as settled. */
-    restart(s, -1000.0f);
     inputs->vptr = (void *const *)s->methods;
     return s;
 }
@@ -155,13 +164,15 @@ static int auto_with_tube(struct obj *inputs)
 float start(struct obj *inputs)
 {
     float set = climate_tube_setpoint_get(inputs);
+    /* A new state starts a session; its timers are not set yet. */
+    int fresh = inputs->vptr == climate_inputs_vtable;
     struct state *s = state_of(inputs, 1);
     if (!s)
         return set;
     struct obj *sensors = (struct obj *)((u8 *)inputs - SENSORS_TO_INPUTS);
     float plate = call_f(sensors, SENSOR_PLATE);
     /* The tube controller only asks during therapy; a long gap starts a session. */
-    if (millisecond_timer_expired(s->seen, IDLE_MS))
+    if (fresh || millisecond_timer_expired(s->seen, IDLE_MS))
         restart(s, plate);
     millisecond_timer_init(s->seen, 0);
     /* After warm-up the reference stays at HTS until the tube has caught up. */
@@ -208,7 +219,12 @@ float start(struct obj *inputs)
         return set;
     }
     s->capping = 1;
-    return limit;
+    /* Lead the cap while the tube is below it, so the heater works harder. */
+    float gap = limit - climate_reference_temperature_get(sensors);
+    if (gap <= 0.0f)
+        return limit;
+    limit += TRACK_GAIN * gap;
+    return limit < set ? limit : set;
 }
 
 /* Replaces the sensors' humidity-model reference temperature. */
