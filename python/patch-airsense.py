@@ -749,8 +749,8 @@ class ASFirmwarePatches(CompiledPayloadMixin):
         handler = self._elf_symbol_addr(elf_path, symbol) | 1
         if (event, handler) in self.button_handlers:
             raise ValueError("button hooks: duplicate handler for %s" % event_name)
-        if consume and any(code == event and flags & 1 for (code, _), (flags, _) in
-                           self.button_handlers.items()):
+        if consume and any(code == event and flags & 1 and hold == hold_ms
+                           for (code, _), (flags, hold) in self.button_handlers.items()):
             raise ValueError("button hooks: %s already has a consuming handler" % event_name)
         flags = int(bool(consume)) | (0 if on_release else 2)
         self.button_handlers[event, handler] = (flags, hold_ms)
@@ -2525,9 +2525,9 @@ class ASFirmwarePatches(CompiledPayloadMixin):
         flash, _ = self._inject_payload(name, data)
         self.applied_payloads.add(name)
         self.button_hook_add('home_hold', name, 'humidifier_hold_toggle',
-                             hold_ms=2000, consume=True, on_release=False)
+                             hold_ms=2000, consume=True, on_release=True)
         return PatchOutcome.ok(self._payload_detail(name, len(data), flash),
-                               "Home held 2 s switches the humidifier off and on")
+                               "Home held 2-5 s switches the humidifier off and on")
 
     def patch_graph_keep_screen_on(self):
         """Request keep-awake during therapy while Monitoring is enabled."""
