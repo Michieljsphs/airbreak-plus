@@ -57,6 +57,9 @@ Tube. If you change a setting, the dashed lines move within 15 seconds.
   for 30 minutes while the therapy timer advanced less than 5 minutes. The
   chart also clears if the timer goes back. Show the therapy screen within 5 minutes of starting therapy, or the
   new night is taken as the old one going on.
+- **Starting over by hand:** hold the Home button for 5 seconds during
+  therapy to clear the chart and start it again from that moment. Without the
+  climate chart, or with therapy off, the hold does what it did before.
 - **After 60 minutes:** sampling stops and the chart stays as it is until
   therapy stops.
 - **Seeing it:** wake the screen with a button press while therapy is still

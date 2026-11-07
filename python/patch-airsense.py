@@ -2332,7 +2332,13 @@ class ASFirmwarePatches(CompiledPayloadMixin):
         elf_path = self._require_versioned_artifact('graph', 'elf')
         address = self._elf_symbol_addr(elf_path, 'graph_climate')
         self.asf.write_u8(address - self.asf.FLASH_BASE, 1)
-        return PatchOutcome.ok("Climate graph instead of pressure graph at 0x%08X" % address)
+        details = ["Climate graph instead of pressure graph at 0x%08X" % address]
+        if self.asf.cdx_ver in self.BUTTON_HOOK_SITES:
+            # Holding Home for 5 s clears the chart and starts it again.
+            self.button_hook_add('home_hold', 'graph', 'graph_chart_reset',
+                                 hold_ms=5000, consume=True, on_release=False)
+            details.append("Home held 5 s restarts the climate chart")
+        return PatchOutcome.ok(*details)
 
     def patch_squarewave(self):
         """Add squarewave pressure mode"""
