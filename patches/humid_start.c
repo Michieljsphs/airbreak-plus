@@ -45,13 +45,18 @@ enum {
     IDLE_MS = 60000,
     MAX_MINUTES = 60,
     /* Minutes between plate checks; a power of two. */
-    WINDOW_MINUTES = 4,
+    WINDOW_MINUTES = 8,
     HANDOFF_MS = 300000,
     STATE_MAGIC = 0x50555754,
 };
 
 /* The lowest tube temperature setting, degC. */
 #define MIN_TUBE_TEMP 16.0f
+/* Plate rise per minute below which the plate counts as stopped, degC. The
+ * plate approaches its limit slowly, at a few tenths of a degree per minute
+ * for a long time, and is still heating then.
+ */
+#define PLATE_STALL_RATE 0.05f
 /* Setpoint lead over the cap, as a multiple of the tube's gap below it. The
  * setpoint is never above HTS, so the tube never heats faster than stock.
  */
@@ -187,12 +192,12 @@ float start(struct obj *inputs)
     if (millisecond_timer_expired(s->sample, SAMPLE_MS)) {
         millisecond_timer_init(s->sample, 0);
         /* A plate that barely rose over the last window has reached the model's
-         * target. The plate wobbles and can stall for a minute or two while
-         * still heating, so compare over several minutes, not one.
+         * target. The plate wobbles, stalls for a minute or two and creeps up
+         * slowly while still heating, so compare over several minutes.
          */
         int check = !(++s->minutes & (WINDOW_MINUTES - 1));
         if (s->minutes >= MAX_MINUTES ||
-                (check && plate - s->last_plate < 0.2f * WINDOW_MINUTES &&
+                (check && plate - s->last_plate < PLATE_STALL_RATE * WINDOW_MINUTES &&
                  plate > ambient + 8.0f)) {
             finish(s);
             return set;
