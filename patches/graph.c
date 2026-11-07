@@ -66,6 +66,8 @@ typedef struct {
 	 */
 	unsigned column;
 	uint8 active;
+	/* A Home hold asked for a new chart starting now. */
+	uint8 reset;
 	/* Redraw the whole chart on the next update: the readouts and icon it
 	 * covers may have painted over it.
 	 */
@@ -106,7 +108,7 @@ STATIC void init_graph_state(graph_state_t *state) {
 	state->last_pos_x = -1;
 	if (graph_climate) {
 		climate_state_t *s = (climate_state_t *)state;
-		s->active = s->redraw = 0;
+		s->active = s->redraw = s->reset = 0;
 		s->last_therapy = s->session_start = 0;
 		millisecond_timer_init(s->seen, 0);
 	}
@@ -318,12 +320,14 @@ STATIC void climate_update(climate_state_t *s) {
 	bool gap = millisecond_timer_expired(s->seen, SESSION_GAP_MS);
 	millisecond_timer_init(s->seen, 0);
 	bool restarted = therapy < s->last_therapy;
-	if (!s->active || restarted ||
+	bool manual = s->reset;
+	s->reset = 0;
+	if (!s->active || restarted || manual ||
 	    (gap && therapy - s->last_therapy < SESSION_TIMER_TICKS)) {
 		/* From zero after a restart, else from where the timer stopped
 		 * at the end of the last session (zero after power-up).
 		 */
-		s->session_start = restarted ? 0 : s->last_therapy;
+		s->session_start = restarted ? 0 : manual ? therapy : s->last_therapy;
 		uint8 *p = &s->data[0][0];
 		for (unsigned i = 0; i < sizeof(s->data); i++)
 			p[i] = 0;
@@ -354,6 +358,20 @@ STATIC void climate_update(climate_state_t *s) {
 			climate_draw_column(s, x);
 		screen_end(&saved);
 	}
+}
+
+/* button_hooks calls this in the GUI task when Home has been held for 5 s.
+ * During therapy with the climate chart it clears the chart and starts it
+ * again from now; otherwise the hold keeps its stock behaviour.
+ */
+int MAIN graph_chart_reset(unsigned event, unsigned held_ms) {
+	if (!graph_climate || *therapy_mode == MODE_OFF || !graph_enabled())
+		return 0;
+	climate_state_t *s = (climate_state_t *)get_graph_state();
+	if (!s)
+		return 0;
+	s->reset = 1;
+	return 1;
 }
 
 /* The climate chart is on screen and covers the mode and pressure readouts. */
