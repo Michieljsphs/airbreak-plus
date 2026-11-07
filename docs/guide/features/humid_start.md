@@ -40,7 +40,7 @@ the target later.
   0.3 to 0.6 °C per minute in tests); a released tube heated at about 2 °C per
   minute. A setpoint equal to the cap therefore left the tube lagging below it,
   and the RH read above the target during warm-up. While the tube is below the
-  cap, the setpoint now leads the cap by twice the remaining gap, never above
+  cap, the setpoint now leads the cap by four times the remaining gap, never above
   the tube setting, so the heater works harder and the tube follows the cap
   closely. The lead falls back to zero as the tube reaches the cap.
 

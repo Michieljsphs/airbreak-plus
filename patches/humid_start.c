@@ -10,7 +10,7 @@
  * The tube heater works in proportion to the gap between its setpoint and the
  * measured tube, so a tube just below the cap barely heats and lags behind it.
  * While the tube is below the cap the setpoint therefore leads the cap by
- * twice the remaining gap, never above HTS, and falls back to the cap as the
+ * four times the remaining gap, never above HTS, and falls back to the cap as the
  * tube reaches it.
  *
  * The cap ends once it reaches HTS, the plate stops rising, or the warm-up
@@ -60,7 +60,7 @@ enum {
 /* Setpoint lead over the cap, as a multiple of the tube's gap below it. The
  * setpoint is never above HTS, so the tube never heats faster than stock.
  */
-#define TRACK_GAIN 2.0f
+#define TRACK_GAIN 4.0f
 /* How close the measured tube must get to HTS before the stock reference
  * temperature takes over again, degC.
  */
