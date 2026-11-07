@@ -51,7 +51,12 @@ Tube. If you change a setting, the dashed lines move within 15 seconds.
 - **New session:** the chart clears when therapy starts. Time is counted
   from the therapy timer, so the left edge is always the start of therapy,
   also when the therapy screen or Monitoring was off at first; the minutes
-  before the chart was first shown stay empty.
+  before the chart was first shown stay empty. The therapy timer does not
+  restart at zero every night, so the chart takes a new session to be one
+  where it was not updated for 10 minutes while the therapy timer advanced
+  less than 5 minutes (therapy was off in between), or where the timer went
+  back. Show the therapy screen within 5 minutes of starting therapy, or the
+  new night is taken as the old one going on.
 - **After 60 minutes:** sampling stops and the chart stays as it is until
   therapy stops.
 - **Seeing it:** wake the screen with a button press while therapy is still
@@ -75,5 +80,8 @@ on and off, as for the pressure graph.
 - **Screen off:** whether the therapy screen keeps updating while the screen
   is off. If it does not, the chart has gaps where it was off. The chart is
   kept across such a gap as long as the therapy timer kept running.
-- **Therapy timer:** that it counts from zero at the start of each session in
-  10 ms steps, as the pressure graph assumes.
+- **Therapy timer:** that it counts in 10 ms steps only while therapy runs.
+  On a device it kept counting from the previous night instead of restarting
+  at zero, so the chart takes the start of each session from the timer's
+  value then. If it turns out to count while therapy is off as well, a new
+  night is not recognised and the old chart stays.
