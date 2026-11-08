@@ -38,11 +38,11 @@ the target later.
 - How fast the tube warms depends on how far its setpoint is above the measured
   temperature. A setpoint only 1 to 3 °C above the tube heats it slowly (about
   0.3 to 0.6 °C per minute in tests); a released tube heated at about 2 °C per
-  minute. A setpoint equal to the cap therefore left the tube lagging below it,
-  and the RH read above the target during warm-up. While the tube is below the
-  cap, the setpoint now leads the cap by four times the remaining gap, never above
-  the tube setting, so the heater works harder and the tube follows the cap
-  closely. The lead falls back to zero as the tube reaches the cap.
+  minute. With the setpoint equal to the cap, the tube would lag below the cap
+  and the RH would read above the target. So while the tube is below the cap,
+  the setpoint leads the cap by four times the remaining gap, never above the
+  tube setting. The heater works harder and the tube follows the cap closely.
+  The lead falls back to zero as the tube reaches the cap.
 
 ## When warm-up ends
 
@@ -60,12 +60,24 @@ Without this, the model would switch to the lower measured tube temperature at
 that moment, ask for less moisture, and the plate would cool by several degrees
 before recovering.
 
-Warm-up restarts after the tube controller has been idle for a minute, for
-example between therapy sessions. It also restarts when you change the tube
-temperature or the target humidity during therapy, so Humid Start checks again
-whether the tube needs holding back for the new setting. A hot water chamber,
-such as after a stock Warm-up, ends it immediately. After a pause with the mask off, the tube can be
-held back again briefly if the plate has cooled.
+## When warm-up restarts
+
+Humid Start has no signal for the start of therapy. It sees only that the tube
+controller keeps asking for the tube setpoint while therapy runs. Warm-up
+restarts when:
+
+- the controller has not asked for a minute, which marks a new session, for
+  example the next night. How long the controller stays silent during a short
+  pause, such as with the mask off, has not been measured, so such a pause may
+  or may not be long enough to restart it;
+- you change the tube temperature or the target humidity during therapy.
+
+Each restart checks again whether the tube needs holding back. Warm-up ends
+at once if the water already supports your full tube setting, for example after
+a stock Warm-up. The tube then heats to its setting at stock speed (about 2 °C
+per minute), so the air can be humid while the tube is still cool, which can
+cause a little condensation, as with stock. If the water supports less than the
+tube setting, the tube is held at the cap until the water warms.
 
 ## How the moisture is estimated
 
@@ -109,7 +121,7 @@ The coupling is the fraction of the plate's rise above room temperature over
 which the air leaving the chamber is assumed to pick up moisture. It scales the
 plate bound, so it only matters while the plate bound is the smaller one: during
 the first minutes. It has no effect once the heater-power bound takes over. The
-default is **0.30**, which has not been calibrated.
+default is **0.25**, which has not been calibrated.
 
 - **Lower values** estimate less moisture while the plate warms, so the cap is
   lower, the tube is held colder for longer, and the air in the first minutes is
@@ -138,10 +150,10 @@ where `ah_sat(T) = 4.61 + 0.436 T + 0.00122 T² + 0.000427 T³` g/m³. For a pla
 68 °C, ambient 32 °C and a power bound of 13.7 g/m³ this gives about 0.18. This
 assumes the stock calibration is right in steady state.
 
-A practical procedure is to start at 0.30 and step down by 0.05 on successive
-nights, keeping the tube setting, target RH and water level the same, until you see
-condensation near the mask, then keep the previous value. If 0.30 already
-condenses, raise it.
+A practical procedure is to start at the default 0.25 and step down by 0.05 on
+successive nights, keeping the tube setting, target RH and water level the same,
+until you see condensation near the mask, then keep the previous value. If 0.25
+already condenses, raise it.
 
 ## Min Tube
 
@@ -184,8 +196,8 @@ used; for example, without ST iBR and AutoEPAP:
 make build/stm32-plus.bin AIR10_PATCH_ARGS='--patch-st-ibr n --patch-autoepap n --patch-humid-start y'
 ```
 
-The switch is added first, then Min Tube, then Start Coupling. When no label is left for a setting it is skipped: without the
-switch Humid Start stays on. The build log reports what was added.
+The switch is added first, then Min Tube, then Start Coupling. When no label is
+left for a setting it is skipped: without the switch Humid Start stays on. The build log reports what was added.
 
 Enable it with `--patch-humid-start y` or `PATCH_HUMID_START=1`. It is off by
 default and requires font repacking (on by default).
