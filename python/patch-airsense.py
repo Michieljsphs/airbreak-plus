@@ -532,6 +532,17 @@ class ASFirmwarePatches(CompiledPayloadMixin):
                 return self.custom_claim_g8_var(request, owner)
         return None
 
+    # Value slots a setting without a fixed one takes the first free of.
+    FREE_VALUE_SLOTS = ('RCW', 'RCH', 'RCF', 'RDW', 'RDH', 'RCM', 'RDM', 'RDF')
+
+    def custom_claim_free_g4_var(self, candidates, owner):
+        """Claim the first unclaimed reclaimed g[4] candidate, or return None."""
+        for request in candidates:
+            vid = self.asf.resolve_var_id(request)
+            if vid in self.custom_g4_reclaimed and vid not in self.custom_g4_claims:
+                return self.custom_claim_g4_var(request, owner)
+        return None
+
     def custom_claim_g4_var(self, request, owner=None):
         """Claim one exact reclaimed g[4] variable and return its UART name."""
         return self._custom_claim_var(
@@ -1643,6 +1654,8 @@ class ASFirmwarePatches(CompiledPayloadMixin):
             ('header_clock', self.custom_patch_settings_header_clock),
             # Last: its switch claims a g[8] slot left free by the features above.
             ('humid_start', self.custom_patch_settings_humid_start),
+            # After every fixed claim: it takes a value slot nobody else needs.
+            ('graph_climate', self.custom_patch_settings_graph_width),
         )
         active = self.applied_payloads | self.enabled_custom_settings_features
         return [feature for source, feature in feature_patches if source in active]
