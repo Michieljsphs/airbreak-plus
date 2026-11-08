@@ -61,8 +61,10 @@ that moment, ask for less moisture, and the plate would cool by several degrees
 before recovering.
 
 Warm-up restarts after the tube controller has been idle for a minute, for
-example between therapy sessions. A hot water chamber, such as after a stock
-Warm-up, ends it immediately. After a pause with the mask off, the tube can be
+example between therapy sessions. It also restarts when you change the tube
+temperature or the target humidity during therapy, so Humid Start checks again
+whether the tube needs holding back for the new setting. A hot water chamber,
+such as after a stock Warm-up, ends it immediately. After a pause with the mask off, the tube can be
 held back again briefly if the plate has cooled.
 
 ## How the moisture is estimated
