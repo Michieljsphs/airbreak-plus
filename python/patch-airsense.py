@@ -499,14 +499,6 @@ class ASFirmwarePatches(CompiledPayloadMixin):
                 return self.custom_claim_g8_var(request, owner)
         return None
 
-    def custom_menu_hidden(self, key):
-        """True when --hide-menu-items leaves this MENU_ITEMS entry out; notes its built-in value."""
-        if key not in (self.hide_menu_items or '').split(','):
-            return False
-        item = next(item for item in MENU_ITEMS if item.key == key)
-        self._custom_detail('%s: hidden (--hide-menu-items), built-in value: %s' % (item.label, item.hidden_value))
-        return True
-
     def custom_claim_g4_var(self, request, owner=None):
         """Claim one exact reclaimed g[4] variable and return its UART name."""
         return self._custom_claim_var(
