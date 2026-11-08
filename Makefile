@@ -38,7 +38,7 @@ PAYLOADS_0205 := $(PAYLOADS_0204)
 # payloads before them keep the addresses they had without those features.
 PAYLOADS_0302 := mop_callback_dispatcher variable_callback_dispatcher button_hooks keep_backlight vid_spoof graph squarewave asv_task_wrapper \
 	common_code backlight_adapt wrapper_limit_max_pdiff s10_lcd_ili9325 custom_menu_hooks \
-	uart_stream_schema language_fonts target_rh header_clock fall_time st_ibr autoepap header_climate
+	uart_stream_schema language_fonts target_rh header_clock fall_time st_ibr autoepap
 PAYLOADS_0305 := $(PAYLOADS_0302)
 PAYLOADS_0306 := $(PAYLOADS_0302)
 PAYLOADS_0401 := $(PAYLOADS_0302)
@@ -50,7 +50,7 @@ payload_bins = $(foreach v,$(call payload_versions,$(1)),$(BUILD)/$(1)_$(v).bin)
 PAYLOAD_NAMES := $(sort $(foreach v,$(PAYLOAD_LAYOUT_VERSIONS),$(PAYLOADS_$(v))))
 PAYLOAD_STAMPS := $(foreach p,$(PAYLOAD_NAMES),$(BUILD)/payload_$(p).stamp)
 S10_CODE_VERSIONS := $(call payload_versions,common_code)
-S10_STANDALONE_PAYLOADS := asv_task_wrapper backlight_adapt language_fonts uart_stream_schema vid_spoof target_rh header_clock fall_time st_ibr autoepap variable_callback_dispatcher button_hooks keep_backlight header_climate
+S10_STANDALONE_PAYLOADS := asv_task_wrapper backlight_adapt language_fonts uart_stream_schema vid_spoof target_rh header_clock fall_time st_ibr autoepap variable_callback_dispatcher button_hooks keep_backlight
 PAYLOAD_LAYOUT_TSVS := $(foreach v,$(PAYLOAD_LAYOUT_VERSIONS),$(BUILD)/payload_layout_$(v).tsv)
 
 BLX_PAYLOAD_VERSIONS := SX577-0200 SX585-0200
@@ -259,7 +259,7 @@ $(foreach v,$(call payload_versions,custom_menu_hooks),$(eval $(call S10_CUSTOM_
 
 $(foreach v,$(call payload_versions,custom_menu_hooks),$(BUILD)/custom_menu_hooks_$(v).o): $(SRC)/custom_menu_registry.h
 $(foreach v,$(call payload_versions,button_hooks),$(BUILD)/button_hooks_$(v).o): $(SRC)/button_hooks.h
-$(foreach v,$(call payload_versions,header_climate),$(BUILD)/header_climate_$(v).o): $(SRC)/humidity_model.h
+$(foreach v,$(call payload_versions,header_clock),$(BUILD)/header_clock_$(v).o): $(SRC)/humidity_model.h
 
 define S10_STANDALONE_PAYLOAD_template
 $(BUILD)/$(1)_$(2).o: $(wildcard $(SRC)/$(1)/*.c)

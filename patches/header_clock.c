@@ -1,16 +1,24 @@
-/* Replace Home and on-therapy page titles with the device time. */
+/* Replace Home and on-therapy page titles with the device time, or with a
+ * climate readout on Home and the therapy pages.
+ */
 #include "s10_vars.h"
 
+typedef unsigned char u8;
 typedef unsigned short u16;
 typedef unsigned int u32;
 
 #define CLOCK_HIDDEN 0xfffu
+/* Clock values stay below 24 << 6; climate values are a flagged checksum. */
+#define CLIMATE_FLAG 0x800u
+#define TITLE_LEN 24
+#define TEMP_LEN 8
 
 /* ZML numbers the four therapy pages consecutively on both families. */
 #if defined(CDX_VER_0204) || defined(CDX_VER_0205)
 #define THERAPY_PAGE_FIRST 9
 #else
 #define THERAPY_PAGE_FIRST 8
+#define HEADER_CLIMATE 1
 #endif
 
 struct root_screen {
@@ -24,6 +32,12 @@ struct root_screen {
 };
 
 extern const u16 header_clock_var_id;
+extern const u8 header_climate_enabled;
+extern const u8 header_climate_always;
+extern const u8 header_climate_decimal;
+extern const u16 header_climate_var_id;
+extern const float header_climate_plate_coupling;
+extern const u16 header_climate_coupling_var_id;
 extern int variable_get_by_id(int var_id);
 extern struct root_screen *gui_root_screen_get(void);
 extern struct root_screen *gui_root_screen_init(struct root_screen *root);
@@ -33,16 +47,99 @@ extern int gui_get_string_width(const char *text);
 extern void WM_InvalidateRect(u32 window, const short *rect);
 extern int snprintf(char *buffer, unsigned size, const char *format, ...);
 
-static u16 current_clock(const struct root_screen *root)
+#ifdef HEADER_CLIMATE
+#include "humidity_model.h"
+
+/* Display temperature in tenths from a raw degC * 10 value, rounded to whole
+ * degrees unless the decimal is shown.
+ */
+static int display_temp(int raw, int fahrenheit)
 {
+    if (fahrenheit)
+        raw = (raw * 9 + (raw < 0 ? -2 : 2)) / 5 + 320;
+    if (!header_climate_decimal)
+        raw = (raw + (raw < 0 ? -5 : 5)) / 10 * 10;
+    return raw;
+}
+
+static void temp_text(char *buffer, int tenths)
+{
+    const char *sign = tenths < 0 ? "-" : "";
+    if (tenths < 0)
+        tenths = -tenths;
+    if (header_climate_decimal)
+        snprintf(buffer, TEMP_LEN, "%s%d.%d", sign, tenths / 10, tenths % 10);
+    else
+        snprintf(buffer, TEMP_LEN, "%s%d", sign, tenths / 10);
+}
+
+/* Tube and plate temperatures and the estimated RH at the tube temperature,
+ * using the same chamber estimate as humid_start (humidity_model.h): the room
+ * air plus the smaller of the plate and heater-power bounds on the moisture
+ * the chamber adds.
+ */
+static u16 current_climate(char *text)
+{
+    if (!variable_get_by_id(VAR_ID_HUM))
+        return CLOCK_HIDDEN;
+    int tube_present = variable_get_by_id(VAR_ID_HTB);
+    int fahrenheit = variable_get_by_id(VAR_ID_TMU);
+    int ambient_raw = variable_get_by_id(VAR_ID_HAT);
+    int plate_raw = variable_get_by_id(VAR_ID_HPT);
+    int tube_raw = tube_present ? variable_get_by_id(VAR_ID_HTT) : ambient_raw;
+
+    float coupling = header_climate_coupling_var_id == 0xffffu ?
+        header_climate_plate_coupling :
+        coupling_from_raw(variable_get_by_id(header_climate_coupling_var_id));
+    struct humidity_coeffs coeffs;
+    humidity_coeffs_read(&coeffs);
+    float outlet = humidity_outlet(&coeffs,
+                                   plate_raw * 0.1f, ambient_raw * 0.1f,
+                                   variable_get_by_id(VAR_ID_HAH) * 0.001f,
+                                   variable_get_by_id(VAR_ID_HPM) * 0.01f,
+                                   variable_get_by_id(VAR_ID_AFL) * 0.01f,
+                                   coupling);
+    int rh = (int)(100.0f * outlet / ah_sat(tube_raw * 0.1f) + 0.5f);
+    if (rh > 100)
+        rh = 100;
+    if (rh < 0)
+        rh = 0;
+
+    int tube = display_temp(tube_raw, fahrenheit);
+    int plate = display_temp(plate_raw, fahrenheit);
+    if (text) {
+        char tube_text[TEMP_LEN], plate_text[TEMP_LEN];
+        temp_text(tube_text, tube);
+        temp_text(plate_text, plate);
+        snprintf(text, TITLE_LEN, "%s\xc2\xb0 %s\xc2\xb0 %d%%",
+                 tube_present ? tube_text : "--", plate_text, rh);
+    }
+    unsigned sum = ((unsigned)tube * 31u + (unsigned)plate * 7u + (unsigned)rh +
+                    (tube_present ? 0x400u : 0u)) & 0x7ffu;
+    return CLIMATE_FLAG | (sum == 0x7ffu ? 0u : sum);
+}
+#endif
+
+/* Returns the title value for this page and formats it when text is set. */
+static u16 current_title(const struct root_screen *root, char *text)
+{
+    unsigned page = variable_get_by_id(VAR_ID_ZML);
+    int home = page == 0 && root->title == 0;
+    int therapy = page >= THERAPY_PAGE_FIRST && page < THERAPY_PAGE_FIRST + 4 &&
+                  (root->title == 7 || root->title == 8);
+#ifdef HEADER_CLIMATE
+    if ((home || therapy || header_climate_always) && header_climate_enabled &&
+            (header_climate_var_id == 0xffffu ||
+             variable_get_by_id(header_climate_var_id))) {
+        u16 climate = current_climate(text);
+        if (climate != CLOCK_HIDDEN)
+            return climate;
+    }
+#endif
+    if (!(home || therapy))
+        return CLOCK_HIDDEN;
     if (header_clock_var_id != 0xffffu &&
             !variable_get_by_id(header_clock_var_id))
-        return CLOCK_HIDDEN;
-
-    unsigned page = variable_get_by_id(VAR_ID_ZML);
-    if (!((page == 0 && root->title == 0) ||
-          (page >= THERAPY_PAGE_FIRST && page < THERAPY_PAGE_FIRST + 4 &&
-           (root->title == 7 || root->title == 8))))
         return CLOCK_HIDDEN;
 
     unsigned time = variable_get_by_id(VAR_ID_TIC);
@@ -50,35 +147,42 @@ static u16 current_clock(const struct root_screen *root)
     unsigned minute = (time >> 8) & 0xff;
     if (hour >= 24 || minute >= 60)
         return CLOCK_HIDDEN;
+    if (text)
+        snprintf(text, 6, "%02u:%02u", hour, minute);
     return (hour << 6) | minute;
-}
-
-static void format_clock(char *text, unsigned time)
-{
-    snprintf(text, 6, "%02u:%02u", time >> 6, time & 0x3f);
 }
 
 /* Only the first title draw call is hooked; page numbers and icons stay stock. */
 void start(const char *text, int x, int y)
 {
     struct root_screen *root = gui_root_screen_get();
-    char clock[6];
-    root->clock_time = current_clock(root);
-    if (root->clock_time != CLOCK_HIDDEN) {
-        format_clock(clock, root->clock_time);
-        text = clock;
-    }
+    char title[TITLE_LEN];
+    root->clock_time = current_title(root, title);
+    if (root->clock_time != CLOCK_HIDDEN)
+        text = title;
     gui_disp_string_at_utf8(text, x, y);
 }
+
+#ifdef HEADER_CLIMATE
+/* The page counter ("1/3") drawn after the title: left out beside the climate
+ * readout, which needs the room. The title draw above runs first.
+ */
+void header_climate_page_draw(const char *text, int x, int y)
+{
+    struct root_screen *root = gui_root_screen_get();
+    if (root->clock_time != CLOCK_HIDDEN && (root->clock_time & CLIMATE_FLAG))
+        return;
+    gui_disp_string_at_utf8(text, x, y);
+}
+#endif
 
 int header_clock_title_width(const char *text)
 {
     struct root_screen *root = gui_root_screen_get();
-    char clock[6];
-    if (root->clock_time != CLOCK_HIDDEN) {
-        format_clock(clock, root->clock_time);
-        text = clock;
-    }
+    char title[TITLE_LEN];
+    if (root->clock_time != CLOCK_HIDDEN &&
+            current_title(root, title) != CLOCK_HIDDEN)
+        text = title;
     return gui_get_string_width(text);
 }
 
@@ -96,10 +200,10 @@ void header_clock_update(struct root_screen *root, int changed)
     if (++root->clock_update_count < 10)
         return;
     root->clock_update_count = 0;
-    u16 time = current_clock(root);
-    if (time != root->clock_time) {
+    u16 value = current_title(root, 0);
+    if (value != root->clock_time) {
         const short rect[4] = {0, 0, 239, 32};
-        root->clock_time = time;
+        root->clock_time = value;
         WM_InvalidateRect(root->window, rect);
     }
 }
