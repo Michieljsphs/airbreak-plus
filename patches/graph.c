@@ -30,10 +30,14 @@
 #define CLIMATE_HEIGHT (CLIMATE_BOTTOM - CLIMATE_TOP)
 
 #define CLIMATE_COLUMNS 240
-/* The therapy timer counts 10 ms ticks. The time per column and the grid
- * spacing are set when patching (--graph-width); by default 240 columns of
- * 15 s (1500 ticks) are 60 minutes, with a grid tick every 10 minutes.
+/* The therapy timer counts 10 ms ticks, 6000 a minute. The chart covers
+ * graph_width_minutes (--graph-width), or the Graph Width menu setting in
+ * tenths of an hour when there is one; by default 240 columns of 15 s are
+ * 60 minutes, with a grid tick every 10 minutes.
  */
+#define TICKS_PER_MINUTE 6000
+#define MIN_WIDTH_MINUTES 10
+#define MAX_WIDTH_MINUTES 720
 /* A new session: the chart was not updated for this long, while the therapy
  * timer advanced by less than SESSION_TIMER_TICKS. Within one session the
  * timer runs on through such a gap (a menu, the screen off); between two
@@ -73,6 +77,9 @@ typedef struct {
 	 * covers may have painted over it.
 	 */
 	uint8 redraw;
+	/* Chart width in minutes at the last update, and its grid spacing. */
+	unsigned short width;
+	unsigned short columns_per_tick;
 	/* Setpoint lines, 0 when not shown. */
 	uint8 tube_set;
 	uint8 rh_set;
@@ -100,8 +107,8 @@ extern void millisecond_timer_init(void *timer, unsigned elapsed);
 extern int millisecond_timer_expired(void *timer, unsigned ms);
 extern float climate_target_rh_get(void);
 extern const uint8 graph_climate;
-extern const uint32 graph_ticks_per_column;
-extern const uint32 graph_columns_per_tick;
+extern const uint32 graph_width_minutes;
+extern const unsigned short graph_width_var_id;
 extern const unsigned short graph_humid_start_var_id;
 extern const unsigned short graph_min_tube_var_id;
 extern const unsigned short graph_coupling_var_id;
@@ -112,6 +119,8 @@ STATIC void init_graph_state(graph_state_t *state) {
 	if (graph_climate) {
 		climate_state_t *s = (climate_state_t *)state;
 		s->active = s->redraw = s->reset = 0;
+		s->width = 0;
+		s->columns_per_tick = 40;
 		s->last_therapy = s->session_start = 0;
 		millisecond_timer_init(s->seen, 0);
 	}
@@ -228,6 +237,14 @@ STATIC void climate_setpoints(climate_state_t *s) {
 	s->rh_set = (int)(climate_target_rh_get() * 100.0f + 0.5f);
 }
 
+/* The time the chart covers, in minutes. */
+STATIC unsigned chart_width_minutes(void) {
+	int minutes = graph_width_minutes;
+	if (graph_width_var_id != 0xffffu)
+		minutes = variable_get_by_id(graph_width_var_id) * 6;
+	return clamp(minutes, MIN_WIDTH_MINUTES, MAX_WIDTH_MINUTES);
+}
+
 /* Plate and tube temperatures and the estimated RH at the tube temperature,
  * the same estimate as the header climate readout.
  */
@@ -276,7 +293,7 @@ STATIC void climate_draw_column(const climate_state_t *s, int x) {
 	GUI_SetColor(COLOR_GRID);
 	for (int t = 40; t <= 140; t += 20)
 		climate_dash(TUBE, t, x, 3);
-	if (x % graph_columns_per_tick == 0)
+	if (x % s->columns_per_tick == 0)
 		LCD_FillRect(x, CLIMATE_BOTTOM - 3, x, CLIMATE_BOTTOM);
 
 	// tube setting and target RH dashed, Min Tube dotted
@@ -325,6 +342,13 @@ STATIC void climate_update(climate_state_t *s) {
 	bool restarted = therapy < s->last_therapy;
 	bool manual = s->reset;
 	s->reset = 0;
+	/* A new width changes what every column means: start the chart over. */
+	unsigned width = chart_width_minutes();
+	if (s->active && s->width && (unsigned)s->width != width)
+		manual = true;
+	s->width = width;
+	unsigned tick_minutes = width <= 120 ? 10 : width <= 360 ? 30 : 60;
+	s->columns_per_tick = max(1u, tick_minutes * CLIMATE_COLUMNS / width);
 	if (!s->active || restarted || manual ||
 	    (gap && therapy - s->last_therapy < SESSION_TIMER_TICKS)) {
 		/* From zero after a restart, else from where the timer stopped
@@ -345,7 +369,8 @@ STATIC void climate_update(climate_state_t *s) {
 	 * stock widgets underneath painted over it (the readouts, the
 	 * humidifier icon) is covered again within a column.
 	 */
-	unsigned column = (therapy - s->session_start) / graph_ticks_per_column;
+	unsigned column = (therapy - s->session_start) /
+			(width * (TICKS_PER_MINUTE / CLIMATE_COLUMNS));
 	if (column != s->column) {
 		s->column = column;
 		climate_setpoints(s);

@@ -1593,6 +1593,34 @@ class ASFirmwarePatches(CompiledPayloadMixin):
         self._custom_detail('Start Coupling: %s var_id=0x%04X at 0x%08X' % (coupling, vid, addr))
         self._graph_climate_var('graph_coupling_var_id', vid)
 
+    def custom_patch_settings_graph_width(self):
+        """Expose the climate chart width as a setting in hours, next to the display settings."""
+        var = self.custom_claim_free_g4_var(self.FREE_VALUE_SLOTS, 'graph_width')             if self.custom_string_pool else None
+        if var is None:
+            self._custom_detail('Graph Width: no free label string or value slot; --graph-width sets the width')
+            return
+        # Raw value is tenths of an hour: 0.2 h (12 min) to 12.0 h in steps of 6 minutes.
+        label = self.redefine_fw_string(-1, {0: 'Graph Width (h)'}, 'graph_width_label')
+        dep = self.asf.find_var_table_index(4, 'RGT')
+        default = min(120, max(2, round(self.graph_width_minutes / 6)))
+        self.redefine_g4_var(var, 0x0007, 0, dep, label, default, 120, 2, 1, 10, 1,
+                             self.asf.str_id_empty)
+        all_modes = self.mop_bitmask(*self.MOP_INDEX)
+        vid = self.asf.resolve_var_id(var)
+        lcd = self.custom_menu_pages.get('lcd')
+        if lcd is None:
+            self.custom_menu_add('options', var, all_modes)
+        else:
+            # On the LCD page, below the ambient light settings and above the headings.
+            self.custom_menu_add('lcd', var, all_modes)
+            entry = self.custom_menu_entries.pop()
+            asf_vid = self.asf.resolve_var_id('ASF')
+            at = next(i for i, e in enumerate(self.custom_menu_entries)
+                      if e[0] == lcd and e[2] == asf_vid)
+            self.custom_menu_entries.insert(at + 1, entry)
+        addr = self._write_payload_u16('graph', 'graph_width_var_id', vid)
+        self._custom_detail('Graph Width: %s var_id=0x%04X at 0x%08X' % (var, vid, addr))
+
     def _graph_climate_var(self, symbol, vid):
         """Hand a Humid Start setting to the climate graph, when installed."""
         if 'graph' in self.applied_payloads:
@@ -2334,17 +2362,11 @@ class ASFirmwarePatches(CompiledPayloadMixin):
         address = self._elf_symbol_addr(elf_path, 'graph_climate')
         self.asf.write_u8(address - self.asf.FLASH_BASE, 1)
         details = ["Climate graph instead of pressure graph at 0x%08X" % address]
-        # 240 columns; the therapy timer counts 10 ms, so a minute is 6000 ticks.
         width = self.graph_width_minutes
-        ticks_per_column = width * 6000 // GRAPH_COLUMNS
-        tick_minutes = 10 if width <= 120 else 30 if width <= 360 else 60
-        columns_per_tick = max(1, tick_minutes * GRAPH_COLUMNS // width)
-        self.asf.write_u32(self._elf_symbol_addr(elf_path, 'graph_ticks_per_column')
-                           - self.asf.FLASH_BASE, ticks_per_column)
-        self.asf.write_u32(self._elf_symbol_addr(elf_path, 'graph_columns_per_tick')
-                           - self.asf.FLASH_BASE, columns_per_tick)
-        details.append("Chart width %d:%02d, %d s per column, grid every %d min"
-                       % (width // 60, width % 60, ticks_per_column // 100, tick_minutes))
+        self.asf.write_u32(self._elf_symbol_addr(elf_path, 'graph_width_minutes')
+                           - self.asf.FLASH_BASE, width)
+        self.enabled_custom_settings_features.add('graph_climate')
+        details.append("Chart width %d:%02d" % (width // 60, width % 60))
         if self.asf.cdx_ver in self.BUTTON_HOOK_SITES:
             # Holding Home for 5 s clears the chart and starts it again.
             self.button_hook_add('home_hold', 'graph', 'graph_chart_reset',

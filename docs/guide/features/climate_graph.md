@@ -21,6 +21,17 @@ to 6 hours and every hour beyond. The dashed setpoint lines and the samples
 update once per column, so on a long chart a changed setting shows up after up
 to a column's time. The chart stops sampling when it is full.
 
+With custom settings the width can also be changed on the device: a
+**Graph Width (h)** setting, in hours from 0.2 to 12.0 in steps of 0.1 (6
+minutes). It is on the LCD page of the configuration menu when the backlight
+patch is installed, otherwise in clinical **Options**. `--graph-width` sets its
+starting value. Changing it clears the chart and starts it again from that
+moment.
+
+The setting takes a free value slot left by the other patches
+(`docs/guide/patching.md` has the custom settings limits). If none is free it
+is left out and the `--graph-width` value stays fixed.
+
 ## What it shows
 
 The chart is much taller than the pressure graph: it fills the therapy screen
