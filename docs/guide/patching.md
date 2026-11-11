@@ -118,6 +118,13 @@ Optionally enable `--patch-graph-keep-screen-on Y` (or
 Monitoring is On. This option requires the graph patch, includes the
 [dial shortcut](features/general.md#keep-backlight), and is off by default.
 
+Optionally enable `--patch-graph-climate Y` (or `PATCH_GRAPH_CLIMATE=1`) to
+show the [climate graph](features/climate_graph.md) instead of the pressure
+graph: plate and tube temperatures and estimated RH over the first 60
+minutes of therapy, in a taller chart that replaces the mode and pressure
+readouts, with dashed lines for the tube setting, Min Tube and target RH. It
+requires the graph patch and is off by default.
+
 Example with custom VAuto:
 ```
 export PATCH_CODE=1
@@ -131,7 +138,7 @@ export PATCH_VAUTO_WRAPPER=1
 | Patch | What it does | Switch |
 |-------|-------------|--------|
 | Expand heap | Adds about 13.5 KiB of runtime allocation space on SX567 firmware | `--patch-expand-heap` |
-| Repack fonts | Frees about 17 KiB of flash for patches without changing the available characters or their appearance | `--patch-font-repack` |
+| Repack fonts | Frees about 17 KiB of flash for patches without changing the available characters or their appearance. On SX567 0302 and later, keep it on: some payloads are stored in the space it frees, and patching stops with an error naming it when it is off | `--patch-font-repack` |
 | UART firmware dump | Adds the SX577-0200 / SX585-0200 bootloader command used by `resmed_flash.py --dump` | `--patch-blx-dump` |
 | UART metadata | Reports live-stream layouts and custom-settings menu metadata through `G C` | `--patch-uart-stream-schema` |
 | Replacement LCD | Adds the ILI9325/ILI9328 LCD driver | `--patch-fw-lcd` or `PATCH_S10_LCD=1` |

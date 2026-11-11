@@ -59,13 +59,13 @@ Autoepap *autoepap_find(void) {
     return (Autoepap *)node;
 }
 
-int autoepap_active(const Autoepap *s) {
+static int autoepap_active(const Autoepap *s) {
     return s && s->configured && *iref(0x6f) == 6 && s->lower != s->upper;
 }
 
 int autoepap_on(void) { return autoepap_active(autoepap_find()); }
 
-void autoepap_load_settings(Autoepap *s) {
+static void autoepap_load_settings(Autoepap *s) {
     s->configured = autoepap_enable_id != 0xffff && variable_get_by_id(autoepap_enable_id) != 0;
     s->lower = *fref(0x0f);
     s->upper = s->lower;
@@ -134,7 +134,7 @@ static void clear_bytes(void *memory, unsigned size) {
 
 /* Profile callbacks reset histories even for 6 -> 6. Ordinary settings reload
  * does not call this method. Detector and observer state have narrower resets. */
-void autoepap_mode(Node *node) {
+static void autoepap_mode(Node *node) {
     Autoepap *s = (Autoepap *)node;
     int previous = s->fast.enabled;
     if (!previous) {
@@ -188,7 +188,7 @@ static void detector_noop(void *ctx, int time) { (void)ctx; (void)time; }
 static void detector_duration(void *ctx, int duration) { ((Autoepap *)ctx)->capture_slots[7] = duration; }
 static void detector_event(void *ctx, unsigned event) { ((Autoepap *)ctx)->fast_events |= 1u << event; }
 
-void autoepap_fast(Node *node) {
+static void autoepap_fast(Node *node) {
     Autoepap *s = (Autoepap *)node;
     s->fast_events = 0;
     s->control[0] = autoepap_active(s);
@@ -214,7 +214,7 @@ static Span span_between(int start, int end) {
     return span;
 }
 
-void autoepap_slow(Node *node) {
+static void autoepap_slow(Node *node) {
     Autoepap *s = (Autoepap *)((unsigned char *)node - __builtin_offsetof(Autoepap, slow));
     s->slow_events = 0;
     if (!autoepap_active(s)) {

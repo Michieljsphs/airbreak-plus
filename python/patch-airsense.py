@@ -12,7 +12,6 @@
 # See LICENSE in main repository for distribution license and additional restrictions.
 
 import argparse
-from collections import namedtuple
 from contextlib import redirect_stdout
 from dataclasses import dataclass
 import datetime
@@ -170,8 +169,8 @@ class ASFirmwarePatches(CompiledPayloadMixin):
         
     def __init__(self, asf):
         self.asf = asf
+        self.graph_width_minutes = 60  # --graph-width, climate chart width
         self.palette_colors = ''   # --palette-colors, canonical ROLE=RRGGBB list
-        self.hide_menu_items = ''  # --hide-menu-items, canonical MENU_ITEMS key list
         self.applied_payloads = set()
         self.enabled_custom_settings_features = set()
         self.mop_callback_handlers = {}
@@ -198,6 +197,38 @@ class ASFirmwarePatches(CompiledPayloadMixin):
 
     def _supports_compiled_payloads(self):
         return self.asf.cdx_ver.startswith('SX567-') and self._payload_version_key() in self.PAYLOAD_VERSIONS
+
+    def _font_storage_caves(self):
+        """(start, end) of this version's code caves in font storage (priority 1 in
+        patches/s10_code_caves.tsv), which only patch-font-repack frees."""
+        registry = os.path.join(self._payload_repo_dir(), 'patches', 's10_code_caves.tsv')
+        caves = []
+        try:
+            with open(registry, encoding='ascii') as source:
+                for line in source:
+                    fields = line.split()
+                    if (len(fields) == 7 and fields[0] == self._payload_version_key() and
+                            fields[1] == 'cdx' and fields[6] == '1'):
+                        caves.append((int(fields[2], 0), int(fields[3], 0)))
+        except OSError:
+            pass
+        return caves
+
+    def _inject_payload(self, name, data, region=None, empty_byte=0xff):
+        """As CompiledPayloadMixin, with a clear error when the layout put this payload in
+        font storage and patch-font-repack did not free it: the payloads of 0302 and later
+        do not all fit in the erased tail of the image."""
+        try:
+            return super()._inject_payload(name, data, region, empty_byte)
+        except ValueError as exc:
+            if region is None and 'is not empty' in str(exc):
+                storage = self._load_payload_layout()[1][name]['storage']
+                if any(start <= storage < end for start, end in self._font_storage_caves()):
+                    raise ValueError(
+                        "%s: on %s this payload is stored in font storage that "
+                        "--patch-font-repack frees; enable --patch-font-repack" %
+                        (name, self.asf.cdx_ver)) from exc
+            raise
 
     def _enum_option_labels(self, var):
         rec = self.asf.find_var(var)
@@ -502,13 +533,16 @@ class ASFirmwarePatches(CompiledPayloadMixin):
                 return self.custom_claim_g8_var(request, owner)
         return None
 
-    def custom_menu_hidden(self, key):
-        """True when --hide-menu-items leaves this MENU_ITEMS entry out; notes its built-in value."""
-        if key not in (self.hide_menu_items or '').split(','):
-            return False
-        item = next(item for item in MENU_ITEMS if item.key == key)
-        self._custom_detail('%s: hidden (--hide-menu-items), built-in value: %s' % (item.label, item.hidden_value))
-        return True
+    # Value slots a setting without a fixed one takes the first free of.
+    FREE_VALUE_SLOTS = ('RCW', 'RCH', 'RCF', 'RDW', 'RDH', 'RCM', 'RDM', 'RDF')
+
+    def custom_claim_free_g4_var(self, candidates, owner):
+        """Claim the first unclaimed reclaimed g[4] candidate, or return None."""
+        for request in candidates:
+            vid = self.asf.resolve_var_id(request)
+            if vid in self.custom_g4_reclaimed and vid not in self.custom_g4_claims:
+                return self.custom_claim_g4_var(request, owner)
+        return None
 
     def custom_claim_g4_var(self, request, owner=None):
         """Claim one exact reclaimed g[4] variable and return its UART name."""
@@ -1209,8 +1243,6 @@ class ASFirmwarePatches(CompiledPayloadMixin):
 
     def custom_patch_settings_myasv(self):
         """Expose reclaimed custom VAuto settings and pass their var_ids to the wrapper."""
-        if self.custom_menu_hidden('custom_vauto'):
-            return
         # Claim stable storage-backed variables and allocate reclaimed localized
         # string IDs for their new menu labels.
         myasv_var = self.custom_claim_g8_var('RPO', 'my_asv_enable')
@@ -1310,8 +1342,6 @@ class ASFirmwarePatches(CompiledPayloadMixin):
 
     def custom_patch_settings_squarewave(self):
         """Expose the squarewave runtime switch and pass its var_id to the payload."""
-        if self.custom_menu_hidden('square_wave'):
-            return
         square_var = self.custom_claim_g8_var('RPF', 'squarewave_enable')
         square_label = self.redefine_fw_string(-1, {0: 'Square Wave'}, 'squarewave_label')
         square_dep = self.asf.find_var_table_index(4, 'RGT')
@@ -1331,8 +1361,6 @@ class ASFirmwarePatches(CompiledPayloadMixin):
 
     def custom_patch_settings_fall_time(self):
         """Expose an optional stock-waveform fall duration in Therapy."""
-        if self.custom_menu_hidden('fall_time'):
-            return
         time_var = self.custom_claim_g4_var('RCW', 'fall_time_duration')
         time_label = self.redefine_fw_string(-1, {0: 'Fall Time'}, 'fall_time_duration_label')
         dep = self.asf.find_var_table_index(4, 'RGT')
@@ -1350,8 +1378,6 @@ class ASFirmwarePatches(CompiledPayloadMixin):
 
     def custom_patch_settings_st_ibr(self):
         """Expose ST iBR; the native RRT setting supplies both rate modes."""
-        if self.custom_menu_hidden('ibr'):
-            return
         var = self.custom_claim_g8_var('RXW', 'st_ibr_enable')
         label = self.redefine_fw_string(-1, {0: 'iBR'}, 'st_ibr_label')
         dep = self.asf.find_var_table_index(4, 'RGT')
@@ -1365,8 +1391,6 @@ class ASFirmwarePatches(CompiledPayloadMixin):
 
     def custom_patch_settings_autoepap(self):
         """Expose iVAPS AutoEPAP and its paired pressure bounds."""
-        if self.custom_menu_hidden('autoepap'):
-            return
         enable = self.custom_claim_g8_var('RSA', 'autoepap_enable')
         lower = self.custom_claim_g4_var('RDF', 'autoepap_min_epap')
         upper = self.custom_claim_g4_var('RDM', 'autoepap_max_epap')
@@ -1406,8 +1430,6 @@ class ASFirmwarePatches(CompiledPayloadMixin):
 
     def custom_patch_settings_graph(self):
         """Expose the graph/stock-gauge switch in clinical Options."""
-        if self.custom_menu_hidden('monitoring'):
-            return
         graph_var = self.custom_claim_g8_var('RXH', 'graph_enable')
         graph_dep = self.asf.find_var_table_index(4, 'RGT')
 
@@ -1425,8 +1447,6 @@ class ASFirmwarePatches(CompiledPayloadMixin):
 
     def custom_patch_settings_asv_task_wrapper(self):
         """Expose the stock ASV/ASVAuto backup-rate runtime switch."""
-        if self.custom_menu_hidden('backup_rate'):
-            return
         backup_var = self.custom_claim_g8_var('RPW', 'asv_backup_rate')
         backup_label = self.asf.read_u16(self.asf.find_var('BRE') + self.asf.G8_NAME_STR)
         backup_dep = self.asf.find_var_table_index(4, 'RGT')
@@ -1447,8 +1467,6 @@ class ASFirmwarePatches(CompiledPayloadMixin):
                             (backup_var, backup_vid, backup_label, backup_addr))
 
     def custom_patch_settings_header_clock(self):
-        if self.custom_menu_hidden('clock'):
-            return
         var = self.custom_claim_g8_var('RXF', 'header_clock')
         label = self.redefine_fw_string(-1, {0: 'Clock'}, 'header_clock_label')
         dep = self.asf.find_var_table_index(4, 'RGT')
@@ -1458,16 +1476,10 @@ class ASFirmwarePatches(CompiledPayloadMixin):
         vid = self.asf.resolve_var_id(var)
         addr = self._write_payload_u16('header_clock', 'header_clock_var_id', vid)
         self._custom_detail('Clock: %s var_id=0x%04X at 0x%08X' % (var, vid, addr))
-        if 'header_climate' in self.applied_payloads:
-            addr = self._write_payload_u16('header_climate', 'header_clock_var_id', vid)
-            self._custom_detail('Clock (header climate): var_id=0x%04X at 0x%08X' % (vid, addr))
 
     def custom_patch_settings_header_climate(self):
         """Add a Climate switch for the header climate readout next to Clock."""
-        # Like the Humid Start switch it takes a free on/off slot, but runs after it.
-        if self.custom_menu_hidden('climate'):
-            return
-        hint = 'hide other menu items (--hide-menu-items) or build without e.g. --patch-st-ibr to add it'
+        hint = 'build without e.g. --patch-st-ibr to add it'
         enable = None
         if self.custom_string_pool:
             enable = self.custom_claim_free_g8_var(
@@ -1481,7 +1493,7 @@ class ASFirmwarePatches(CompiledPayloadMixin):
                              2, 0, 0x00000003, self.asf.str_id_off_on_base, 0)
         self.custom_menu_add('configuration', enable, self.CUSTOM_MENU_MODE_BITS)
         vid = self.asf.resolve_var_id(enable)
-        addr = self._write_payload_u16('header_climate', 'header_climate_var_id', vid)
+        addr = self._write_payload_u16('header_clock', 'header_climate_var_id', vid)
         self._custom_detail('Climate: %s var_id=0x%04X at 0x%08X' % (enable, vid, addr))
 
     def custom_patch_settings_backlight(self):
@@ -1545,8 +1557,6 @@ class ASFirmwarePatches(CompiledPayloadMixin):
 
     def custom_patch_settings_target_rh(self):
         """Expose the climate model target as a persistent percentage."""
-        if self.custom_menu_hidden('target_rh'):
-            return
         if not 70 <= self.target_rh_percent <= 100 or self.target_rh_percent != int(self.target_rh_percent):
             raise ValueError('Target RH menu requires a whole percentage from 70 to 100; '
                              'disable custom settings to use a different fixed target')
@@ -1567,15 +1577,14 @@ class ASFirmwarePatches(CompiledPayloadMixin):
         # string for each setting and, for the switch, a free on/off slot. The
         # switch comes first, then Min Tube, then the coupling.
         dep = self.asf.find_var_table_index(4, 'RGT')
-        hint = 'hide other menu items (--hide-menu-items) or build without e.g. --patch-st-ibr to add it'
+        hint = 'build without e.g. --patch-st-ibr to add it'
         enable = None
-        hidden = self.custom_menu_hidden('humid_start')
-        if self.custom_string_pool and not hidden:
+        if self.custom_string_pool:
             enable = self.custom_claim_free_g8_var(
                 self.FREE_SWITCH_SLOTS, 'humid_start_enable')
-        if enable is None and not hidden:
+        if enable is None:
             self._custom_detail('Humid Start switch: no free label string or on/off slot; ' + hint)
-        elif enable is not None:
+        else:
             label = self.redefine_fw_string(-1, {0: 'Humid Start'}, 'humid_start_enable_label')
             self.redefine_g8_var(enable, 0x0007, 0, dep, label, 1,
                                  2, 0, 0x00000003, self.asf.str_id_off_on_base, 0)
@@ -1583,12 +1592,11 @@ class ASFirmwarePatches(CompiledPayloadMixin):
             vid = self.asf.resolve_var_id(enable)
             addr = self._write_payload_u16('humid_start', 'humid_start_enable_var_id', vid)
             self._custom_detail('Humid Start: %s var_id=0x%04X at 0x%08X' % (enable, vid, addr))
+            self._graph_climate_var('graph_humid_start_var_id', vid)
 
         # Minimum tube temperature: raw value is whole degC, 16-30, default 16
         # (no minimum beyond the lowest tube setting). Needs only a label string.
-        if self.custom_menu_hidden('min_tube'):
-            pass
-        elif not self.custom_string_pool:
+        if not self.custom_string_pool:
             self._custom_detail('Min Tube: no free label string; ' + hint)
         else:
             min_tube = self.custom_claim_g4_var('RDH', 'humid_start_min_tube')
@@ -1599,11 +1607,10 @@ class ASFirmwarePatches(CompiledPayloadMixin):
             vid = self.asf.resolve_var_id(min_tube)
             addr = self._write_payload_u16('humid_start', 'humid_start_min_tube_var_id', vid)
             self._custom_detail('Min Tube: %s var_id=0x%04X at 0x%08X' % (min_tube, vid, addr))
+            self._graph_climate_var('graph_min_tube_var_id', vid)
 
         # Plate coupling: raw value is the coupling * 100, 0.10-1.00 in steps
         # of 0.05, default 0.25. Needs only a label string.
-        if self.custom_menu_hidden('start_coupling'):
-            return
         if not self.custom_string_pool:
             self._custom_detail('Start Coupling: no free label string; ' + hint)
             return
@@ -1615,9 +1622,44 @@ class ASFirmwarePatches(CompiledPayloadMixin):
         vid = self.asf.resolve_var_id(coupling)
         addr = self._write_payload_u16('humid_start', 'humid_start_coupling_var_id', vid)
         self._custom_detail('Start Coupling: %s var_id=0x%04X at 0x%08X' % (coupling, vid, addr))
-        if 'header_climate' in self.applied_payloads:
-            addr = self._write_payload_u16('header_climate', 'header_climate_coupling_var_id', vid)
+        if 'header_climate' in self.enabled_custom_settings_features:
+            addr = self._write_payload_u16('header_clock', 'header_climate_coupling_var_id', vid)
             self._custom_detail('Header climate coupling var_id=0x%04X at 0x%08X' % (vid, addr))
+        self._graph_climate_var('graph_coupling_var_id', vid)
+
+    def custom_patch_settings_graph_width(self):
+        """Expose the climate chart width as a setting in hours, next to the display settings."""
+        var = self.custom_claim_free_g4_var(self.FREE_VALUE_SLOTS, 'graph_width')             if self.custom_string_pool else None
+        if var is None:
+            self._custom_detail('Graph Width: no free label string or value slot; --graph-width sets the width')
+            return
+        # Raw value is tenths of an hour: 0.2 h (12 min) to 12.0 h in steps of 6 minutes.
+        label = self.redefine_fw_string(-1, {0: 'Graph Width (h)'}, 'graph_width_label')
+        dep = self.asf.find_var_table_index(4, 'RGT')
+        default = min(120, max(2, round(self.graph_width_minutes / 6)))
+        self.redefine_g4_var(var, 0x0007, 0, dep, label, default, 120, 2, 1, 10, 1,
+                             self.asf.str_id_empty)
+        all_modes = self.mop_bitmask(*self.MOP_INDEX)
+        vid = self.asf.resolve_var_id(var)
+        lcd = self.custom_menu_pages.get('lcd')
+        if lcd is None:
+            self.custom_menu_add('options', var, all_modes)
+        else:
+            # On the LCD page, below the ambient light settings and above the headings.
+            self.custom_menu_add('lcd', var, all_modes)
+            entry = self.custom_menu_entries.pop()
+            asf_vid = self.asf.resolve_var_id('ASF')
+            at = next(i for i, e in enumerate(self.custom_menu_entries)
+                      if e[0] == lcd and e[2] == asf_vid)
+            self.custom_menu_entries.insert(at + 1, entry)
+        addr = self._write_payload_u16('graph', 'graph_width_var_id', vid)
+        self._custom_detail('Graph Width: %s var_id=0x%04X at 0x%08X' % (var, vid, addr))
+
+    def _graph_climate_var(self, symbol, vid):
+        """Hand a Humid Start setting to the climate graph, when installed."""
+        if 'graph' in self.applied_payloads:
+            addr = self._write_payload_u16('graph', symbol, vid)
+            self._custom_detail('Climate graph %s=0x%04X at 0x%08X' % (symbol, vid, addr))
 
     def custom_patch_settings_collect_features(self):
         """Return active custom-settings feature functions."""
@@ -1633,10 +1675,11 @@ class ASFirmwarePatches(CompiledPayloadMixin):
             ('backlight_adapt', self.custom_patch_settings_backlight),
             ('target_rh', self.custom_patch_settings_target_rh),
             ('header_clock', self.custom_patch_settings_header_clock),
-            # Last: their switches claim g[8] slots left free by the features
-            # above, Humid Start before Climate.
+            # Last: its switch claims a g[8] slot left free by the features above.
             ('humid_start', self.custom_patch_settings_humid_start),
             ('header_climate', self.custom_patch_settings_header_climate),
+            # After every fixed claim: it takes a value slot nobody else needs.
+            ('graph_climate', self.custom_patch_settings_graph_width),
         )
         active = self.applied_payloads | self.enabled_custom_settings_features
         return [feature for source, feature in feature_patches if source in active]
@@ -2348,6 +2391,26 @@ class ASFirmwarePatches(CompiledPayloadMixin):
             self._hook_detail('graph pressure pointer', self.asf.FLASH_BASE + numbers_site[0],
                               numbers_wrapper | 1))
 
+    def patch_graph_climate(self):
+        """Draw the climate chart instead of the pressure chart."""
+        if 'graph' not in self.applied_payloads:
+            return PatchOutcome.skip("graph payload not installed")
+        elf_path = self._require_versioned_artifact('graph', 'elf')
+        address = self._elf_symbol_addr(elf_path, 'graph_climate')
+        self.asf.write_u8(address - self.asf.FLASH_BASE, 1)
+        details = ["Climate graph instead of pressure graph at 0x%08X" % address]
+        width = self.graph_width_minutes
+        self.asf.write_u32(self._elf_symbol_addr(elf_path, 'graph_width_minutes')
+                           - self.asf.FLASH_BASE, width)
+        self.enabled_custom_settings_features.add('graph_climate')
+        details.append("Chart width %d:%02d" % (width // 60, width % 60))
+        if self.asf.cdx_ver in self.BUTTON_HOOK_SITES:
+            # Holding Home for 5 s clears the chart and starts it again.
+            self.button_hook_add('home_hold', 'graph', 'graph_chart_reset',
+                                 hold_ms=5000, consume=True, on_release=False)
+            details.append("Home held 5 s restarts the climate chart")
+        return PatchOutcome.ok(*details)
+
     def patch_squarewave(self):
         """Add squarewave pressure mode"""
         ver = self._payload_version_key()
@@ -3003,7 +3066,7 @@ class ASFirmwarePatches(CompiledPayloadMixin):
         if profile is None:
             return PatchOutcome.skip("unsupported CDX version %s" % self.asf.cdx_ver)
         draw, width, ctor, update = profile
-        self.header_clock_sites = profile   # patch_header_climate points them at its payload
+        self.header_title_draw_site = draw
         data, _, elf_path = self._load_versioned_payload('header_clock')
         replacements = []
         for site, original, wrapper in (
@@ -3034,41 +3097,15 @@ class ASFirmwarePatches(CompiledPayloadMixin):
         if not self.asf.cdx_ver.startswith('SX567-'):
             return PatchOutcome.skip("unsupported CDX version %s" % self.asf.cdx_ver)
 
-        # The header_climate payload is the clock with the readout added. It is
-        # injected next to header_clock, and the four clock hooks are pointed
-        # at it; header_clock itself stays as the plain clock.
-        data, _, elf_path = self._load_versioned_payload('header_climate')
-        clock_elf = self._require_versioned_artifact('header_clock', 'elf')
-        draw, width, ctor, update = self.header_clock_sites
-        hooks = []
-        for site, wrapper in ((draw, 'start'),
-                              (width, 'header_clock_title_width'),
-                              (ctor, 'header_clock_init')):
-            hooks.append((site,
-                          self._encode_thumb_bl(site, self._elf_symbol_addr(clock_elf, wrapper)),
-                          self._encode_thumb_bl(site, self._elf_symbol_addr(elf_path, wrapper)),
-                          wrapper))
-        hooks.append((update,
-                      struct.pack('<I', self._elf_symbol_addr(clock_elf, 'header_clock_update') | 1),
-                      struct.pack('<I', self._elf_symbol_addr(elf_path, 'header_clock_update') | 1),
-                      'header_clock_update'))
-        for site, expected, _, name in hooks:
-            if self.asf.read_bytes(site, len(expected)) != expected:
-                raise ValueError('patch_header_climate: unexpected %s bytes at 0x%X' % (name, site))
-        flash, _ = self._inject_payload('header_climate', data)
-        for site, expected, replacement, name in hooks:
-            self._replace_bytes_checked(site, expected, replacement, 'patch_header_climate: ' + name)
-        self.applied_payloads.add('header_climate')
-
+        elf_path = self._require_versioned_artifact('header_clock', 'elf')
         address = self._elf_symbol_addr(elf_path, 'header_climate_enabled')
         self.asf.write_u8(address - self.asf.FLASH_BASE, 1)
         self.enabled_custom_settings_features.add('header_climate')
-        details = [self._payload_detail('header_climate', len(data), flash),
-                   "Climate readout enabled at 0x%08X" % address]
+        details = ["Climate readout enabled at 0x%08X" % address]
 
         # The page counter is drawn by the call 0x4e bytes after the title draw
         # in the same function. Leave it alone if this version differs.
-        site = draw + 0x4e
+        site = self.header_title_draw_site + 0x4e
         expected = self._encode_thumb_bl(
             site, self._elf_symbol_addr(elf_path, 'gui_disp_string_at_utf8') & ~1)
         if self.asf.read_bytes(site, len(expected)) == expected:
@@ -3085,7 +3122,7 @@ class ASFirmwarePatches(CompiledPayloadMixin):
         """Show the climate readout temperatures with one decimal."""
         if 'header_climate' not in self.enabled_custom_settings_features:
             return PatchOutcome.skip("header climate not installed")
-        elf_path = self._require_versioned_artifact('header_climate', 'elf')
+        elf_path = self._require_versioned_artifact('header_clock', 'elf')
         address = self._elf_symbol_addr(elf_path, 'header_climate_decimal')
         self.asf.write_u8(address - self.asf.FLASH_BASE, 1)
         return PatchOutcome.ok("Climate temperatures with a decimal at 0x%08X" % address)
@@ -3094,7 +3131,7 @@ class ASFirmwarePatches(CompiledPayloadMixin):
         """Show the climate readout in every screen title, not only Home and therapy."""
         if 'header_climate' not in self.enabled_custom_settings_features:
             return PatchOutcome.skip("header climate not installed")
-        elf_path = self._require_versioned_artifact('header_climate', 'elf')
+        elf_path = self._require_versioned_artifact('header_clock', 'elf')
         address = self._elf_symbol_addr(elf_path, 'header_climate_always')
         self.asf.write_u8(address - self.asf.FLASH_BASE, 1)
         return PatchOutcome.ok("Climate readout in every title at 0x%08X" % address)
@@ -3351,6 +3388,26 @@ def str2bool(v):
     raise argparse.ArgumentTypeError('Boolean value expected.')
 
 
+GRAPH_COLUMNS = 240
+GRAPH_WIDTH_MIN, GRAPH_WIDTH_MAX = 10, 12 * 60
+
+
+def graph_width_value(v):
+    """Chart width as H:MM, returned in minutes."""
+    hours, sep, minutes = v.strip().partition(':')
+    try:
+        if not sep:
+            raise ValueError
+        total = int(hours) * 60 + int(minutes)
+        if not 0 <= int(minutes) < 60:
+            raise ValueError
+    except ValueError:
+        raise argparse.ArgumentTypeError('Width as hours:minutes, such as 1:00 or 8:30, expected.') from None
+    if not GRAPH_WIDTH_MIN <= total <= GRAPH_WIDTH_MAX:
+        raise argparse.ArgumentTypeError('Width from 0:10 to 12:00 expected.')
+    return total
+
+
 # Air10 GUI palette (SX567): 4-byte entries holding R, G, B, 0. Each role is a
 # group of entries that share one stock color; the role names describe how the
 # stock colors are used (white text on black, ResMed blue accent).
@@ -3382,45 +3439,6 @@ def palette_colors_value(v):
             raise argparse.ArgumentTypeError('%s: expected a hex color like FFBB44' % key)
         colors[key] = color
     return ','.join('%s=%s' % (key, colors[key]) for key in PALETTE_KEYS if key in colors)
-
-
-# Custom settings menu items that --hide-menu-items can leave out of the menu.
-# A hidden item claims no reclaimed variable or label string, and its payload
-# keeps the built-in value it uses without a menu item.
-MenuItem = namedtuple('MenuItem', 'key label source g8 g4 labels free_g8 hidden_value')
-MENU_ITEMS = (
-    MenuItem('custom_vauto', 'Custom VAuto', 'wrapper_limit_max_pdiff', ('RPO', 'RPH', 'RXM'), ('RCM',),
-             ('Custom VAuto', 'Custom T/C', 'ASV Max', 'ASV Sens'), False,
-             'Custom VAuto and Custom T/C on, ASV Max 2 x pressure support, ASV Sens normal'),
-    MenuItem('backup_rate', 'Backup Rate', 'asv_task_wrapper', ('RPW',), (), (), False, 'backup rate Off'),
-    MenuItem('monitoring', 'Monitoring', 'graph', ('RXH',), (), (), False, 'graph shown'),
-    MenuItem('square_wave', 'Square Wave', 'squarewave', ('RPF',), (), ('Square Wave',), False, 'On'),
-    MenuItem('fall_time', 'Fall Time', 'fall_time', (), ('RCW',), ('Fall Time',), False,
-             'Off: stock fall'),
-    MenuItem('ibr', 'iBR', 'st_ibr', ('RXW',), (), ('iBR',), False, 'Off'),
-    MenuItem('autoepap', 'AutoEPAP', 'autoepap', ('RSA',), ('RDF', 'RDM'), ('AutoEPAP',), False,
-             'Off: fixed EPAP'),
-    MenuItem('target_rh', 'Target RH (%)', 'target_rh', (), ('RCH',), ('Target RH (%)',), False,
-             'the --patch-target-rh value'),
-    MenuItem('clock', 'Clock', 'header_clock', ('RXF',), (), ('Clock',), False, 'clock shown'),
-    MenuItem('humid_start', 'Humid Start', 'humid_start', (), (), ('Humid Start',), True, 'On'),
-    MenuItem('min_tube', 'Min Tube (C)', 'humid_start', (), ('RDH',), ('Min Tube (C)',), False,
-             '16 C: no minimum'),
-    MenuItem('start_coupling', 'Start Coupling', 'humid_start', (), ('RDW',), ('Start Coupling',), False,
-             '0.25'),
-    MenuItem('climate', 'Climate', 'header_climate', (), (), ('Climate',), True, 'readout shown'),
-)
-MENU_ITEM_KEYS = tuple(item.key for item in MENU_ITEMS)
-
-
-def menu_items_value(v):
-    """Parse KEY[,KEY...] into a canonical comma list in MENU_ITEMS order."""
-    keys = set()
-    for key in filter(None, (part.strip().lower() for part in v.split(','))):
-        if key not in MENU_ITEM_KEYS:
-            raise argparse.ArgumentTypeError('unknown menu item %s; expected: %s' % (key, ', '.join(MENU_ITEM_KEYS)))
-        keys.add(key)
-    return ','.join(key for key in MENU_ITEM_KEYS if key in keys)
 
 
 def target_rh_value(v):
@@ -3556,6 +3574,9 @@ PATCH_PHASES = (
                   False, 'patch_common_code'),
         PatchSpec('patch-fw-graph', 'Add the therapy pressure graph.',
                   False, 'patch_graph'),
+        PatchSpec('patch-graph-climate',
+                  'Show the climate graph instead of the pressure graph: plate and tube temperatures and estimated RH over the first 60 minutes of therapy, replacing the mode and pressure readouts.',
+                  False, 'patch_graph_climate'),
         PatchSpec('patch-graph-keep-screen-on',
                   'Keep the screen awake during therapy while Monitoring is enabled.',
                   False, 'patch_graph_keep_screen_on'),
@@ -3605,9 +3626,10 @@ PATCH_DEPENDENCIES = {
     'patch-ivaps-settings': ('patch-custom-settings',),
     'patch-fw-graph': ('patch-fw-common-code',),
     'patch-graph-keep-screen-on': ('patch-fw-graph',),
+    'patch-graph-climate': ('patch-fw-graph',),
+    'patch-humid-start': ('patch-font-repack',),
     'patch-header-climate': ('patch-header-clock',),
     'patch-header-climate-always': ('patch-header-climate',),
-    'patch-humid-start': ('patch-font-repack',),
     'patch-fw-vauto-wrapper': ('patch-fw-common-code',),
     'patch-fw-squarewave': ('patch-fw-common-code', 'patch-fw-vauto-wrapper'),
 }
@@ -3657,15 +3679,14 @@ def build_argument_parser():
             help=(patch.description.replace('%', '%%') if patch.value_type else
                   '%s (default: %s)' % (patch.description, state)))
 
+    parser.add_argument('--graph-width', type=graph_width_value, default=60,
+                        metavar='H:MM',
+                        help='Time the climate graph covers, from 0:10 to 12:00 (default: 1:00). '
+                             'Used with --patch-graph-climate.')
     parser.add_argument('--palette-colors', type=palette_colors_value, default='',
                         metavar='ROLE=RRGGBB,...',
                         help='Colors for --patch-custom-palette; roles left out keep the built-in '
                              'palette. Roles: %s.' % ', '.join(PALETTE_KEYS))
-    parser.add_argument('--hide-menu-items', type=menu_items_value, default='',
-                        metavar='ITEM,...',
-                        help='Leave these items out of the custom settings menu, freeing their variables '
-                             'and labels for others; the feature keeps its built-in value. Items: %s.'
-                             % ', '.join(MENU_ITEM_KEYS))
     parser.add_argument('--overwrite', action='store_true',
                         help='Overwrite output file if it already exists.')
     parser.add_argument('--force-deprecated', action='store_true',
@@ -3759,8 +3780,8 @@ def run_patcher(args, detail_log=None):
     repo_dir = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
     build_identity = firmware_build_identity(repo_dir)
     patches = ASFirmwarePatches(asf)
+    patches.graph_width_minutes = args.graph_width
     patches.palette_colors = args.palette_colors
-    patches.hide_menu_items = args.hide_menu_items
 
     apply_patch_phases(patches, args, detail_log)
 

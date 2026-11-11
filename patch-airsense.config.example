@@ -21,11 +21,6 @@
 # --palette-colors text=FFFFFF,accent=00AA66
 # --patch-past-date y
 # --patch-custom-settings y
-# Leave menu items out of the custom settings menu to free their slots and
-# labels for others; the feature keeps its built-in value. Items: custom_vauto,
-# backup_rate, monitoring, square_wave, fall_time, ibr, autoepap, target_rh,
-# clock, humid_start, min_tube, start_coupling, climate.
-# --hide-menu-items clock,start_coupling
 # --patch-uart-stream-schema y
 # --patch-edf-merge y
 # --patch-fw-vidspoof y
@@ -49,6 +44,12 @@
 
 # Keep the screen awake during graph monitoring; requires the graph above.
 # --patch-graph-keep-screen-on n
+
+# Climate graph instead of the pressure graph (PATCH_GRAPH_CLIMATE=1):
+# first 60 minutes of plate/tube temperature and estimated RH; requires the graph.
+# --patch-graph-climate n
+# Time the climate graph covers, hours:minutes from 0:10 to 12:00 (default 1:00).
+# --graph-width 8:00
 
 # Replacement ILI9325/ILI9328 LCD (PATCH_S10_LCD=1).
 # --patch-fw-lcd n

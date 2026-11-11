@@ -120,6 +120,8 @@ humidity sooner. It adds a Humid Start switch, a Min Tube setting and a Start
 Coupling setting to the Accessories menu.
 
 See [Humid Start](humid_start.md) for how it works, the settings and tuning.
+The [climate graph](climate_graph.md) shows the first 60 minutes of therapy, so you
+can check it in the morning.
 
 ## Header Clock
 
@@ -145,18 +147,19 @@ Menu screens keep their own titles unless [Always show](#always-show) is on. The
 page counter (for example `1/3`) is hidden while the readout is shown.
 
 The device has no humidity sensor in the air path, so the RH value is
-estimated in the same way as [Humid Start](humid_start.md): the room air plus
-the smaller of the plate and heater-power bounds on the added moisture,
-divided by the saturation humidity at the tube temperature. The plate bound
-uses the same Start Coupling (default `0.25`, in `patches/header_climate_abi.S`).
+estimated from a model of the humidifier chamber (`patches/humidity_model.h`):
+the room air plus the smaller of a plate bound and the stock heater-power bound
+on the added moisture, divided by the saturation humidity at the tube
+temperature. The plate bound uses a coupling of `0.25`
+(`header_climate_plate_coupling` in `patches/header_climate_abi.S`).
 Treat the value as a guide to the trend, not a measurement. It is probably too
 high in the first minutes, can read 100% when the estimate is above saturation,
 and has not been checked against a hygrometer.
 
 With custom settings, clinical **Configuration** gets a **Climate** switch
 (Off, On; default On) next to **Clock**. Off shows the clock, or the stock
-title, again. The switch needs a free on/off variable and label string, like
-the Humid Start switch, and gets them after it; without one the readout stays on.
+title, again. The switch takes an on/off variable and label string left free by
+the other custom settings; without one the readout stays on.
 
 Enable it with `--patch-header-climate y` or `PATCH_HEADER_CLIMATE=1`. It is off
 by default, needs the header clock patch (on by default), and is independent
@@ -166,16 +169,14 @@ of the **Clock** setting.
 
 `--patch-header-climate-always y` shows the readout in every screen title, so
 menus such as Settings and My Options show it instead of their names. It needs
-`--patch-header-climate`, follows the **Climate** switch, and is a build option
-in the patcher window under the header options. Screens without a humidifier
-keep their stock titles.
+`--patch-header-climate` and follows the **Climate** switch. Screens without a
+humidifier keep their stock titles.
 
 ### Decimals
 
-`--patch-header-climate-decimal` (off by default) shows the tube and plate
+`--patch-header-climate-decimal y` (off by default) shows the tube and plate
 temperatures with one decimal, `27.4`. Without it they show whole degrees, `27`.
-It is a build option in the patcher window and has no effect without
-`--patch-header-climate`.
+It has no effect without `--patch-header-climate`.
 
 ## Keep Backlight
 

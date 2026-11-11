@@ -187,7 +187,7 @@ NSTUB(0x0806C2DD, g4_numeric_set_dynamic_max)
 // Climate control: inputs/sensors interfaces used by the tube and plate controllers
 NSTUB_VAR(0x080F3A34, climate_inputs_vtable)
 NSTUB(0x080D2217, climate_tube_setpoint_get)
+NSTUB(0x080D221D, climate_target_rh_get)
 NSTUB(0x080D222F, climate_reference_temperature_get)
-// Stock humidity model: climate signal by id, and its calibration k0..k4
-NSTUB(0x080D1EDB, climate_signal_get)
+// Stock humidity model calibration k0..k4
 NSTUB(0x080D1F0D, humidity_model_coefficients_get)

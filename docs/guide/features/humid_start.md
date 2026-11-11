@@ -196,10 +196,13 @@ used; for example, without ST iBR and AutoEPAP:
 make build/stm32-plus.bin AIR10_PATCH_ARGS='--patch-st-ibr n --patch-autoepap n --patch-humid-start y'
 ```
 
-The switch is added first, then Min Tube, then Start Coupling. The
-[Header climate](general.md#header-climate) switch, when installed, takes what Humid
-Start leaves. When no label is left for a setting it is skipped: without the
-switch Humid Start stays on. The build log reports what was added.
+The switch is added first, then Min Tube, then Start Coupling. When no label is
+left for a setting it is skipped: without the switch Humid Start stays on. The build log reports what was added.
 
 Enable it with `--patch-humid-start y` or `PATCH_HUMID_START=1`. It is off by
 default and requires font repacking (on by default).
+
+To see how a night started, build with the
+[climate graph](climate_graph.md) (`--patch-graph-climate y`). It records the
+plate and tube temperatures and the estimated RH for the first 60 minutes, with the
+tube setting, Min Tube and target RH as dashed lines.

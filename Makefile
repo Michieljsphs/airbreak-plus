@@ -10,7 +10,7 @@ AIR10_FIRMWARE ?= stm32.bin
 export AIR10_PATCH_ARGS
 
 AIR10_LEGACY_ENV := PATCH_CODE PATCH_VAUTO_WRAPPER PATCH_S PATCH_ASV_TASK_WRAPPER \
-	PATCH_FALL_TIME PATCH_ST_IBR PATCH_AUTOEPAP PATCH_S10_LCD PATCH_GRAPH_KEEP_SCREEN_ON PATCH_TARGET_RH PATCH_HUMID_START PATCH_HEADER_CLIMATE FORCE_DEPRECATED
+	PATCH_FALL_TIME PATCH_ST_IBR PATCH_AUTOEPAP PATCH_S10_LCD PATCH_GRAPH_KEEP_SCREEN_ON PATCH_GRAPH_CLIMATE PATCH_TARGET_RH PATCH_HUMID_START PATCH_HEADER_CLIMATE FORCE_DEPRECATED
 $(foreach name,$(AIR10_LEGACY_ENV),$(if $(filter undefined,$(origin $(name))),,$(eval export $(name))))
 
 PATCHER_OUTPUT_ARGS := --log-file '$(abspath $(MAKE_LOG))'
@@ -36,10 +36,9 @@ PAYLOADS_0204 := target_rh mop_callback_dispatcher variable_callback_dispatcher 
 PAYLOADS_0205 := $(PAYLOADS_0204)
 # Payloads are placed in this order, so features added later go last: the
 # payloads before them keep the addresses they had without those features.
-# header_climate must come before humid_start, which then takes the small cave.
 PAYLOADS_0302 := mop_callback_dispatcher variable_callback_dispatcher button_hooks keep_backlight vid_spoof graph squarewave asv_task_wrapper \
 	common_code backlight_adapt wrapper_limit_max_pdiff s10_lcd_ili9325 custom_menu_hooks \
-	uart_stream_schema language_fonts target_rh header_clock fall_time st_ibr autoepap header_climate humid_start
+	uart_stream_schema language_fonts target_rh header_clock fall_time st_ibr autoepap humid_start
 PAYLOADS_0305 := $(PAYLOADS_0302)
 PAYLOADS_0306 := $(PAYLOADS_0302)
 PAYLOADS_0401 := $(PAYLOADS_0302)
@@ -51,7 +50,7 @@ payload_bins = $(foreach v,$(call payload_versions,$(1)),$(BUILD)/$(1)_$(v).bin)
 PAYLOAD_NAMES := $(sort $(foreach v,$(PAYLOAD_LAYOUT_VERSIONS),$(PAYLOADS_$(v))))
 PAYLOAD_STAMPS := $(foreach p,$(PAYLOAD_NAMES),$(BUILD)/payload_$(p).stamp)
 S10_CODE_VERSIONS := $(call payload_versions,common_code)
-S10_STANDALONE_PAYLOADS := asv_task_wrapper backlight_adapt language_fonts uart_stream_schema vid_spoof target_rh header_clock fall_time st_ibr autoepap variable_callback_dispatcher button_hooks keep_backlight header_climate humid_start
+S10_STANDALONE_PAYLOADS := asv_task_wrapper backlight_adapt language_fonts uart_stream_schema vid_spoof target_rh header_clock fall_time st_ibr autoepap variable_callback_dispatcher button_hooks keep_backlight humid_start
 PAYLOAD_LAYOUT_TSVS := $(foreach v,$(PAYLOAD_LAYOUT_VERSIONS),$(BUILD)/payload_layout_$(v).tsv)
 
 BLX_PAYLOAD_VERSIONS := SX577-0200 SX585-0200
@@ -260,7 +259,7 @@ $(foreach v,$(call payload_versions,custom_menu_hooks),$(eval $(call S10_CUSTOM_
 
 $(foreach v,$(call payload_versions,custom_menu_hooks),$(BUILD)/custom_menu_hooks_$(v).o): $(SRC)/custom_menu_registry.h
 $(foreach v,$(call payload_versions,button_hooks),$(BUILD)/button_hooks_$(v).o): $(SRC)/button_hooks.h
-$(foreach p,humid_start header_climate,$(foreach v,$(call payload_versions,$(p)),$(BUILD)/$(p)_$(v).o)): $(SRC)/humidity_model.h
+$(foreach p,humid_start graph header_clock,$(foreach v,$(call payload_versions,$(p)),$(BUILD)/$(p)_$(v).o)): $(SRC)/humidity_model.h
 
 define S10_STANDALONE_PAYLOAD_template
 $(BUILD)/$(1)_$(2).o: $(wildcard $(SRC)/$(1)/*.c)

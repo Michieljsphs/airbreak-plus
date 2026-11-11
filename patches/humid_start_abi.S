@@ -3,8 +3,7 @@
 
 /* Plate bound of the chamber estimate (humidity_model.h): fraction of the
  * plate's rise above ambient over which the chamber adds saturation humidity.
- * Lower values hold the tube back longer. Keep in step with
- * header_climate_plate_coupling.
+ * Lower values hold the tube back longer.
  */
 .section .rodata.humid_start_abi, "a", %progbits
 .align 2

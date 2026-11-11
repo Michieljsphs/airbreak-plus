@@ -106,26 +106,15 @@ You can drag the divider between them.
 - **Custom settings menu** counter: how many of the reclaimed menu slots the
   selected patches use (on/off settings, value settings and new labels). If a
   setting does not fit it is left out, and an orange note names the ones that may
-  be. A setting without a menu item keeps a built-in value: Humid Start and the
-  Climate readout stay on, Min Tube is 16 C and Start Coupling is 0.25. Hover the
-  counter or the note for the details. See [custom settings](../custom_settings.md).
+  be. Hover the counter or the note for the details. See [custom settings](../custom_settings.md).
 - **Patch groups**: one box per patch phase. Each patch has a checkbox, its
-  option name (for example `--patch-humid-start`) and some have a value box.
+  option name (for example `--patch-graph`) and some have a value box.
 - **Bold** entries differ from the built-in default. Only those are saved.
 - **Palette colors**: under *Patch the custom color palette*, each color swatch
   is one group of display colors (text, background, accent, ...). Click a
   swatch to pick a color. *Custom palette colors* puts back the built-in amber
   palette, *Stock ResMed colors* the original white, grey and blue. Colors that
   differ from the built-in palette are saved as `--palette-colors`.
-- **Show in menu**: patches that add settings to the device's custom settings
-  menu have a checkbox at the end of their line, in the *Show in menu* column
-  (Humid Start has one line per setting). Untick the ones you do not need on
-  the device. They are left out of the menu, which frees their slots and labels for
-  settings marked *May be left out* (Humid Start, Climate, ...), and the
-  feature keeps its built-in value (hover a setting to see it). Saved as
-  `--hide-menu-items`. Below the Patch button a warning names the settings
-  that will not fit in the menu. The number of free labels differs per
-  firmware version, so it is read from the chosen input firmware.
 - **Hover** a patch to see its description from the [patching guide](patching.md),
   what it requires, and the menu items it adds.
 - Ticking a patch also ticks the patches it needs; unticking one unticks the

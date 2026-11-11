@@ -18,9 +18,7 @@ Needs only Python with tkinter (included in the Windows installer). Start it wit
 (no console) or python python/airbreaker.py.
 """
 import argparse
-from contextlib import redirect_stdout
 from copy import copy
-import io
 import glob
 import importlib.util
 import inspect
@@ -152,10 +150,8 @@ def menu_resources():
     """Which custom settings menu resources each patch uses, read from the patcher source:
     {option: {"g8": [vars], "g4": [vars], "labels": [texts], "free_g8": (candidates, labels) or None}} and the
     pool size of each resource. free_g8 is a setting that takes the first unclaimed on/off variable of the
-    candidates, if any is left (Climate, Humid Start); the labels after that claim are only used with it.
-    Also returns {feature source: option}, to place the menu items of P.MENU_ITEMS under their patch."""
+    candidates, if any is left; the labels after that claim are only used with it."""
     patches = P.ASFirmwarePatches
-    options = {}
     pools = {"labels": None}   # reclaimed string IDs: the count depends on the firmware
     reclaim = inspect.getsource(patches.custom_patch_settings_reclaim_reminders)
     for names, table in re.findall(r"for var in \(([^)]*)\):\s*self\.custom_reclaim_g(\d)_var", reclaim):
@@ -174,36 +170,8 @@ def menu_resources():
         for spec in P.iter_patch_specs():   # the patch that activates this feature
             if spec.method == "patch_" + source or "add('%s')" % source in inspect.getsource(getattr(patches, spec.method)):
                 resources[spec.option] = used
-                options[source] = spec.option
                 break
-    return resources, pools, options
-
-
-_POOL_CACHE = {}
-
-
-def firmware_pools(path):
-    """{"labels", "g8", "g4"}: what the custom settings menu can use in this firmware image, found by the
-    patcher's own reclaim pass on a copy in memory; None when the file is missing or not a supported image."""
-    try:
-        key = (os.path.abspath(path), os.path.getmtime(path))
-    except OSError:
-        return None
-    if key not in _POOL_CACHE:
-        result = None
-        try:
-            with open(path, "rb") as f, redirect_stdout(io.StringIO()):
-                patches = P.ASFirmwarePatches(P.ASFirmware(f))
-                patches.custom_patch_settings_init()
-                if patches.custom_patch_settings_reclaim_reminders():
-                    patches.custom_patch_settings_rename_storage_group()
-                    patches.custom_build_string_pool()
-                    result = {"labels": len(patches.custom_string_pool), "g8": len(patches.custom_g8_reclaimed),
-                              "g4": len(patches.custom_g4_reclaimed)}
-        except Exception:   # not an Air 10 image, unsupported version, ...
-            result = None
-        _POOL_CACHE[key] = result
-    return _POOL_CACHE[key]
+    return resources, pools
 
 
 class Tooltip:
@@ -390,10 +358,7 @@ class App(tk.Tk):
         self.parser = options_parser()
         self.specs = {spec.option: spec for spec in P.iter_patch_specs()}
         self.docs = patch_docs()
-        self.resources, self.pools, sources = menu_resources()
-        self.item_option = {item.key: sources.get(item.source) for item in P.MENU_ITEMS}
-        self.shown = {}       # menu item key -> BooleanVar: in the device menu (unticked: --hide-menu-items)
-        self.item_checks = {}  # menu item key -> its Checkbutton
+        self.resources, self.pools = menu_resources()
         self.enabled = {}   # option -> BooleanVar: patch selected
         self.values = {}    # option -> StringVar: parameter of a patch with a value (target RH)
         self.spins = {}     # option -> Spinbox of that parameter, disabled while the patch is unticked
@@ -468,12 +433,9 @@ class App(tk.Tk):
         self.usage_note = ttk.Label(usage, foreground="#b36b00")   # settings dropped for lack of a free slot
         self.usage_note.pack(side="left")
         Tooltip(self.usage_note, lambda: wrap_lines(
-            "These settings need a free on/off variable (Humid Start, Climate) or a free label string (Min Tube, "
-            "Start Coupling), and the patcher adds each one only while one is left. Settings that do not get a "
-            "menu item keep a built-in value: Humid Start and the Climate readout stay on, Min Tube is 16 C and "
-            "Start Coupling is 0.25. Tick Verbose and patch to see which were added. Free some by unticking "
-            "'Show in menu' for settings you do not need on the device, or by unticking patches with menu "
-            "settings, for example ST iBR or iVAPS AutoEPAP."))
+            "These settings need a free on/off variable or a free label string, and the patcher adds each one "
+            "only while one is left. Tick Verbose and patch to see which were added. Free some by unticking "
+            "patches with menu settings, for example ST iBR or iVAPS AutoEPAP."))
         Tooltip(usage, lambda: self.usage_text(None))
 
         columns = [ttk.Frame(inner) for _ in range(2)]   # one LabelFrame per patch phase, in two columns
@@ -487,14 +449,6 @@ class App(tk.Tk):
             frame = ttk.LabelFrame(columns[i], text=phase, padding=8)
             frame.pack(fill="x", pady=(0, 8))
             frame.columnconfigure(0, weight=1)
-            if any(self.item_option[item.key] == spec.option for spec in specs for item in P.MENU_ITEMS):
-                head = ttk.Label(frame, text="Show\nin menu", foreground="#666666", justify="center",
-                                 font=("Segoe UI", 8))
-                head.grid(row=0, column=2, padx=(4, 0))
-                Tooltip(head, lambda: wrap_lines(
-                    "Settings these patches add to the custom settings menu on the device. Untick one to leave it "
-                    "out of the menu: that frees its slot and label for other settings, and the feature keeps its "
-                    "built-in value. Saved as --hide-menu-items."))
             for spec in specs:
                 self.add_option(frame, spec)
 
@@ -540,14 +494,11 @@ class App(tk.Tk):
         self.build_btn = ttk.Button(actions, text="Build payloads (make binaries)", command=self.build)
         self.build_btn.pack(side="left", padx=(6, 0))
         Tooltip(self.build_btn, lambda: wrap_lines(
-            "Compiles the payloads the patcher loads from build/ (graph, Custom VAuto, Humid Start, ...). Needed "
+            "Compiles the payloads the patcher loads from build/ (graph, Custom VAuto, ...). Needed "
             "once, and again after changing patches/. Runs: %s" % " ".join(build_command() or ["make", "binaries"])))
         self.stop_btn = ttk.Button(actions, text="Stop", command=self.stop, state="disabled")
         self.stop_btn.pack(side="left", padx=(6, 0))
         ttk.Checkbutton(actions, text="Verbose (per-patch details)", variable=self.verbose).pack(side="left", padx=12)
-        self.menu_warning = ttk.Label(patch, foreground="#b36b00", wraplength=560, justify="left")
-        self.menu_warning.grid(row=3, column=0, columnspan=3, sticky="w", pady=(6, 0))
-        self.infile.trace_add("write", lambda *_: self.read_firmware_pools())
 
         flash = ttk.LabelFrame(sections, text="Flash device (SWD, OpenOCD)", padding=8)
         flash.pack(side="left", fill="both", expand=True, padx=(8, 0))
@@ -611,9 +562,6 @@ class App(tk.Tk):
 
         for var in (self.outfile, self.backup):
             var.trace_add("write", lambda *_: self.update_steps())
-        counts = firmware_pools(self.infile.get().strip())
-        if counts:
-            self.pools.update(counts)
         self.load()
         overrides = env_overrides()
         if overrides:
@@ -637,60 +585,21 @@ class App(tk.Tk):
         for widget in (check, name):
             Tooltip(widget, lambda: self.tooltip_text(spec))
         self.checks[spec.option] = check
-        self.add_menu_items(frame, spec, row)
         if spec.option == PALETTE_OPTION:
             self.add_palette(frame, row + 1)
-        if spec.value_type or hint:
-            sub = ttk.Frame(frame)
-            sub.grid(row=row + 1, column=0, columnspan=2, sticky="w", padx=(22, 0), pady=(0, 2))
-            if spec.value_type:   # only percentages today (patch-target-rh)
-                self.values[spec.option] = tk.StringVar()
-                self.values[spec.option].trace_add("write", self.refresh)
-                self.spins[spec.option] = ttk.Spinbox(sub, from_=0, to=100, increment=1, width=6,
-                                                      textvariable=self.values[spec.option])
-                self.spins[spec.option].pack(side="left")
-                ttk.Label(sub, text="%").pack(side="left", padx=(2, 8))
-            if hint:
-                ttk.Label(sub, text=hint.strip(), foreground="#666666").pack(side="left")
-        items = [item for item in P.MENU_ITEMS if self.item_option[item.key] == spec.option]
-        for item in items[1:]:   # further settings of this patch: one line each, named
-            row = frame.grid_size()[1]
-            name = ttk.Label(frame, text=item.label, foreground="#666666")
-            name.grid(row=row, column=0, columnspan=2, sticky="e")
-            Tooltip(name, lambda i=item: self.menu_item_text(i))
-            self.add_menu_item(frame, item, row)
-
-    def add_menu_items(self, frame, spec, row):
-        """The 'Show in menu' checkbox at the end of the patch line, for the first custom settings menu item the
-        patch adds (--hide-menu-items); add_option puts any further ones on lines of their own."""
-        items = [item for item in P.MENU_ITEMS if self.item_option[item.key] == spec.option]
-        if items:
-            self.add_menu_item(frame, items[0], row)
-
-    def add_menu_item(self, frame, item, row):
-        var = self.shown[item.key] = tk.BooleanVar(value=True)
-        var.trace_add("write", self.refresh)
-        check = ttk.Checkbutton(frame, variable=var, padding=0)
-        check.grid(row=row, column=2, padx=(4, 0))
-        Tooltip(check, lambda i=item: self.menu_item_text(i))
-        self.item_checks[item.key] = check
-
-    def menu_item_text(self, item):
-        frees = [text for text in ("%d on/off setting%s" % (len(item.g8), "s" * (len(item.g8) > 1)) if item.g8 else "",
-                                   "free on/off setting" if item.free_g8 else "",
-                                   "%d value setting%s" % (len(item.g4), "s" * (len(item.g4) > 1)) if item.g4 else "",
-                                   "%d label%s" % (len(item.labels), "s" * (len(item.labels) > 1)) if item.labels
-                                   else "") if text]
-        return wrap_lines(
-            "%s in the custom settings menu (needs --patch-custom-settings).\n\nUntick to leave it out of the device "
-            "menu: it then frees %s for other settings, and the feature uses its built-in value: %s.\n\n"
-            "Saved as --hide-menu-items %s." % (item.label, ", ".join(frees) or "nothing", item.hidden_value,
-                                                item.key))
-
-    def hidden_text(self):
-        """--hide-menu-items value: the unticked menu items, '' when all are shown."""
-        return ",".join(item.key for item in P.MENU_ITEMS
-                        if item.key in self.shown and not self.shown[item.key].get())
+        if not spec.value_type and not hint:
+            return
+        sub = ttk.Frame(frame)
+        sub.grid(row=row + 1, column=0, columnspan=2, sticky="w", padx=(22, 0), pady=(0, 2))
+        if spec.value_type:   # only percentages today (patch-target-rh)
+            self.values[spec.option] = tk.StringVar()
+            self.values[spec.option].trace_add("write", self.refresh)
+            self.spins[spec.option] = ttk.Spinbox(sub, from_=0, to=100, increment=1, width=6,
+                                                  textvariable=self.values[spec.option])
+            self.spins[spec.option].pack(side="left")
+            ttk.Label(sub, text="%").pack(side="left", padx=(2, 8))
+        if hint:
+            ttk.Label(sub, text=hint.strip(), foreground="#666666").pack(side="left")
 
     def add_palette(self, frame, row):
         """One color swatch per palette role; a click opens a color picker."""
@@ -779,58 +688,27 @@ class App(tk.Tk):
             return None
         used = {key: [] for key, _ in SLOTS}
         used["omitted"] = []
-        hidden = [item for item in P.MENU_ITEMS if item.key in self.shown and not self.shown[item.key].get()]
-        gone = {key: {name for item in hidden for name in getattr(item, key)} for key, _ in SLOTS}
-        selected = [(option, resources) for option, resources in self.resources.items()
-                    if values.get(option) is not False]
-        for _, resources in selected:
+        selected = [resources for option, resources in self.resources.items() if values.get(option) is not False]
+        for resources in selected:
             for key, _ in SLOTS:
-                used[key] += [name for name in resources[key] if name not in gone[key]]
-        pool = self.pools.get("labels")   # None: unknown, no input firmware read
-
-        def label_free():
-            return pool is None or len(used["labels"]) < pool
-
-        # Like the patcher, which runs these features last: a switch needs a free on/off variable and a
-        # label, the settings after it only a label; each one left without is not added.
-        for option, resources in selected:
-            if not resources["free_g8"]:
-                continue
-            candidates, labels = resources["free_g8"]
-            labels = [label for label in labels if label not in gone["labels"]]
-            switch = next((item.label for item in P.MENU_ITEMS if item.free_g8 and item not in hidden
-                           and self.item_option[item.key] == option), None)
-            if switch in labels:
-                labels.remove(switch)
+                used[key] += resources[key]
+        for resources in selected:
+            if resources["free_g8"]:
+                candidates, labels = resources["free_g8"]
                 free = [var for var in candidates if var not in used["g8"]]
-                if free and label_free():
+                if free:
                     used["g8"].append(free[0])
-                    used["labels"].append(switch)
+                    used["labels"] += labels
                 else:
-                    used["omitted"].append(switch)
-            for label in labels:
-                if label_free():
-                    used["labels"].append(label)
-                else:
-                    used["omitted"].append(label)
+                    used["omitted"] += labels
         return used
-
-    def read_firmware_pools(self):
-        """Label count (and slot counts) of the input firmware, for the menu checks; unknown without one."""
-        counts = firmware_pools(self.infile.get().strip())
-        self.pools["labels"] = counts["labels"] if counts else None
-        if counts:
-            self.pools.update(g8=counts["g8"], g4=counts["g4"])
-        self.refresh()
 
     def usage_text(self, key):
         if key == "labels":
             return wrap_lines(
                 "Menu labels are stored in string IDs reclaimed from the stock Reminders menu: its title and "
                 "message strings plus the now unused names of the reclaimed variables. How many are free "
-                "depends on the firmware: the count is read from the input firmware (%s)." % (
-                    "%d here" % self.pools["labels"] if self.pools.get("labels") is not None
-                    else "none chosen or not readable"))
+                "depends on the firmware; tick Verbose and patch to see 'free reclaimed str_id' in the log.")
         if key:
             table = {"g8": "g[8]", "g4": "g[4]"}[key]
             return wrap_lines(
@@ -854,18 +732,6 @@ class App(tk.Tk):
         omitted = used["omitted"] if used else []
         self.usage_note.config(text="May be left out, no free on/off setting or label: " + ", ".join(omitted)
                                if omitted else "")
-        over = [label.lower() for key, label in SLOTS
-                if used and self.pools.get(key) is not None and len(used[key]) > self.pools[key]]
-        lines = []
-        if over:
-            lines.append("Too many menu settings (%s): the patch will fail. Untick 'Show in menu' for settings you "
-                         "do not need, or untick patches." % ", ".join(over))
-        if omitted:
-            lines.append("Not enough room in the menu: %s will be left out. Untick 'Show in menu' for other "
-                         "settings to make room." % ", ".join(omitted))
-        if used and self.pools.get("labels") is None:
-            lines.append("Choose the input firmware to also check the number of labels.")
-        self.menu_warning.config(text="\n".join(lines), foreground="#b00020" if over else "#b36b00")
 
     def current(self):
         """option -> value as the patcher takes it: True/False, or the percentage of a patch with a value.
@@ -885,16 +751,13 @@ class App(tk.Tk):
         palette = self.palette_text()
         if palette:
             out += ["--palette-colors", palette]
-        hidden = self.hidden_text()
-        if hidden:
-            out += ["--hide-menu-items", hidden]
         return out + self.extra
 
     def extra_tokens(self, ns):
         """Non-patch options set in the config file (--force-deprecated, --log-file, ...)."""
         tokens = []
         for action in self.parser._actions:
-            if action.dest in map(dest, self.specs) or action.dest in ("palette_colors", "hide_menu_items"):
+            if action.dest in map(dest, self.specs) or action.dest == "palette_colors":
                 continue
             value = getattr(ns, action.dest)
             if value != action.default:
@@ -902,15 +765,12 @@ class App(tk.Tk):
                 tokens += [name] if action.nargs == 0 else [name, str(value)]
         return tokens
 
-    def apply(self, values, palette="", hidden=""):
-        """Shows values (option -> value), palette (a --palette-colors value) and hidden (a --hide-menu-items
-        value) in the window."""
+    def apply(self, values, palette=""):
+        """Shows values (option -> value) and palette (a --palette-colors value) in the window."""
         self.loading = True
         chosen = dict(item.split("=") for item in palette.split(",") if item)
         for key, _, _, custom, _ in P.PALETTE_ROLES:
             self.palette[key].set(chosen.get(key, custom))
-        for key, var in self.shown.items():
-            var.set(key not in hidden.split(","))
         for option, spec in self.specs.items():
             value = values[option]
             self.enabled[option].set(value is not False)
@@ -958,10 +818,6 @@ class App(tk.Tk):
                 for widget in (cell, *cell.winfo_children()):
                     if isinstance(widget, (ttk.Label, ttk.Button)):
                         widget.state(["!disabled"] if on else ["disabled"])
-        menu = self.enabled["patch-custom-settings"].get()
-        for key, check in self.item_checks.items():
-            option = self.item_option[key]
-            check.state(["!disabled"] if menu and self.enabled[option].get() else ["disabled"])
         try:
             values = self.current()
         except argparse.ArgumentTypeError as exc:
@@ -1000,7 +856,7 @@ class App(tk.Tk):
     def load(self):
         """Reads patch-airsense.config with the patcher's own option types; no file means the built-in defaults."""
         values = {option: spec.default for option, spec in self.specs.items()}
-        palette = hidden = ""
+        palette = ""
         self.extra, self.foreign, self.saved_tokens = [], False, []
         try:
             with open(CONFIG_FILE, encoding="utf-8") as f:
@@ -1018,7 +874,6 @@ class App(tk.Tk):
                 ns = self.parser.parse_args(shlex.split(text, comments=True))
                 values = {option: getattr(ns, dest(option)) for option in self.specs}
                 palette = ns.palette_colors
-                hidden = ns.hide_menu_items
                 self.extra = self.extra_tokens(ns)
                 self.status.config(text="Loaded %s" % CONFIG_FILE)
             except ValueError as exc:
@@ -1026,7 +881,7 @@ class App(tk.Tk):
                 messagebox.showerror(TITLE, "%s could not be read:\n\n%s\n\nThe built-in defaults are shown; "
                                      "Save replaces the file." % (CONFIG_FILE, exc))
                 self.status.config(text="Could not read %s" % os.path.basename(CONFIG_FILE))
-        self.apply(values, palette, hidden)
+        self.apply(values, palette)
         if self.saved_tokens is not None:
             self.saved_tokens = self.tokens(values)
         self.refresh()
@@ -1075,9 +930,6 @@ class App(tk.Tk):
         palette = self.palette_text()
         if palette:
             lines += ["# Custom palette colors", "--palette-colors " + palette, ""]
-        hidden = self.hidden_text()
-        if hidden:
-            lines += ["# Left out of the custom settings menu", "--hide-menu-items " + hidden, ""]
         if self.extra:
             lines += ["# Other options", " ".join(shlex.quote(t) for t in self.extra), ""]
         if not tokens:

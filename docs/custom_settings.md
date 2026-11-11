@@ -28,7 +28,7 @@ Settings are assigned when their corresponding patch or payload is active.
 | [ASV backup-rate control](guide/features/asv_backup_rate.md) | Backup Rate | RPW | g[8] | CSG |
 | Therapy graph | Monitoring | RXH | g[8] | CSG |
 | [Header clock](guide/features/general.md#header-clock) | Clock | RXF | g[8] | CSG |
-| [Header climate](guide/features/general.md#header-climate) | Climate | first free of RXW, RSA, RPF, RPW, RPO, RPH, RXM, RXH, after Humid Start; omitted when none or no label string is free | g[8] | CSG |
+| [Header climate](guide/features/general.md#header-climate) | Climate | first free of RXH, RXW, RSA, RPF, RPW, RPO, RPH, RXM; omitted when none or no label string is free | g[8] | CSG |
 | [Square Wave](guide/features/squarewave.md) | Square Wave | RPF | g[8] | CSG |
 | [Fall Time](guide/features/general.md#fall-time) | Fall Time | RCW | g[4] | CSG |
 | [ST iBR](guide/features/general.md#st-ibr) | iBR | RXW | g[8] | CSG |
@@ -42,7 +42,7 @@ Settings are assigned when their corresponding patch or payload is active.
 | [Backlight adaptation](guide/features/backlight.md) | Buttons / Low | LBL | g[4] | CSG |
 | [Backlight adaptation](guide/features/backlight.md) | Buttons / High | LBH | g[4] | CSG |
 | [Target humidity](guide/features/general.md#target-humidity) | Target RH (%) | RCH | g[4] | CSG |
-| [Humid Start](guide/features/humid_start.md) | Humid Start | first free of RXW, RSA, RPF, RPW, RPO, RPH, RXM, RXH; omitted when none or no label string is free | g[8] | CSG |
+| [Humid Start](guide/features/humid_start.md) | Humid Start | first free of RXH, RXW, RSA, RPF, RPW, RPO, RPH, RXM; omitted when none or no label string is free | g[8] | CSG |
 | [Humid Start](guide/features/humid_start.md) | Min Tube (C) | RDH; omitted when no label string is free | g[4] | CSG |
 | [Humid Start](guide/features/humid_start.md) | Start Coupling | RDW; omitted when no label string is free | g[4] | CSG |
 
@@ -55,8 +55,9 @@ requests custom settings:
 1. disable stock Reminder processing and remove its menu row and page
 2. rename the Reminder persistence group from `RGL` to `CSG`
 3. reclaim selected Reminder variables and string IDs
-4. let each active feature activate or redefine its variables; the Humid Start and then the
-   Climate switch run last and take any on/off variable left unclaimed
+4. let each active feature activate or redefine its variables; the Humid Start
+   switch runs after them and takes any on/off variable left unclaimed, and the
+   Climate switch runs last and takes one that is still free
 5. extend the CSG member list with any additional persistent firmware variables
 6. emit the custom menu registry into reclaimed CDX space
 7. inject the clinical menu hooks
@@ -70,14 +71,6 @@ Reminder implementation remains unchanged.
 An unpatched ABI slot contains `0xFFFF`. Payload code treats that value as a
 request for its built-in fallback. The menu framework therefore configures a
 payload but is not a runtime dependency of that payload.
-
-`--hide-menu-items ITEM,...` uses this contract to leave single settings out
-of the menu. A hidden item claims no reclaimed variable or label string, so a
-setting that takes what others leave (Humid Start, Min Tube, Start Coupling,
-Climate) can get a menu item instead. Its ABI slot stays `0xFFFF` and the
-payload uses its built-in value (`MENU_ITEMS` in `python/patch-airsense.py`
-lists the items and those values). In AirBreaker this is the *Show in menu*
-row under each patch.
 
 ## Persistence
 
