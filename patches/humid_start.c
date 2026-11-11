@@ -78,6 +78,8 @@ struct state {
     unsigned minutes;
     unsigned done;
     unsigned capping;
+    /* The tube setting and target RH last seen; a change restarts the check. */
+    float setpoints;
     float last_plate;
     struct humidity_coeffs coeffs;
 };
@@ -176,9 +178,18 @@ float start(struct obj *inputs)
         return set;
     struct obj *sensors = (struct obj *)((u8 *)inputs - SENSORS_TO_INPUTS);
     float plate = call_f(sensors, SENSOR_PLATE);
-    /* The tube controller only asks during therapy; a long gap starts a session. */
-    if (fresh || millisecond_timer_expired(s->seen, IDLE_MS))
+    /* The tube controller only asks during therapy; a long gap starts a session.
+     * A changed tube setting or target RH checks again whether the tube needs
+     * holding back, which ends at once if the water is already warm enough.
+     */
+    /* The tube setting steps by whole degrees and the target RH is at most 1, so
+     * their sum is different for every pair.
+     */
+    float target_rh = call_f(inputs, INPUT_TARGET_RH);
+    if (fresh || set + target_rh != s->setpoints ||
+            millisecond_timer_expired(s->seen, IDLE_MS))
         restart(s, plate);
+    s->setpoints = set + target_rh;
     millisecond_timer_init(s->seen, 0);
     /* After warm-up the reference stays at HTS until the tube has caught up. */
     s->capping = s->done &&
@@ -216,9 +227,11 @@ float start(struct obj *inputs)
      * tube would keep it heating. The tube heats to the floor at once and stays
      * there until the estimated moisture allows more.
      */
+    /* A floor above the tube setting leaves nothing to search for: the result
+     * is then not below the setting, which ends warm-up below.
+     */
     float lowest = cap_floor();
-    float limit = humidity_model_temperature(outlet, call_f(inputs, INPUT_TARGET_RH),
-                                             set < lowest ? set : lowest, set);
+    float limit = humidity_model_temperature(outlet, target_rh, lowest, set);
     if (limit + 0.01f >= set) {
         finish(s);
         return set;
@@ -226,9 +239,8 @@ float start(struct obj *inputs)
     s->capping = 1;
     /* Lead the cap while the tube is below it, so the heater works harder. */
     float gap = limit - climate_reference_temperature_get(sensors);
-    if (gap <= 0.0f)
-        return limit;
-    limit += TRACK_GAIN * gap;
+    if (gap > 0.0f)
+        limit += TRACK_GAIN * gap;
     return limit < set ? limit : set;
 }
 
