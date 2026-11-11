@@ -23,6 +23,7 @@ AIR10_LEGACY_OPTIONS = {
     "PATCH_GRAPH_KEEP_SCREEN_ON": ("--patch-graph-keep-screen-on", "y"),
     "PATCH_GRAPH_CLIMATE": ("--patch-graph-climate", "y"),
     "PATCH_HUMID_START": ("--patch-humid-start", "y"),
+    "PATCH_HEADER_CLIMATE": ("--patch-header-climate", "y"),
     "FORCE_DEPRECATED": ("--force-deprecated",),
 }
 

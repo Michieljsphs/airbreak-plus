@@ -128,6 +128,56 @@ can check it in the morning.
 Enable **Clock** in clinical **Configuration** to replace the Home and active
 therapy-screen titles with the device time in 24-hour `HH:MM` format.
 
+## Header Climate
+
+This optional readout (SX567 firmware) replaces the Home and therapy-screen
+titles with the climate values, for example `27° 41° 85%` (`27.4° 41.0° 85%`
+with decimals on):
+
+| Field | Source |
+|-------|--------|
+| Tube temperature | Measured `HTT`; `--` without a heated tube |
+| Humidifier plate temperature | Measured `HPT` |
+| Relative humidity | Estimated at the tube temperature |
+
+Temperatures follow the device's °C/°F setting. The readout appears only with a
+humidifier attached; without one, the clock shows instead. Outside therapy
+there is no airflow, so the RH value is the room air at the tube temperature.
+Menu screens keep their own titles unless [Always show](#always-show) is on. The
+page counter (for example `1/3`) is hidden while the readout is shown.
+
+The device has no humidity sensor in the air path, so the RH value is
+estimated from a model of the humidifier chamber (`patches/humidity_model.h`):
+the room air plus the smaller of a plate bound and the stock heater-power bound
+on the added moisture, divided by the saturation humidity at the tube
+temperature. The plate bound uses a coupling of `0.25`
+(`header_climate_plate_coupling` in `patches/header_climate_abi.S`).
+Treat the value as a guide to the trend, not a measurement. It is probably too
+high in the first minutes, can read 100% when the estimate is above saturation,
+and has not been checked against a hygrometer.
+
+With custom settings, clinical **Configuration** gets a **Climate** switch
+(Off, On; default On) next to **Clock**. Off shows the clock, or the stock
+title, again. The switch takes an on/off variable and label string left free by
+the other custom settings; without one the readout stays on.
+
+Enable it with `--patch-header-climate y` or `PATCH_HEADER_CLIMATE=1`. It is off
+by default, needs the header clock patch (on by default), and is independent
+of the **Clock** setting.
+
+### Always show
+
+`--patch-header-climate-always y` shows the readout in every screen title, so
+menus such as Settings and My Options show it instead of their names. It needs
+`--patch-header-climate` and follows the **Climate** switch. Screens without a
+humidifier keep their stock titles.
+
+### Decimals
+
+`--patch-header-climate-decimal y` (off by default) shows the tube and plate
+temperatures with one decimal, `27.4`. Without it they show whole degrees, `27`.
+It has no effect without `--patch-header-climate`.
+
 ## Keep Backlight
 
 Hold the dial for three seconds to toggle screen keep-awake.
