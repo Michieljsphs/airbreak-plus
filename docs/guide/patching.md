@@ -107,6 +107,7 @@ These optional payloads require `arm-none-eabi-gcc` and are off by default.
 | `--patch-fall-time y` | Add [Fall Time](features/general.md#fall-time) in S/ST/T/PAC/iVAPS through custom settings |
 | `--patch-st-ibr y` | Add [adaptive backup timing in ST](features/general.md#st-ibr) through custom settings |
 | `--patch-autoepap y` | Add [iVAPS AutoEPAP](features/general.md#ivaps-autoepap); requires font repacking and expanded heap |
+| `--patch-humid-start y` | Humid Start: hold the heated tube at the target RH temperature during [humidifier warm-up](features/humid_start.md); SX567 only, requires font repacking |
 
 Example with custom VAuto:
 ```
