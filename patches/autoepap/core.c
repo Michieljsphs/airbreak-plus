@@ -41,7 +41,7 @@ typedef struct {
 } Pressure;
 
 /* limit changes latch at the rising half-phase boundary. */
-void pressure_refresh(Pressure *p, float *current, float phase,
+static void pressure_refresh(Pressure *p, float *current, float phase,
                       float lower, float upper) {
     if (phase >= 0.50000006f && !p->phase_latch &&
             (lower != p->lower || upper != p->upper)) {
@@ -53,7 +53,7 @@ void pressure_refresh(Pressure *p, float *current, float phase,
     p->phase_latch = phase >= 0.50000006f;
 }
 
-void pressure_slew(Pressure *p, float *current, float phase,
+static void pressure_slew(Pressure *p, float *current, float phase,
                    float lower, float upper, int enabled, int inhibited) {
     if (lower == upper) pressure_refresh(p, current, phase, lower, upper);
     if (enabled && !inhibited) {
@@ -65,7 +65,7 @@ void pressure_slew(Pressure *p, float *current, float phase,
 }
 
 /* the event dispatch gate is outside this numeric kernel. */
-void pressure_target(Pressure *p, float *current, float *published,
+static void pressure_target(Pressure *p, float *current, float *published,
                      int enabled, int ready, int now, float lower,
                      float shape_correction, float event_correction,
                      int reduced_flow, int reduced_ticks) {
@@ -94,7 +94,7 @@ void pressure_target(Pressure *p, float *current, float *published,
 }
 
 /* mirrored ten-tap FIR, full-span SD and prefix RMS. */
-int shape_variability(const Span *span, float duration, float front,
+static int shape_variability(const Span *span, float duration, float front,
                       float back, float *scratch, float *sd, float *prefix,
                       int with_prefix) {
     int begin = (int)(front * 100.0f);
@@ -128,7 +128,7 @@ int shape_variability(const Span *span, float duration, float front,
 }
 
 /* retain the raw-index ratio, not a wrapped ring distance. */
-int shape_event(const Span *a, const Span *b, int i26, int i2a, int i25,
+static int shape_event(const Span *a, const Span *b, int i26, int i2a, int i25,
                 float cached_deviation, float *scratch) {
     float da = (float)a->count / 100.0f;
     float db = (float)b->count / 100.0f;
@@ -143,7 +143,7 @@ int shape_event(const Span *a, const Span *b, int i26, int i2a, int i25,
 }
 
 /* Least-squares fit; preserve the accumulation order for float precision. */
-int linear_fit(const Span *span, float origin, float step,
+static int linear_fit(const Span *span, float origin, float step,
                float *mean_x, float *mean_y, float *slope, float *variance) {
     if (!span->count) return 0;
     float sx = 0.0f, sy = 0.0f, sxx = 0.0f, sxy = 0.0f, syy = 0.0f;
@@ -168,7 +168,7 @@ int linear_fit(const Span *span, float origin, float step,
 }
 
 /* Trim the pressure transitions before fitting the inspiratory flow. */
-int cropped_flow_fit(const Span *span, int rise_ticks, int fall_ticks,
+static int cropped_flow_fit(const Span *span, int rise_ticks, int fall_ticks,
                      float target_va, float *outputs) {
     if (span->count < 50 || target_va <= 0.0f) return 0;
     if (rise_ticks < 10) rise_ticks = 10;
@@ -188,7 +188,7 @@ int cropped_flow_fit(const Span *span, int rise_ticks, int fall_ticks,
 }
 
 /* only the validity test, not subsequent boundary processing. */
-int qualify_breath(const Span *span, float target_va) {
+static int qualify_breath(const Span *span, float target_va) {
     float duration = (float)span->count / 100.0f;
     if (duration < 0.45f || duration >= 5.0000005f) return 0;
     float sum = 0.0f, negative = 0.0f;
@@ -216,7 +216,7 @@ typedef struct {
 } DetectorOutput;
 
 /* Phase setters and callbacks become explicit private state. */
-void detect_phase(Detector *d, const DetectorOutput *out, float flow,
+static void detect_phase(Detector *d, const DetectorOutput *out, float flow,
                   float threshold, float volume_threshold, int now) {
     switch (d->phase) {
     case 0:
@@ -273,7 +273,7 @@ void detect_phase(Detector *d, const DetectorOutput *out, float flow,
     out->event(out->context, 10);
 }
 
-float phase_volume_threshold(float dead_space, float target_va) {
+static float phase_volume_threshold(float dead_space, float target_va) {
     return maximum(0.42f * dead_space,
                    0.007f * minimum(target_va, 6.0f));
 }
@@ -284,7 +284,7 @@ typedef struct {
     int active;
 } Reduced;
 
-float rolling_flow(Reduced *r, const float *samples, int head) {
+static float rolling_flow(Reduced *r, const float *samples, int head) {
     int previous = head - 200;
     if (previous < 0) previous += 1000;
     r->sum += round_positive(minimum(absolute(samples[head]), 300.0f) * 1024.0f);
@@ -294,7 +294,7 @@ float rolling_flow(Reduced *r, const float *samples, int head) {
 }
 
 /* Return bits describe the two private group-2 events. */
-unsigned reduced_flow_update(Reduced *r, const float *samples, int head,
+static unsigned reduced_flow_update(Reduced *r, const float *samples, int head,
                              float target_va, float deviation, float leak,
                              float *flow, int *elapsed, float *weight) {
     if (++r->warmup > 200) r->warmup = 200;
@@ -341,7 +341,7 @@ static float trapezoid(float x, float a, float b, float c, float d) {
 }
 
 /* Classify eight segment features into six flow-shape memberships. */
-float shape_memberships(const float *f, int validity, float fit_membership,
+static float shape_memberships(const float *f, int validity, float fit_membership,
                         float *out) {
     float combined = 0.0f;
     if (validity == 1 || validity == 3) {
@@ -386,7 +386,7 @@ float shape_memberships(const float *f, int validity, float fit_membership,
 }
 
 /* The reference is held at its value at first crossing. */
-float fit_prefix_excess(const Span *span, int begin, float mean_x,
+static float fit_prefix_excess(const Span *span, int begin, float mean_x,
                         float mean_y, float slope, float scale) {
     float result = 0.0f;
     slope /= 100.0f;
@@ -401,7 +401,7 @@ float fit_prefix_excess(const Span *span, int begin, float mean_x,
     return result;
 }
 
-float fit_membership(float deviation, float slope, float mean, float excess) {
+static float fit_membership(float deviation, float slope, float mean, float excess) {
     float prefix;
     if (mean < 4.5000005f) prefix = linear_map_clamped_2point(excess, 2.25f, 0.0f, 4.5f, 1.0f);
     else prefix = linear_map_clamped_2point(excess / mean, 0.5f, 0.0f, 1.0f, 1.0f);

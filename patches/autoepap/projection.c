@@ -21,7 +21,7 @@ typedef struct {
     unsigned char initial, padding[3];
 } Scorer;
 _Static_assert(sizeof(Scorer) == 72, "stock scorer layout");
-int breath_landmark(const Span *);
+static int breath_landmark(const Span *);
 
 void *autoepap_landmark_ref(int **out, int index, Scorer *scorer) {
     if (scorer->owner != (u32)breath_landmark) return therapy_variable_get(out, index);
@@ -29,7 +29,7 @@ void *autoepap_landmark_ref(int **out, int index, Scorer *scorer) {
     return out;
 }
 
-int breath_landmark(const Span *span) {
+static int breath_landmark(const Span *span) {
     int n = span->count;
     if (n < 2 || n > 500) return -1;
     Scorer scorer;
@@ -75,7 +75,7 @@ static void projection_bounds(u32 *window, int begin, int end) {
     clamp_int_to_bounds((int *)(window + 3), (const int *)(window + 1));
 }
 
-float harmonic_ratio(const Span *span, int landmark) {
+static float harmonic_ratio(const Span *span, int landmark) {
     if (landmark <= 0 || landmark >= span->count) return 0.0f;
     u32 vector[2], window[8], projector[13];
     therapy_fixed_vector_group1_ref_init(vector, 0);
@@ -96,6 +96,6 @@ float harmonic_ratio(const Span *span, int landmark) {
     return 0.0f;
 }
 
-float breath_shape_index(float ratio, int duration) {
+static float breath_shape_index(float ratio, int duration) {
     return duration > 350 ? 0.0f : linear_map_clamped_2point(ratio, 0.17f, 0.0f, 0.3f, 1.0f);
 }

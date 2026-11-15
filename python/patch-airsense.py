@@ -170,9 +170,10 @@ class ASFirmwarePatches(CompiledPayloadMixin):
         'AFH': 11,
     }
         
-    def __init__(self, asf, target_rh=85.0):
+    def __init__(self, asf, target_rh=85.0, graph_width=60):
         self.asf = asf
         self.target_rh_percent = target_rh
+        self.graph_width_minutes = graph_width  # --graph-width, climate chart width
         self.applied_payloads = set()
         self.enabled_custom_settings_features = set()
         self.mop_callback_handlers = {}
@@ -517,6 +518,17 @@ class ASFirmwarePatches(CompiledPayloadMixin):
                                         'flashing, check iBR, AutoEPAP, Square Wave and Backup Rate '
                                         'in the menu' % (owner, request))
                 return self.custom_claim_g8_var(request, owner)
+        return None
+
+    # Value slots a setting without a fixed one takes the first free of.
+    FREE_VALUE_SLOTS = ('RDT', 'RTI', 'LEF', 'RCW', 'RCH', 'RCF', 'RDW', 'RDH', 'RCM', 'RDM', 'RDF')
+
+    def custom_claim_free_g4_var(self, candidates, owner):
+        """Claim the first unclaimed reclaimed g[4] candidate, or return None."""
+        for request in candidates:
+            vid = self.asf.resolve_var_id(request)
+            if vid in self.custom_g4_reclaimed and vid not in self.custom_g4_claims:
+                return self.custom_claim_g4_var(request, owner)
         return None
 
     def custom_claim_g4_var(self, request, owner=None):
@@ -1616,6 +1628,7 @@ class ASFirmwarePatches(CompiledPayloadMixin):
             vid = self.asf.resolve_var_id(enable)
             addr = self._write_payload_u16('humid_start', 'humid_start_enable_var_id', vid)
             self._custom_detail('Humid Start: %s var_id=0x%04X at 0x%08X' % (enable, vid, addr))
+            self._graph_climate_var('graph_humid_start_var_id', vid)
 
         # Minimum tube temperature: raw value is whole degC, 16-30, default 16
         # (no minimum beyond the lowest tube setting). Needs only a label string.
@@ -1630,6 +1643,7 @@ class ASFirmwarePatches(CompiledPayloadMixin):
             vid = self.asf.resolve_var_id(min_tube)
             addr = self._write_payload_u16('humid_start', 'humid_start_min_tube_var_id', vid)
             self._custom_detail('Min Tube: %s var_id=0x%04X at 0x%08X' % (min_tube, vid, addr))
+            self._graph_climate_var('graph_min_tube_var_id', vid)
 
         # Plate coupling: raw value is the coupling * 100, 0.10-1.00 in steps
         # of 0.05, default 0.25. Needs only a label string.
@@ -1647,6 +1661,35 @@ class ASFirmwarePatches(CompiledPayloadMixin):
         if 'header_climate' in self.enabled_custom_settings_features:
             addr = self._write_payload_u16('header_clock', 'header_climate_coupling_var_id', vid)
             self._custom_detail('Header climate coupling var_id=0x%04X at 0x%08X' % (vid, addr))
+        self._graph_climate_var('graph_coupling_var_id', vid)
+
+    def custom_patch_settings_graph_width(self):
+        """Expose the climate chart width as a setting in hours, next to the display settings."""
+        var = self.custom_claim_free_g4_var(self.FREE_VALUE_SLOTS, 'graph_width')
+        if var is None:
+            self._custom_detail('Graph Width: no free value slot; --graph-width sets the width')
+            return
+        # Raw value is tenths of an hour: 0.2 h (12 min) to 12.0 h in steps of 6 minutes.
+        label = self.redefine_fw_string(-1, {0: 'Graph Width (h)'}, 'graph_width_label')
+        dep = self.asf.find_var_table_index(4, 'RGT')
+        default = min(120, max(2, round(self.graph_width_minutes / 6)))
+        self.redefine_g4_var(var, 0x0007, 0, dep, label, default, 120, 2, 1, 10, 1,
+                             self.asf.str_id_empty)
+        all_modes = self.mop_bitmask(*self.MOP_INDEX)
+        if 'lcd' in self.custom_menu_pages:
+            # On the LCD page, below the ambient light settings and above the headings.
+            self.custom_menu_add('lcd', var, all_modes, after=custom('ASF'))
+        else:
+            self.custom_menu_add('options', var, all_modes)
+        vid = self.asf.resolve_var_id(var)
+        addr = self._write_payload_u16('therapy_screen', 'graph_width_var_id', vid)
+        self._custom_detail('Graph Width: %s var_id=0x%04X at 0x%08X' % (var, vid, addr))
+
+    def _graph_climate_var(self, symbol, vid):
+        """Hand a Humid Start setting to the climate chart, when installed."""
+        if 'graph_climate' in self.enabled_custom_settings_features:
+            addr = self._write_payload_u16('therapy_screen', symbol, vid)
+            self._custom_detail('Climate chart %s=0x%04X at 0x%08X' % (symbol, vid, addr))
 
     def custom_patch_settings_collect_features(self):
         """Return active custom-settings feature functions."""
@@ -1666,6 +1709,8 @@ class ASFirmwarePatches(CompiledPayloadMixin):
             # Last: its switch claims a g[8] slot left free by the features above.
             ('humid_start', self.custom_patch_settings_humid_start),
             ('header_climate', self.custom_patch_settings_header_climate),
+            # After every fixed claim: it takes a value slot nobody else needs.
+            ('graph_climate', self.custom_patch_settings_graph_width),
         )
         active = self.applied_payloads | self.enabled_custom_settings_features
         return [feature for source, feature in feature_patches if source in active]
@@ -2961,6 +3006,26 @@ class ASFirmwarePatches(CompiledPayloadMixin):
         return PatchOutcome.ok(self._payload_detail(name, len(data), flash),
                                "Home held 2-5 s switches the humidifier off and on")
 
+    def patch_graph_climate(self):
+        """Draw the climate chart instead of the flow and pressure trace."""
+        if 'therapy_screen' not in self.applied_payloads:
+            return PatchOutcome.skip("therapy-screen payload not installed")
+        elf_path = self._require_versioned_artifact('therapy_screen', 'elf')
+        address = self._elf_symbol_addr(elf_path, 'graph_climate')
+        self.asf.write_u8(address - self.asf.FLASH_BASE, 1)
+        details = ["Climate chart instead of the trace at 0x%08X" % address]
+        width = self.graph_width_minutes
+        self.asf.write_u32(self._elf_symbol_addr(elf_path, 'graph_width_minutes')
+                           - self.asf.FLASH_BASE, width)
+        self.enabled_custom_settings_features.add('graph_climate')
+        details.append("Chart width %d:%02d" % (width // 60, width % 60))
+        if self.asf.cdx_ver in self.BUTTON_HOOK_SITES:
+            # Holding Home for 5 s clears the chart and starts it again.
+            self.button_hook_add('home_hold', 'therapy_screen', 'graph_chart_reset',
+                                 hold_ms=5000, consume=True, on_release=False)
+            details.append("Home held 5 s restarts the climate chart")
+        return PatchOutcome.ok(*details)
+
     def patch_graph_keep_screen_on(self):
         """Request keep-awake during therapy for the +Graph screen choices."""
         if 'therapy_screen' not in self.applied_payloads:
@@ -3782,7 +3847,7 @@ def run_patcher(args, detail_log=None):
 
     repo_dir = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
     build_identity = firmware_build_identity(repo_dir)
-    patches = ASFirmwarePatches(asf, target_rh=args.target_rh)
+    patches = ASFirmwarePatches(asf, target_rh=args.target_rh, graph_width=args.graph_width)
 
     apply_patch_phases(patches, args, detail_log)
 

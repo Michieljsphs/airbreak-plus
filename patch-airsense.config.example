@@ -42,6 +42,11 @@
 # Keep the screen awake for +Graph choices; requires --patch-therapy-screen.
 # --patch-graph-keep-screen-on n
 
+# Climate chart instead of the flow and pressure trace; requires --patch-therapy-screen.
+# --patch-graph-climate n
+# Time the climate chart covers, hours:minutes from 0:10 to 12:00.
+# --graph-width 1:00
+
 # Replacement ILI9325/ILI9328 LCD.
 # --patch-fw-lcd n
 

@@ -10,7 +10,7 @@ typedef struct {
 } EventHistory;
 
 /* Keep nine retained intervals and one slot for the next append. */
-void interval_append(EventHistory *h, int start, int end, float weight, float pressure) {
+static void interval_append(EventHistory *h, int start, int end, float weight, float pressure) {
     Interval *r = h->records + h->count;
     r->start = start;
     r->end = end;
@@ -20,7 +20,7 @@ void interval_append(EventHistory *h, int start, int end, float weight, float pr
     if (++h->count > 9) h->count = 9;
 }
 
-void reduced_history_capture(EventHistory *h, unsigned events, int now,
+static void reduced_history_capture(EventHistory *h, unsigned events, int now,
                              float weight, float pressure) {
     if (events & (1u << 14)) {
         h->reduced_active = 1;
@@ -53,7 +53,7 @@ static void boundary_insert(Boundary *points, int *count, int time) {
 }
 
 /* Merge overlapping intervals using their maximum weight per unit time. */
-int consolidate_intervals(EventHistory *h, int before) {
+static int consolidate_intervals(EventHistory *h, int before) {
     Boundary points[20];
     int count = 0;
     for (int i = 0; i < h->count; ++i) {
@@ -104,7 +104,7 @@ int consolidate_intervals(EventHistory *h, int before) {
 }
 
 /* Consume completed consolidated records. */
-float event_pressure_target(EventHistory *h, int before, float upper) {
+static float event_pressure_target(EventHistory *h, int before, float upper) {
     float target = 0.0f;
     if (!h->count) return target;
     int kept = consolidate_intervals(h, before);
@@ -124,7 +124,7 @@ float event_pressure_target(EventHistory *h, int before, float upper) {
 }
 
 /* Capture indices are ring positions; times are 100 Hz ticks. */
-float shape_history_capture(EventHistory *h, int shape, int now, int head,
+static float shape_history_capture(EventHistory *h, int shape, int now, int head,
                             int start, int end, float reference_flow,
                             float current_epap, float shape_correction, float upper) {
     int duration = (end - start + 1000) % 1000;

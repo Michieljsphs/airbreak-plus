@@ -15,6 +15,23 @@ def percentage(value):
     return percent
 
 
+def graph_width(value):
+    """Chart width as hours:minutes, from 0:10 to 12:00; returned in minutes."""
+    try:
+        hours, separator, minutes = value.strip().partition(':')
+        total = int(hours) * 60 + int(minutes)
+        valid = separator and 0 <= int(minutes) < 60 and 10 <= total <= 12 * 60
+    except ValueError:
+        valid = False
+    if not valid:
+        raise argparse.ArgumentTypeError('Width as hours:minutes from 0:10 to 12:00, such as 8:30, expected.')
+    return total
+
+
+def graph_width_text(minutes):
+    return '%d:%02d' % divmod(minutes, 60)
+
+
 # Patch order is part of the implementation. Payloads must be present before
 # custom settings patch their ABI slots; all MOP handlers must be registered
 # before finalization installs the shared dispatcher and expands the variable
@@ -94,6 +111,13 @@ PLATFORM = Platform('air10', phases=(
     )),
 
     Phase('Therapy modifications', (
+        Patch('patch-graph-climate',
+              'Show the climate chart instead of the flow and pressure trace: plate and tube temperatures '
+              'and estimated RH over --graph-width.',
+              False, 'patch_graph_climate', requires=('patch-therapy-screen',), parameters=(
+                  Parameter('graph-width', 'Time the climate chart covers, 0:10 to 12:00. Default: 1:00.',
+                            Value(graph_width, 'H:MM', format=graph_width_text), 60),
+              )),
         Patch('patch-graph-keep-screen-on',
               'Keep the screen awake during therapy while the graph is enabled.',
               False, 'patch_graph_keep_screen_on', requires=('patch-therapy-screen',)),
