@@ -46,11 +46,12 @@ Run it from the repository folder. Pick your platform:
    On Windows the window runs `make` and `run-ocd.sh` in WSL.
 3. Double-click `airbreaker.bat` in the repository folder. It opens the
    window without a console. Without Windows Python it runs the window with
-   `python3` in WSL instead (shown through WSLg). When `python3-tk`, `make` or
-   the ARM toolchain are missing there, it lists them and asks before installing
-   them with `sudo apt-get`; sudo asks for your WSL password in the console. On a
-   WSL distribution without `apt-get` it asks you to install them yourself. If
-   neither Python is available, the batch file tells you what to install.
+   `python3` in WSL instead (shown through WSLg). When `python3-tk` is missing
+   there, it asks before installing it with `sudo apt-get`; sudo asks for your
+   WSL password in the console. The window itself offers to install `make` and
+   the ARM toolchain when a build needs them. On a WSL distribution without
+   `apt-get` you install them yourself. If neither Python is available, the
+   batch file tells you what to install.
 
 Without the batch file: `python python\airbreaker.py` in a terminal
 shows the same window, with error output in the terminal.
@@ -96,8 +97,9 @@ tools, follow the [Windows](#windows) route instead.
 
 A row of **Steps** runs along the top: choose patches, save, build, dump
 backup, flash. A green tick means the step is done: the preset is saved, the
-patched firmware exists, a backup file exists, and the device was flashed from
-this window. Work through them from left to right; hover the row for a reminder.
+window built the patched firmware from the saved options and the chosen input,
+a backup file exists, and the device was flashed from this window with that
+built image. Work through them from left to right; hover the row for a reminder.
 
 Below it, the top part is the options and the bottom part builds and flashes.
 You can drag the divider between them.
@@ -134,7 +136,7 @@ You can drag the divider between them.
 - **Output firmware**: `build/stm32-patched.bin`, the Makefile target the
   window builds.
 - **Build**: saves the preset, then runs
-  `make -j2 AIR10_FIRMWARE=INPUT PATCH_ARGS='--preset NAME' build/stm32-patched.bin`.
+  `make AIR10_FIRMWARE=INPUT PATCH_ARGS='--preset NAME' build/stm32-patched.bin`.
   make builds the payloads when needed, patches the image and records the
   options and the input image, so it rebuilds the image whenever they change.
 - **Stop** ends the running command. **Verbose** (`V=1`) lists what each patch did.
@@ -152,7 +154,7 @@ The black box at the bottom is the log. Green lines are successful steps,
 orange are warnings or skipped patches, red are errors. When a command ends
 the log says `Done` or `Failed` and may add a hint.
 
-The window remembers the file paths and choices in `.airbreak_patch_gui.json`
+The window remembers the file paths and choices in `.airbreaker.json`
 in your home folder.
 
 ## Building a firmware image
@@ -252,7 +254,7 @@ and the one-time `usbipd bind`; see the
 |------|------------|
 | `presets/user/air10/NAME.config` | Your saved preset; not tracked by Git. See [presets](../patch_options.md#presets) |
 | `patch-airsense.config` | The local options file, edited by hand; applies under every preset |
-| `.airbreak_patch_gui.json` | The window's remembered paths and choices, in your home folder |
+| `.airbreaker.json` | The window's remembered paths and choices, in your home folder |
 | `build/stm32-patched.bin` | The image the window builds |
 | `stm32.bin` | The default place for the stock dump (the backup) |
 

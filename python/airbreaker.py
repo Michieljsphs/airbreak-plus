@@ -13,15 +13,17 @@ the log: make builds the payloads, patches the image and tracks the options and 
 each button runs run-ocd.sh once with the adapter (and its serial number, if given) and one of the
 tcl/airsense.cfg commands (dump, flash_new, verify, ...); the exit code tells whether it worked. On Windows
 make and run-ocd.sh run in WSL. The paths and choices are remembered in
-~/.airbreak_patch_gui.json. Needs only Python with tkinter (included in the Windows installer). Start it with
+~/.airbreaker.json. Needs only Python with tkinter (included in the Windows installer). Start it with
 airbreaker.bat (no console) or python python/airbreaker.py.
 """
+import filecmp
 import json
 import os
 import queue
 import re
 import shlex
 import shutil
+import signal
 import subprocess
 import sys
 import textwrap
@@ -42,15 +44,16 @@ LOCAL_FILE = patch_config.REPO / patch_config.LOCAL_FILES[PLATFORM.name]
 USER_PRESETS = patch_config.REPO / patch_config.preset_dirs(PLATFORM.name)[0]   # presets/user/air10
 DEFAULT_PRESET = "airbreaker"
 PRESET_NAME = re.compile(r"[A-Za-z0-9][A-Za-z0-9_.-]*\Z")   # also in make PATCH_ARGS: no spaces, quotes, leading dash
+PRESET_NAME_RULE = "a preset name starts with a letter or digit and uses letters, digits, '.', '_' and '-' only."
 HEADER = "# Written by AirBreaker (python/airbreaker.py): the options this preset sets itself."
 NO_BASE = "(none)"
-SETTINGS_FILE = os.path.join(os.path.expanduser("~"), ".airbreak_patch_gui.json")
+SETTINGS_FILE = os.path.join(os.path.expanduser("~"), ".airbreaker.json")
+OLD_SETTINGS_FILE = os.path.join(os.path.expanduser("~"), ".airbreak_patch_gui.json")   # read when there is no new one
 # The one fact about the Makefile this window needs: the target that builds the image from AIR10_FIRMWARE and
 # PATCH_ARGS (documented in docs/patch_options.md). Its options and input are tracked by make, not here.
 OUTPUT_TARGET = "build/stm32-patched.bin"
 OUTPUT = os.path.join(REPO, *OUTPUT_TARGET.split("/"))
 INPUT_COPY = "airbreaker-input.bin"   # copy of an input firmware whose path make cannot take
-MAKE_JOBS = 2   # parallel payload builds; more needs more memory
 DEFAULT_BACKUP = os.path.join(REPO, "stm32.bin")   # where docs/guide/openocd.md has the stock dump
 STEPS = (("choose", "1 Choose patches"), ("save", "2 Save"), ("patch", "3 Build"), ("backup", "4 Dump backup"),
          ("flash", "5 Flash"))   # the checklist above the options
@@ -129,41 +132,67 @@ def wrap_lines(text):
     return textwrap.fill(text, 90)
 
 
-def load_settings():
+def file_id(path):
+    """Identifies the contents of a file for the checklist: its real path and modification time; None when it
+    does not exist."""
     try:
-        with open(SETTINGS_FILE, encoding="utf-8") as f:
-            return json.load(f)
+        path = os.path.realpath(path)
+        return path, os.stat(path).st_mtime_ns
     except (OSError, ValueError):
-        return {}
+        return None
 
 
-def in_wsl():
-    """The one toolchain rule: on Windows, make and the tools it runs (the ARM toolchain, the patcher, OpenOCD)
-    run in WSL (docs/guide/wsl_setup.md); elsewhere they run on this system."""
+def load_settings():
+    for path in (SETTINGS_FILE, OLD_SETTINGS_FILE):
+        try:
+            with open(path, encoding="utf-8") as f:
+                return json.load(f)
+        except (OSError, ValueError):
+            pass
+    return {}
+
+
+def use_wsl():
+    """Whether tools run through WSL. The one toolchain rule: on Windows, make and the tools it runs (the ARM
+    toolchain, the patcher, OpenOCD) run in WSL (docs/guide/wsl_setup.md); elsewhere they run on this system."""
     return os.name == "nt"
 
 
 NO_WINDOW = getattr(subprocess, "CREATE_NO_WINDOW", 0)
 WSL_PIDFILE = "/tmp/airbreaker-%d.pid" % os.getpid()   # process group of the command running in WSL
+# In WSL: a new session (-w: setsid waits and passes on the exit code; without it setsid forks when it is
+# already a group leader, as under wsl --exec, and returns 0 at once), whose process group id goes to the pid
+# file for stop_in_wsl(). The pid file is removed when the command ends by itself.
+WSL_WRAPPER = ["setsid", "-w", "bash", "-c", 'echo $$ > "$0"; "$@"; code=$?; rm -f "$0"; exit $code', WSL_PIDFILE]
+# Waits briefly for the pid file of a command that has only just started, then ends its process group.
+WSL_STOP = ('for _ in 1 2 3 4 5 6 7 8 9 10; do [ -s "$0" ] && break; sleep 0.2; done; '
+            '[ -s "$0" ] && kill -s TERM -- "-$(cat "$0")"; rm -f "$0"')
+
+
+def wsl_exe():
+    """Path of wsl.exe, or None when WSL is not installed."""
+    return shutil.which("wsl.exe")
 
 
 def tool_command(args):
     """A command run in the repository, through WSL on Windows; None when WSL is not installed. In WSL it runs
     in its own process group, recorded in WSL_PIDFILE, so that stop_in_wsl() can end the whole command."""
-    if not in_wsl():
+    if not use_wsl():
         return list(args)
-    wsl = shutil.which("wsl.exe")
+    wsl = wsl_exe()
     if not wsl:
         return None
-    return [wsl, "--cd", REPO, "--exec", "setsid", "bash", "-c", 'echo $$ > "$0"; exec "$@"', WSL_PIDFILE] + list(args)
+    return [wsl, "--cd", REPO, "--exec"] + WSL_WRAPPER + list(args)
 
 
 def stop_in_wsl():
     """Ends the command tool_command() started in WSL. Ending wsl.exe alone does not stop what runs inside."""
+    wsl = wsl_exe()
+    if not wsl:
+        return
     try:
-        subprocess.run([shutil.which("wsl.exe") or "wsl.exe", "--exec", "sh", "-c",
-                        'kill -TERM -- "-$(cat "$0")" 2>/dev/null; rm -f "$0"', WSL_PIDFILE],
-                       capture_output=True, creationflags=NO_WINDOW, timeout=15)
+        subprocess.run([wsl, "--exec", "sh", "-c", WSL_STOP, WSL_PIDFILE], capture_output=True,
+                       creationflags=NO_WINDOW, timeout=15)
     except (OSError, subprocess.SubprocessError):
         pass
 
@@ -178,7 +207,7 @@ def make_input(firmware):
         rel = os.pardir
     if not rel.startswith(os.pardir):
         path = rel.replace(os.sep, "/")
-    elif in_wsl():
+    elif use_wsl():
         path = wsl_path(path)
     if path is None or any(c.isspace() or c in "'\"$#:;=%" for c in path):
         return None
@@ -188,11 +217,11 @@ def make_input(firmware):
 def make_command(path, preset, verbose):
     """make building OUTPUT_TARGET from the input path (see make_input) with the preset; the Makefile tracks
     the options and the input in its .config state file."""
-    args = ["make", "-j%d" % MAKE_JOBS, "AIR10_FIRMWARE=" + path, "PATCH_ARGS=--preset " + preset]
+    args = ["make", "AIR10_FIRMWARE=" + path, "PATCH_ARGS=--preset " + preset]   # make picks the jobs
     return tool_command(args + (["V=1"] if verbose else []) + [OUTPUT_TARGET])
 
 
-WSL_TOOLS_HINT = "WSL needs openocd and usbutils: sudo apt install openocd usbutils (docs/guide/wsl_setup.md)."
+WSL_TOOLS_HINT = "WSL needs openocd and lsusb (usbutils); see docs/guide/wsl_setup.md."
 LOG_HINTS = (   # output -> what to do about it, shown when the command ends
     ("openocd: command not found", WSL_TOOLS_HINT),
     ("lsusb: command not found", WSL_TOOLS_HINT),
@@ -205,21 +234,26 @@ def wsl_path(path):
     """The WSL path of a Windows path, or None when WSL cannot translate it."""
     path = os.path.realpath(path)   # also expands 8.3 names such as MICHIE~1, which WSL does not know
     try:
-        result = subprocess.run([shutil.which("wsl.exe") or "wsl.exe", "--exec", "wslpath", "-a",
+        result = subprocess.run([wsl_exe() or "wsl.exe", "--exec", "wslpath", "-a",
                                  path.replace("\\", "/")], capture_output=True, text=True, creationflags=NO_WINDOW)
     except OSError:
         return None
     return result.stdout.strip() if result.returncode == 0 and result.stdout.strip() else None
 
 
-WSL_TOOLS = (("make", "make"), ("arm-none-eabi-gcc", "gcc-arm-none-eabi"), ("arm-none-eabi-nm", "binutils-arm-none-eabi"),
-             ("python3", "python3"))   # (command, apt package) the build and the patcher need in WSL
+# (command, apt package) the build and the patcher need in WSL: the one list of them; airbreaker.bat installs
+# only what opens the window.
+WSL_TOOLS = (("make", "make"), ("arm-none-eabi-gcc", "gcc-arm-none-eabi"),
+             ("arm-none-eabi-nm", "binutils-arm-none-eabi"), ("python3", "python3"))
 
 
 def wsl_has_apt():
     """Whether the default WSL distribution has apt-get (Debian, Ubuntu and their derivatives)."""
+    wsl = wsl_exe()
+    if not wsl:
+        return False
     try:
-        return subprocess.run([shutil.which("wsl.exe"), "--exec", "sh", "-c", "command -v apt-get"],
+        return subprocess.run([wsl, "--exec", "sh", "-c", "command -v apt-get"],
                               capture_output=True, creationflags=NO_WINDOW).returncode == 0
     except OSError:
         return False
@@ -228,8 +262,11 @@ def wsl_has_apt():
 def wsl_missing_packages():
     """apt packages of the WSL_TOOLS whose command is not in WSL; [] when all are there (or WSL cannot be asked)."""
     script = "for t in %s; do command -v $t >/dev/null || echo $t; done" % " ".join(t for t, _ in WSL_TOOLS)
+    wsl = wsl_exe()
+    if not wsl:
+        return []
     try:
-        result = subprocess.run([shutil.which("wsl.exe"), "--exec", "bash", "-c", script], capture_output=True,
+        result = subprocess.run([wsl, "--exec", "bash", "-c", script], capture_output=True,
                                 text=True, creationflags=NO_WINDOW)
     except OSError:
         return []
@@ -251,6 +288,7 @@ class App(tk.Tk):
         self.name = ""          # the preset shown, presets/user/air10/NAME.config
         self.base = []          # presets this preset selects (--preset); they apply under it
         self.underlying = {}    # option -> value from the local options file and the base presets
+        self.explicit = set()   # options the preset file sets itself: kept even where they equal self.underlying
         self.sources = {}       # option -> the file under this preset that sets it
         self.local_options = ()   # what patch-airsense.config sets, shown as a note
         self.foreign = False      # the preset file was not written by this window: ask before replacing it
@@ -278,10 +316,12 @@ class App(tk.Tk):
         Tooltip(checklist, lambda: wrap_lines(
             "The steps in order. A tick means it is done: the options are saved, make built the image from this "
             "window with the saved options and this input firmware, a backup file exists, and the device was "
-            "flashed from this window. Step 5 matters most: the stock dump is the only way to restore the device."))
-        self.flashed = False   # the device was flashed from this window since the last patch
+            "flashed from this window with that image. Step 4 matters most: the stock dump is the only way to "
+            "restore the device."))
+        self.flashed = None    # file_id() of the image last flashed from this window
         self.built = None      # (preset, saved text, input) of the last successful build in this window
-        self.running = ""      # title of the running command
+        self.kind = None       # "build" or "flash" for the running command, whose success updates the checklist
+        self.pending = None    # what self.built or self.flashed becomes when the running command succeeds
 
         panes = ttk.PanedWindow(self, orient="vertical")   # top: options, bottom: patch firmware and log
         panes.pack(fill="both", expand=True, padx=8, pady=8)
@@ -388,8 +428,9 @@ class App(tk.Tk):
         self.patch_btn.pack(side="left")
         Tooltip(self.patch_btn, lambda: wrap_lines(
             "Saves the preset, then builds %s with make: the payloads (needed once, and again after changing "
-            "patches/), then the patched image. make decides what is out of date. Runs%s: make -j%d AIR10_FIRMWARE=INPUT PATCH_ARGS='--preset %s' %s"
-            % (OUTPUT_TARGET, " in WSL" if in_wsl() else "", MAKE_JOBS, self.name, OUTPUT_TARGET)))
+            "patches/), then the patched image. make decides what is out of date. Runs%s: "
+            "make AIR10_FIRMWARE=INPUT PATCH_ARGS='--preset %s' %s"
+            % (OUTPUT_TARGET, " in WSL" if use_wsl() else "", self.name, OUTPUT_TARGET)))
         self.stop_btn = ttk.Button(actions, text="Stop", command=self.stop, state="disabled")
         self.stop_btn.pack(side="left", padx=(6, 0))
         ttk.Checkbutton(actions, text="Verbose (per-patch details, V=1)", variable=self.verbose).pack(
@@ -413,7 +454,7 @@ class App(tk.Tk):
         Tooltip(serial, lambda: wrap_lines(
             "Selects one of several connected adapters by its serial number (run-ocd.sh -s SERIAL). Leave empty "
             "with a single adapter."))
-        ttk.Label(adapter, text="via run-ocd.sh%s" % (" in WSL" if in_wsl() else ""), foreground="#888888").pack(
+        ttk.Label(adapter, text="via run-ocd.sh%s" % (" in WSL" if use_wsl() else ""), foreground="#888888").pack(
             side="left", padx=(12, 0))
         for row, (label, var, saving) in enumerate((("Firmware:", self.flash_file, False),
                                                     ("Backup (dump):", self.backup, True)), start=2):
@@ -444,8 +485,7 @@ class App(tk.Tk):
         self.log.tag_configure("warn", foreground="#b36b00")
         self.log.tag_configure("pass", foreground="#1b7f2a")
 
-
-        for var in (self.outfile, self.backup, self.infile):
+        for var in (self.backup, self.infile):
             var.trace_add("write", lambda *_: self.update_steps())
         self.load_preset(self.settings.get("preset") or DEFAULT_PRESET)
         self.after(100, self.pump)
@@ -474,7 +514,8 @@ class App(tk.Tk):
             var.trace_add("write", self.refresh)
             if parameter.value.choices is not None:
                 widget = ttk.Combobox(sub, textvariable=var, width=12, state="readonly",
-                                      values=[value_text(choice, parameter.value) for choice in parameter.value.choices])
+                                      values=[value_text(choice, parameter.value)
+                                              for choice in parameter.value.choices])
             else:
                 widget = ttk.Entry(sub, textvariable=var, width=24 if parameter.value.repeat else 12)
             widget.pack(side="left", padx=(6, 6))
@@ -513,11 +554,12 @@ class App(tk.Tk):
         layers = [layer for layer in patch_config.config_layers(
             PLATFORM.name, [], patch_config.local_options_parser(PLATFORM), preset_parser)
             if layer.source != "command line"]
-        layers += patch_config.preset_layers(PLATFORM.name, base, USER_PRESETS, preset_parser)
+        base_layers = patch_config.preset_layers(PLATFORM.name, base, USER_PRESETS, preset_parser)
         name = name or self.name
-        if name in base or preset_path(name).resolve() in [layer.path for layer in layers]:
+        # the local options file may select this preset too, as make allows; a base preset may not
+        if name in base or preset_path(name).resolve() in [layer.path for layer in base_layers]:
             raise ValueError("preset %s selects itself through %s" % (name, " + ".join(base)))
-        return layers
+        return layers + base_layers
 
     def set_base(self, base):
         """Reads what applies under this preset with these base presets. Raises OSError or ValueError."""
@@ -535,14 +577,15 @@ class App(tk.Tk):
 
     def shown(self):
         """option -> value of every patch and parameter as shown, parsed by the patcher's own option parser;
-        a parameter of an unticked patch keeps the value under this preset. None for an invalid value."""
+        a parameter of an unticked patch keeps the value under this preset, or the preset's own value when it
+        sets one. None for an invalid value."""
         tokens = []
         for patch in PLATFORM.patches():
             tokens += ["--" + patch.option, "y" if self.enabled[patch.option].get() else "n"]
         typed = set()
         for parameter, patch in PARAMETERS:
             text = self.params[parameter.option].get().strip()
-            if self.enabled[patch.option].get() and text:
+            if (self.enabled[patch.option].get() or parameter.option in self.explicit) and text:
                 typed.add(parameter.option)
                 try:
                     items = shlex.split(text) if parameter.value.repeat else [text]
@@ -563,8 +606,10 @@ class App(tk.Tk):
         return values
 
     def own_values(self, values):
-        """The options that differ from what applies under this preset: what the preset file stores."""
-        return {option: value for option, value in values.items() if value != self.underlying[option]}
+        """What the preset file stores: the options it sets itself and those that differ from what applies
+        under it."""
+        return {option: value for option, value in values.items()
+                if option in self.explicit or value != self.underlying[option]}
 
     def preset_text(self, own):
         return HEADER + "\n" + patch_config.option_text(PLATFORM, own, self.base)
@@ -594,7 +639,7 @@ class App(tk.Tk):
             "patch": os.path.isfile(self.outfile.get().strip()) and self.built == (
                 self.name, self.saved_text, self.infile.get().strip()),
             "backup": os.path.isfile(self.backup.get().strip()),
-            "flash": self.flashed,
+            "flash": self.flashed is not None and self.flashed == file_id(self.outfile.get().strip()),
         }
         for key, text in STEPS:
             label = self.steps[key]
@@ -668,7 +713,8 @@ class App(tk.Tk):
             self.underlying = {option: self.underlying[patch_options.dest(option)] for option in OPTIONS}
             self.sources, self.local_options = {}, ()
             status = "Could not read %s" % path.name
-        own = {option: value for option, value in own.items() if value != self.underlying[option]}
+        own = {option: value for option, value in own.items() if option in OPTIONS}
+        self.explicit = set(own)
         # an untouched new preset is not a change; one that could not be read always is
         self.saved_text = None if status.startswith("Could") else self.preset_text(own)
         self.status.config(text=status)
@@ -679,7 +725,7 @@ class App(tk.Tk):
         if name == self.name:
             return
         if not PRESET_NAME.match(name):
-            messagebox.showerror(TITLE, "A preset name starts with a letter or digit and uses letters, digits, '.', '_' and '-' only.")
+            messagebox.showerror(TITLE, PRESET_NAME_RULE[0].upper() + PRESET_NAME_RULE[1:])
             self.preset_var.set(self.name)
             return
         if self.dirty():
@@ -704,8 +750,13 @@ class App(tk.Tk):
             self.set_base([] if choice == NO_BASE else [choice])
         except (OSError, ValueError) as exc:
             messagebox.showerror(TITLE, "Preset %s could not be used:\n\n%s" % (choice, exc))
-            self.set_base(old)
-        self.apply({option: value for option, value in own.items() if value != self.underlying[option]})
+            try:
+                self.set_base(old)
+            except (OSError, ValueError):   # the old base changed on disk as well
+                self.load_preset(self.name)
+                return
+        self.apply({option: value for option, value in own.items()
+                    if option in self.explicit or value != self.underlying[option]})
 
     def reload(self):
         if self.dirty() and not messagebox.askyesno(TITLE, "Discard the unsaved changes?"):
@@ -713,6 +764,7 @@ class App(tk.Tk):
         self.load_preset(self.name)
 
     def clear(self):
+        self.explicit = set()
         self.apply({})
         self.status.config(text="Only the base preset shown; Save writes it")
 
@@ -720,7 +772,7 @@ class App(tk.Tk):
         """Writes the preset: its base presets and the options it sets itself. False when not saved."""
         name = (name or self.preset_var.get()).strip()
         if not PRESET_NAME.match(name):
-            messagebox.showerror(TITLE, "Not saved: a preset name starts with a letter or digit and uses letters, digits, '.', '_' and '-' only.")
+            messagebox.showerror(TITLE, "Not saved: " + PRESET_NAME_RULE)
             return False
         values = self.shown()
         if values is None:
@@ -804,6 +856,10 @@ class App(tk.Tk):
         if os.path.realpath(infile) == os.path.realpath(OUTPUT):
             messagebox.showerror(TITLE, "%s is what make builds; choose the original firmware image." % OUTPUT_TARGET)
             return
+        if use_wsl() and not wsl_exe():
+            messagebox.showerror(TITLE, "wsl.exe was not found. make runs in WSL on Windows; see "
+                                 "docs/guide/wsl_setup.md.")
+            return
         if not self.ensure_wsl_tools():
             return
         if self.dirty() and not self.save():
@@ -811,16 +867,14 @@ class App(tk.Tk):
         if not preset_path(self.name).is_file() and not self.save():   # make reads the preset from its file
             return
         self.save_settings()
-        if in_wsl() and not shutil.which("wsl.exe"):
-            messagebox.showerror(TITLE, "wsl.exe was not found. make runs in WSL on Windows; see "
-                                 "docs/guide/wsl_setup.md.")
-            return
         path = make_input(infile)
         if path is None:   # make cannot take the path (spaces, special characters): work from a copy
             copy = os.path.join(REPO, "build", INPUT_COPY)
             try:
                 os.makedirs(os.path.dirname(copy), exist_ok=True)
-                shutil.copyfile(infile, copy)
+                # an unchanged copy keeps its time, so make does not rebuild the image for it
+                if not (os.path.isfile(copy) and filecmp.cmp(infile, copy, shallow=False)):
+                    shutil.copyfile(infile, copy)
             except OSError as exc:
                 messagebox.showerror(TITLE, "Could not copy %s to %s: %s" % (infile, copy, exc))
                 return
@@ -831,15 +885,17 @@ class App(tk.Tk):
                 messagebox.showerror(TITLE, "WSL cannot reach the repository folder %s." % REPO)
                 return
         command = make_command(path, self.name, self.verbose.get())
+        # what is built: the options as saved now and this input, also when they change while make runs
+        self.pending = (self.name, self.saved_text, infile)
         self.run("Building %s from %s with preset %s%s" % (OUTPUT_TARGET, infile, self.name,
-                                                           " (in WSL)" if in_wsl() else ""),
-                 command, "%s built" % OUTPUT_TARGET)
+                                                           " (in WSL)" if use_wsl() else ""),
+                 command, "%s built" % OUTPUT_TARGET, kind="build")
 
     def ensure_wsl_tools(self):
         """False when WSL lacks make, the ARM toolchain or python3. Shows the command that installs them and, on a
         WSL distribution with apt-get, offers to run it in a console window, where sudo asks for the password.
         Nothing is installed without asking. Click the action again when it is done."""
-        packages = wsl_missing_packages() if in_wsl() else []
+        packages = wsl_missing_packages() if use_wsl() else []
         if not packages:
             return True
         if not wsl_has_apt():
@@ -852,7 +908,7 @@ class App(tk.Tk):
                                "sudo asks for your WSL password there, and apt-get asks before installing. Click "
                                "the button again when it is done." % (", ".join(packages), command)):
             try:
-                subprocess.Popen([shutil.which("wsl.exe"), "--exec", "bash", "-c",
+                subprocess.Popen([wsl_exe(), "--exec", "bash", "-c",
                                   command + "; echo; read -r -p 'Press Enter to close this window. '"],
                                  creationflags=getattr(subprocess, "CREATE_NEW_CONSOLE", 0))
             except OSError as exc:
@@ -861,16 +917,16 @@ class App(tk.Tk):
             self.append("To install them yourself, run in WSL: " + command, "warn")
         return False
 
-    def run(self, title, command, done, flashing=False, env=None):
-        """Runs a command with its output in the log; one at a time, all action buttons disabled meanwhile."""
+    def run(self, title, command, done, kind=None, flashing=False, env=None):
+        """Runs a command with its output in the log; one at a time, all action buttons disabled meanwhile.
+        kind is "build" or "flash" when its success updates the checklist with self.pending."""
         self.append("=== %s ===" % title)
-        self.done, self.hints, self.running = done, [], title
-        if title.startswith("Building"):
-            self.flashed = False   # the device no longer has the newest patched image
+        self.done, self.hints, self.kind = done, [], kind
         try:
             self.proc = subprocess.Popen(
                 command, stdin=subprocess.DEVNULL, stdout=subprocess.PIPE, stderr=subprocess.STDOUT, cwd=REPO,
-                env={**os.environ, "PYTHONIOENCODING": "utf-8", **(env or {})}, creationflags=NO_WINDOW)
+                env={**os.environ, "PYTHONIOENCODING": "utf-8", **(env or {})}, creationflags=NO_WINDOW,
+                start_new_session=not use_wsl())   # its own process group, which stop() ends as a whole
         except OSError as exc:
             self.append("Could not start %s: %s" % (command[0], exc), "fail")
             return
@@ -889,9 +945,14 @@ class App(tk.Tk):
                     TITLE, "Flashing is in progress. Stopping now can leave the device without working firmware "
                     "until it is flashed again over SWD.\n\nStop anyway?", icon="warning"):
                 return
-            if in_wsl():
+            if use_wsl():
                 stop_in_wsl()
-            self.proc.terminate()
+                self.proc.terminate()
+            else:   # make or run-ocd.sh and everything they started, such as the patcher or openocd
+                try:
+                    os.killpg(self.proc.pid, signal.SIGTERM)
+                except OSError:
+                    pass
 
     def tcl_path(self, path):
         """A file argument for the airsense.cfg commands: relative to the repo (OpenOCD runs there) when inside
@@ -904,7 +965,7 @@ class App(tk.Tk):
             rel = os.pardir
         if not rel.startswith(os.pardir):
             path = rel
-        elif in_wsl():
+        elif use_wsl():
             translated = wsl_path(path)
             if translated is None:
                 messagebox.showerror(TITLE, "WSL cannot reach %s. Move the file into the repository folder." % path)
@@ -930,11 +991,11 @@ class App(tk.Tk):
                                  "docs/guide/wsl_setup.md.")
         return command
 
-    def run_openocd(self, title, commands, done, flashing=False):
+    def run_openocd(self, title, commands, done, kind=None, flashing=False):
         command = self.openocd_command(commands)
         if command:
             self.save_settings()
-            self.run(title, command, done, flashing)
+            self.run(title, command, done, kind, flashing)
 
     def flash_image(self):
         """The firmware file to flash or verify; flash_new itself rejects anything but a full image."""
@@ -978,8 +1039,9 @@ class App(tk.Tk):
             return
         image = self.tcl_path(path)
         if image:
+            self.pending = file_id(path)
             self.run_openocd("Flashing %s" % path, ["flash_new %s" % image],
-                             "%s flashed and verified; the device reboots" % path, flashing=True)
+                             "%s flashed and verified; the device reboots" % path, kind="flash", flashing=True)
 
     def ocd_verify(self):
         path = self.flash_image()
@@ -1012,15 +1074,16 @@ class App(tk.Tk):
     def finished(self):
         code = self.proc.wait()
         if code == 0:
-            self.flashed = self.flashed or self.running.startswith("Flashing")
-            if self.running.startswith("Building"):
-                self.built = (self.name, self.saved_text, self.infile.get().strip())
+            if self.kind == "build":
+                self.built = self.pending
+            elif self.kind == "flash":
+                self.flashed = self.pending
             self.append("=== Done: %s ===" % self.done, "pass")
         else:
             self.append("=== Failed (exit code %d) ===" % code, "fail")
         for hint in self.hints:
             self.append(hint, "warn")
-        self.proc, self.flashing = None, False
+        self.proc, self.flashing, self.kind, self.pending = None, False, None, None
         for button in self.action_buttons():
             button.config(state="normal")
         self.stop_btn.config(state="disabled")
