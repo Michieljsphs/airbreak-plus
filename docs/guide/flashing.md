@@ -21,6 +21,29 @@ Takes about 30 seconds. The device reboots automatically.
 flash_new stm32.bin
 ```
 
+### From AirBreaker
+
+See the [AirBreaker guide](patch_gui.md) for setup on Windows, Linux and WSL.
+
+The Flash device section of `airbreaker.bat` (or
+`python python/airbreaker.py`) runs the same commands without a telnet
+session. Each button runs `run-ocd.sh` once with the chosen adapter (and
+`-s SERIAL` when given), one command of `tcl/airsense.cfg` and `shutdown`;
+the exit code tells whether it worked:
+
+| Button | Command |
+|--------|---------|
+| Check device | none; the config reports stock or patched firmware |
+| Dump backup | `dump BACKUP` |
+| Flash | `flash_new FIRMWARE` |
+| Verify | `verify FIRMWARE` |
+| Reset | `reset run` |
+
+For example, Verify runs
+`./run-ocd.sh --interface stlink -c "verify {build/stm32-patched.bin}" -c shutdown`.
+On Windows it runs in WSL, where `run-ocd.sh` also attaches the adapter with
+usbipd. Flash asks for confirmation and warns when no backup exists.
+
 ## Method 2: UART
 
 Uses the USART3 accessory port. Requires a [serial connection](serial_connection.md) - either a USB-serial adapter with [edge connector breakout PCB](../adapter_pcbs), or [AirBridge](https://github.com/m-kozlowski/airbridge) over WiFi.
