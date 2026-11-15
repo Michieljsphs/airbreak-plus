@@ -29,7 +29,7 @@ endif
 PAYLOAD_LAYOUT_VERSIONS := 0204 0205 0302 0305 0306 0401 0402
 PAYLOADS_0204 := target_rh mop_callback_dispatcher variable_callback_dispatcher button_hooks keep_backlight custom_menu_hooks uart_stream_schema backlight_adapt header_clock s10_lcd_ili9325 asv_task_wrapper fall_time
 PAYLOADS_0205 := $(PAYLOADS_0204)
-PAYLOADS_0302 := mop_callback_dispatcher variable_callback_dispatcher button_hooks keep_backlight vid_spoof squarewave asv_task_wrapper \
+PAYLOADS_0302 := mop_callback_dispatcher variable_callback_dispatcher button_hooks keep_backlight humidifier_hold vid_spoof squarewave asv_task_wrapper \
 	breath_tracking backlight_adapt wrapper_limit_max_pdiff s10_lcd_ili9325 custom_menu_hooks \
 	uart_stream_schema language_fonts target_rh header_clock fall_time st_ibr autoepap therapy_screen humid_start
 PAYLOADS_0305 := $(PAYLOADS_0302)

@@ -63,6 +63,8 @@ PLATFORM = Platform('air10', phases=(
               True, 'patch_backlight_adapt'),
         Patch('patch-keep-backlight', 'Toggle screen keep-awake by holding the encoder.',
               True, 'enable_keep_backlight'),
+        Patch('patch-humidifier-hold', 'Switch the humidifier off and on by holding Home for 2 s.',
+              False, 'patch_humidifier_hold'),
         Patch('patch-header-clock', 'Add a clock to the Home and therapy-screen headers.',
               True, 'patch_header_clock'),
         Patch('patch-header-climate',

@@ -817,8 +817,8 @@ class ASFirmwarePatches(CompiledPayloadMixin):
         handler = self._elf_symbol_addr(elf_path, symbol) | 1
         if (event, handler) in self.button_handlers:
             raise ValueError("button hooks: duplicate handler for %s" % event_name)
-        if consume and any(code == event and flags & 1 for (code, _), (flags, _) in
-                           self.button_handlers.items()):
+        if consume and any(code == event and flags & 1 and hold == hold_ms
+                           for (code, _), (flags, hold) in self.button_handlers.items()):
             raise ValueError("button hooks: %s already has a consuming handler" % event_name)
         flags = int(bool(consume)) | (0 if on_release else 2)
         self.button_handlers[event, handler] = (flags, hold_ms)
@@ -2947,6 +2947,19 @@ class ASFirmwarePatches(CompiledPayloadMixin):
         self.button_hook_add('encoder_hold', name, 'keep_backlight_toggle',
                              consume=True, on_release=False)
         return PatchOutcome.ok(None, *details)
+
+    def patch_humidifier_hold(self):
+        """Holding Home for 2 s toggles the humidifier (HMX)."""
+        if self.asf.cdx_ver in ('SX584-0204', 'SX584-0205') or self.asf.cdx_ver not in self.BUTTON_HOOK_SITES:
+            return PatchOutcome.skip("unsupported CDX version %s" % self.asf.cdx_ver)
+        name = 'humidifier_hold'
+        data, _, _ = self._load_versioned_payload(name)
+        flash, _ = self._inject_payload(name, data)
+        self.applied_payloads.add(name)
+        self.button_hook_add('home_hold', name, 'humidifier_hold_toggle',
+                             hold_ms=2000, consume=True, on_release=True)
+        return PatchOutcome.ok(self._payload_detail(name, len(data), flash),
+                               "Home held 2-5 s switches the humidifier off and on")
 
     def patch_graph_keep_screen_on(self):
         """Request keep-awake during therapy for the +Graph screen choices."""
