@@ -33,6 +33,8 @@ extern const unsigned short wrapper_limit_max_pdiff_asv_max_var_id;
 extern const unsigned short wrapper_limit_max_pdiff_asv_sens_var_id;
 extern const unsigned short wrapper_limit_max_pdiff_eps_var_id;
 extern const unsigned short wrapper_limit_max_pdiff_exhale_shape_var_id;
+extern const unsigned short wrapper_limit_max_pdiff_fl_boost_var_id;
+extern const unsigned short wrapper_limit_max_pdiff_ffl_var_id;
 
 STATIC bool custom_g8_toggle(unsigned short var_id, bool fallback) {
   return (var_id == 0xFFFFu) ? fallback : (variable_get_by_id((int)var_id) != 0);
@@ -68,6 +70,9 @@ typedef struct {
   int mode;
   vauto_state_t vauto_state;
   float asv_max, asv_sens, eps, exhale_shape;
+  float fl_boost_max; // FL Boost setting: support added at full flow limitation (cmH2O)
+  float fl_level; // Per-breath smoothed flow-limitation index (0.0-1.0)
+  float fl_ps; // FL Boost support for the current breath (cmH2O)
   bool custom_enabled, custom_tc;
   volatile bool settings_dirty;
   bool reset;
@@ -94,6 +99,8 @@ STATIC void load_breath_settings(breath_controller_t *s) {
   s->asv_sens = custom_asv_sens_multiplier();
   s->eps = custom_var_raw(wrapper_limit_max_pdiff_eps_var_id, 50) / 50.0f;
   s->exhale_shape = -0.75f + 0.25f * custom_var_raw(wrapper_limit_max_pdiff_exhale_shape_var_id, 0);
+  s->fl_boost_max = wrapper_limit_max_pdiff_ffl_var_id == 0xFFFFu ? 0.0f :
+                    custom_var_raw(wrapper_limit_max_pdiff_fl_boost_var_id, 0) / 50.0f;
 }
 
 STATIC void init_breath_controller(breath_controller_t *s) {
@@ -130,6 +137,30 @@ STATIC void breath_mode(therapy_worker *node) {
 STATIC void reset_vauto_state(breath_controller_t *s) {
   init_asv_data(&s->asv);
   init_features(&s->features);
+  s->fl_level = 0.0f;
+  s->fl_ps = 0.0f;
+}
+
+// FL Boost: the firmware's fuzzy flow-limitation index (FFL, 0.00-1.00) is
+// sampled once per breath. A fast-attack, slow-release average ignores single
+// flattened breaths, follows sustained flow limitation within a few breaths, and
+// keeps support for a while after the airway opens so the boost does not
+// oscillate on and off with its own effect.
+#define FL_ATTACK 0.15f // per breath while FFL is above the average
+#define FL_RELEASE 0.03f // per breath while FFL is below the average
+#define FL_START 0.05f // average where FL Boost starts
+#define FL_FULL 0.25f // average where FL Boost reaches the setting
+
+STATIC void update_fl_boost(breath_controller_t *s) {
+  if (!(s->fl_boost_max > 0.0f)) {
+    s->fl_level = 0.0f;
+    s->fl_ps = 0.0f;
+    return;
+  }
+  float ffl = clamp01(variable_get_by_id((int)wrapper_limit_max_pdiff_ffl_var_id) / 100.0f);
+  float rate = ffl > s->fl_level ? FL_ATTACK : FL_RELEASE;
+  s->fl_level += (ffl - s->fl_level) * rate;
+  s->fl_ps = s->fl_boost_max * remap01c(s->fl_level, FL_START, FL_FULL);
 }
 
 STATIC void breath_prepare(therapy_worker *node) {
@@ -251,13 +282,17 @@ void MAIN start() {
     if (tr->st_just_started) {
       feat->final_ips = 0.0f;
       feat->peak_ps = vauto_ps;
+      update_fl_boost(s);
     }
-    float base_ps = remap(ps1, 0.0f, 1.0f, feat->eps, vauto_ps-INSTANT_PS) + INSTANT_PS;
+    // FL Boost rises with the stock pressure phase and adds to the base shape.
+    const float shape_ps = remap(ps1, 0.0f, 1.0f, feat->eps, vauto_ps-INSTANT_PS) + INSTANT_PS;
+    float base_ps = shape_ps + s->fl_ps * clamp01(ps1);
     new_ps = base_ps;
     if (asv_max > 0.0f) {
       float new_ps1 = reshape_vauto_ps(ps1, asv->asv_factor);
       float boosted_ps = remap(new_ps1, 0.0f, 1.0f, feat->eps, vauto_ps - INSTANT_PS) + INSTANT_PS*asv->asv_factor;
-      new_ps = clamp(boosted_ps, base_ps, base_ps + asv_max);
+      // ASV Max stays relative to the unboosted shape: the larger of the two boosts wins.
+      new_ps = max(base_ps, min(boosted_ps, shape_ps + asv_max));
     }
 
     feat->ips_fa = 0.0f;

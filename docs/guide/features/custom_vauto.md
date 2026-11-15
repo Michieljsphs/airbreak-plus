@@ -42,6 +42,7 @@ pre-trigger assist, and Custom T/C are disabled.
 | ASV Sens | `RXM` | Very Low, Low, Med, High, Very High | Med | Therapy | VAuto | Scales the adaptive controller response | Med |
 | EPS | `RDH` | 0.0 to 3.0 cmH2O, step 0.2 | 0.0 cmH2O | Therapy | VAuto | Maximum exhale relief below EPAP; zero disables relief | 1.0 cmH2O |
 | Exh. Shape | `RDW` | 0 to 7, step 1 | 0 | Therapy | VAuto | Higher values retain more support during the expiratory descent | 0 |
+| FL Boost | `RTI` | 0.0 to 5.0 cmH2O, step 0.2 | 0.0 cmH2O | Therapy | VAuto | Adds support during sustained flow limitation; zero disables it | Off |
 | Custom T/C | `RPH` | Off, On | Off | Therapy | S, ST, VAuto, PAC | Uses custom multi-signal trigger and flow-shape cycle decisions | On where supported by the runtime path |
 
 Firmware variable assignments and persistence are listed in the
@@ -153,6 +154,47 @@ The adaptive response is stabilized by:
 | Early-inspiration limiting | Gradually enables the adaptive factor at the start of inspiration |
 | Boost engagement limiting | Limits the first breaths when adaptive boost engages or re-engages |
 | Post-large-breath dampening | Temporarily lowers the neutral comparison range after an unusually large breath |
+
+### Flow-limitation boost
+
+FL Boost adds pressure support while the device reports sustained inspiratory
+flow limitation, independent of the volume-based adaptive boost. It reads the
+firmware's fuzzy flow-limitation index (`FFL`, reported as `FlowLim.2s`,
+0.00 to 1.00) once per breath, at the start of inspiration, and averages it
+with a fast attack and a slow release:
+
+```text
+rate  = 0.15 if FFL > level else 0.03
+level = level + rate * (FFL - level)
+fl_ps = FL Boost * clamp((level - 0.05) / (0.25 - 0.05), 0, 1)
+```
+
+A single flattened breath moves the level by at most 15% of its FFL value, so
+isolated spikes add little or no support. Sustained flow limitation reaches
+the full setting within a few breaths. The slow release fades the support over a
+few minutes after flow limitation clears (about 17 breaths to fall from full
+to half), so the boost does not switch off as soon as it starts working.
+
+The boost follows the stock pressure phase and is added to the base shape:
+
+```text
+base_fl(x) = base(x) + fl_ps * clamp(x, 0, 1)
+```
+
+When ASV Max is above zero, the larger of the two boosts applies; they do not
+add:
+
+```text
+support(x) = max(base_fl(x), min(adaptive_shape(x), base(x) + ASV Max))
+```
+
+Like the adaptive boost, FL Boost raises the peak
+support used for the expiratory downslope, reduces EPS relief through the
+`peak_support - PS` term, and can exceed the selected Max IPAP. FL Boost is
+not limited by ASV Max.
+
+The patch marks `FFL` as a runtime source so the firmware computes it in
+VAuto even when the extra-modes patch is not applied.
 
 ### Expiration and pre-trigger assist
 

@@ -1189,12 +1189,14 @@ class ASFirmwarePatches(CompiledPayloadMixin):
         sens_var = self.custom_claim_g8_var('RXM', 'my_asv_sens')
         eps_var = self.custom_claim_g4_var('RDH', 'vauto_eps')
         shape_var = self.custom_claim_g4_var('RDW', 'vauto_exhale_shape')
+        fl_var = self.custom_claim_g4_var('RTI', 'vauto_fl_boost')
         vauto_label = self.redefine_fw_string(-1, {0: 'Custom VAuto'}, 'custom_vauto_label')
         tc_label = self.redefine_fw_string(-1, {0: 'Custom T/C'}, 'custom_triggercycle_label')
         max_label = self.redefine_fw_string(-1, {0: 'ASV Max'}, 'my_asv_max_label')
         sens_label = self.redefine_fw_string(-1, {0: 'ASV Sens'}, 'my_asv_sens_label')
         eps_label = self.redefine_fw_string(-1, {0: 'EPS'}, 'vauto_eps_label')
         shape_label = self.redefine_fw_string(-1, {0: 'Exh. Shape'}, 'vauto_exhale_shape_label')
+        fl_label = self.redefine_fw_string(-1, {0: 'FL Boost'}, 'vauto_fl_boost_label')
 
         # Keep the Reminder group chain root (RGT). These variables still live in
         # the renamed persistent group and edits must continue to dirty/save it.
@@ -1214,6 +1216,15 @@ class ASFirmwarePatches(CompiledPayloadMixin):
                              150, 0, 1, 50, 10, cmh2o_units)
         self.redefine_g4_var(shape_var, 0x0007, 0, storage_dep, shape_label, 0,
                              7, 0, 0, 1, 1, self.asf.str_id_empty)
+        self.redefine_g4_var(fl_var, 0x0007, 0, storage_dep, fl_label, 0,
+                             250, 0, 1, 50, 10, cmh2o_units)
+
+        # FL Boost reads the firmware's fuzzy flow-limitation index. Mark it as
+        # a runtime source so it is computed even without the extra-modes patch.
+        ffl_rec = self.asf.find_var('FFL')
+        self.asf.write_u16(ffl_rec + self.asf.G4_FLAGS,
+                           self.asf.read_u16(ffl_rec + self.asf.G4_FLAGS) | 1)
+        ffl_vid = self.asf.resolve_var_id('FFL')
 
         # Firmware descriptors and menu registration can use UART names. Injected
         # code receives compact numeric var_ids through explicit ABI slots.
@@ -1223,14 +1234,15 @@ class ASFirmwarePatches(CompiledPayloadMixin):
         sens_vid = self.asf.resolve_var_id(sens_var)
         eps_vid = self.asf.resolve_var_id(eps_var)
         shape_vid = self.asf.resolve_var_id(shape_var)
+        fl_vid = self.asf.resolve_var_id(fl_var)
         previous = stock('SPT')
-        for var in (vauto_var, max_var, sens_var, eps_var, shape_var):
+        for var in (vauto_var, max_var, sens_var, eps_var, shape_var, fl_var):
             previous = self.custom_menu_add(
                 'therapy', var, self.mop_bitmask('VAuto'), after=previous)
         self.custom_menu_add(
             'therapy', tc_var, self.mop_bitmask('S', 'ST', 'VAuto', 'PAC'),
             before=stock('VTS'))
-        for var in (max_var, sens_var, eps_var, shape_var, tc_var):
+        for var in (max_var, sens_var, eps_var, shape_var, fl_var, tc_var):
             self.custom_menu_add_condition(var, vauto_var, self.mop_bitmask('VAuto'))
         self.custom_menu_add_condition(tc_var, 'EBE', self.mop_bitmask('S'), nonzero=False)
 
@@ -1243,7 +1255,9 @@ class ASFirmwarePatches(CompiledPayloadMixin):
         sens_addr = self._write_payload_u16(payload, 'wrapper_limit_max_pdiff_asv_sens_var_id', sens_vid)
         eps_addr = self._write_payload_u16(payload, 'wrapper_limit_max_pdiff_eps_var_id', eps_vid)
         shape_addr = self._write_payload_u16(payload, 'wrapper_limit_max_pdiff_exhale_shape_var_id', shape_vid)
-        for var in (vauto_var, tc_var, max_var, sens_var, eps_var, shape_var):
+        fl_addr = self._write_payload_u16(payload, 'wrapper_limit_max_pdiff_fl_boost_var_id', fl_vid)
+        ffl_addr = self._write_payload_u16(payload, 'wrapper_limit_max_pdiff_ffl_var_id', ffl_vid)
+        for var in (vauto_var, tc_var, max_var, sens_var, eps_var, shape_var, fl_var):
             self.variable_callback_add(var, payload, 'custom_breath_settings_changed')
 
         self._custom_detail("custom VAuto enable: %s var_id=0x%04X label_str=0x%04X" %
@@ -1256,6 +1270,8 @@ class ASFirmwarePatches(CompiledPayloadMixin):
                             (eps_var, eps_vid, eps_label))
         self._custom_detail("VAuto exhale shape: %s var_id=0x%04X label_str=0x%04X" %
                             (shape_var, shape_vid, shape_label))
+        self._custom_detail("VAuto FL boost: %s var_id=0x%04X label_str=0x%04X" %
+                            (fl_var, fl_vid, fl_label))
         self._custom_detail("custom trigger/cycle: %s var_id=0x%04X label_str=0x%04X" %
                             (tc_var, tc_vid, tc_label))
         self._custom_detail("VAuto wrapper toggle var_id=0x%04X at 0x%08X" % (vauto_vid, addr))
@@ -1263,6 +1279,8 @@ class ASFirmwarePatches(CompiledPayloadMixin):
         self._custom_detail("ASV Sens var_id=0x%04X at 0x%08X" % (sens_vid, sens_addr))
         self._custom_detail("EPS var_id=0x%04X at 0x%08X" % (eps_vid, eps_addr))
         self._custom_detail("Exhale Shape var_id=0x%04X at 0x%08X" % (shape_vid, shape_addr))
+        self._custom_detail("FL Boost var_id=0x%04X at 0x%08X" % (fl_vid, fl_addr))
+        self._custom_detail("FFL source var_id=0x%04X at 0x%08X" % (ffl_vid, ffl_addr))
         self._custom_detail("trigger/cycle toggle var_id=0x%04X at 0x%08X" % (tc_vid, tc_addr))
 
     def custom_patch_settings_ivaps(self):
