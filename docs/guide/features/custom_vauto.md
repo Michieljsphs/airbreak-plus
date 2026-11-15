@@ -40,7 +40,10 @@ pre-trigger assist, and Custom T/C are disabled.
 | Custom VAuto | `RPO` | Off, On | Off | Therapy | VAuto | Selects stock VAuto or the complete custom pressure-support path | On |
 | ASV Max | `RCM` | 0.0 to 10.0 cmH2O, step 0.2 | 3.0 cmH2O | Therapy | VAuto | Limits adaptive boost above the custom base pressure shape; zero disables adaptive boost | `2 * VAuto PS` |
 | ASV Sens | `RXM` | Very Low, Low, Med, High, Very High | Med | Therapy | VAuto | Scales the adaptive controller response | Med |
-| Custom T/C | `RPH` | Off, On | Off | Therapy | S, ST, T, VAuto, PAC | Uses custom multi-signal trigger and flow-shape cycle decisions | On where supported by the runtime path |
+| EPS | `RDH` | 0.0 to 3.0 cmH2O, step 0.2 | 0.0 cmH2O | Therapy | VAuto | Maximum exhale relief below EPAP; zero disables relief | 1.0 cmH2O |
+| Exh. Shape | `RDW` | 0 to 7, step 1 | 0 | Therapy | VAuto | Higher values retain more support during the expiratory descent | 0 |
+| FL Boost | `RTI` | 0.0 to 5.0 cmH2O, step 0.2 | 0.0 cmH2O | Therapy | VAuto | Adds support during sustained flow limitation; zero disables it | Off |
+| Custom T/C | `RPH` | Off, On | Off | Therapy | S, ST, VAuto, PAC | Uses custom multi-signal trigger and flow-shape cycle decisions | On where supported by the runtime path |
 
 Firmware variable assignments and persistence are listed in the
 [custom settings registry](../../custom_settings.md#assignments).
@@ -71,7 +74,7 @@ stock final pressure limiter.
 | EPAP | Selected by the stock VAuto controller | Unchanged |
 | Configured PS | Defines the difference between EPAP and full inspiratory pressure | Defines the nominal support range used by the custom pressure shape |
 | Inspiration | Stock VAuto pressure waveform | Custom base shape with optional adaptive boost |
-| Expiration | Stock pressure return toward EPAP | Custom downslope with calculated exhale relief |
+| Expiration | Stock pressure return toward EPAP | Custom downslope with adjustable exhale relief |
 | Trigger preparation | Stock response | May add up to 0.4 cmH2O of pre-trigger pressure assist |
 | Trigger and cycle decisions | Configured stock thresholds | Stock thresholds or Custom T/C decisions |
 | Final pressure | Limited by Max IPAP | Adaptive boost can exceed the selected Max IPAP; see Pressure limits |
@@ -83,7 +86,7 @@ stock final pressure limiter.
 Let:
 
 - `PS` be the configured VAuto pressure support
-- `x` be the stock VAuto pressure phase from 0 to 1
+- `x` be the normalized stock pressure-support command; `1` represents the configured PS
 - `e` be the current expiratory offset, at or below zero
 
 The non-adaptive custom support shape is:
@@ -98,9 +101,11 @@ remains active when ASV Max is zero.
 
 ### Adaptive boost
 
-The adaptive controller tracks recent valid breaths and builds a moving
-reference breath. It does not use a fixed tidal-volume target. At roughly 50 ms
-checkpoints it compares cumulative inspired volume with the reference at the
+The adaptive controller builds a reference from fully observed inspirations,
+without a fixed tidal-volume target. Each checkpoint starts with the average of
+its first 20 measurements before it is used to adjust support. Subsequent
+measurements update a two-stage moving reference. At roughly 50 ms checkpoints,
+the controller compares cumulative inspired volume with the reference at the
 same point in the breath:
 
 ```text
@@ -135,7 +140,7 @@ The adaptive factor blends or scales this curve. ASV Max then places a relative
 limit on the resulting support:
 
 ```text
-support(x) = min(adaptive_shape(x), base(x) + ASV Max)
+support(x) = clamp(adaptive_shape(x), base(x), base(x) + ASV Max)
 ```
 
 ASV Max is not an absolute pressure setting. ASV Sens changes the strength of
@@ -150,24 +155,75 @@ The adaptive response is stabilized by:
 | Boost engagement limiting | Limits the first breaths when adaptive boost engages or re-engages |
 | Post-large-breath dampening | Temporarily lowers the neutral comparison range after an unusually large breath |
 
-### Expiration and pre-trigger assist
+### Flow-limitation boost
 
-The largest support reached during inspiration is retained as the start of the
-expiratory downslope. After an inspiration lasting at least 0.7 seconds, the
-initial exhale-relief magnitude is calculated as:
+FL Boost adds pressure support while the device reports sustained inspiratory
+flow limitation, independent of the volume-based adaptive boost. It reads the
+firmware's fuzzy flow-limitation index (`FFL`, reported as `FlowLim.2s`,
+0.00 to 1.00) once per breath, at the start of inspiration, and averages it
+with a fast attack and a slow release:
 
 ```text
-relief = clamp(0.2 * (EPAP - PS/2), 0.4, 1.6)
-relief = max(0, relief - 0.25 * (peak_support - PS))
+rate  = 0.15 if FFL > level else 0.03
+level = level + rate * (FFL - level)
+fl_ps = FL Boost * clamp((level - 0.05) / (0.25 - 0.05), 0, 1)
+```
+
+A single flattened breath moves the level by at most 15% of its FFL value, so
+isolated spikes add little or no support. Sustained flow limitation reaches
+the full setting within a few breaths. The slow release fades the support over a
+few minutes after flow limitation clears (about 17 breaths to fall from full
+to half), so the boost does not switch off as soon as it starts working.
+
+The boost follows the stock pressure phase and is added to the base shape:
+
+```text
+base_fl(x) = base(x) + fl_ps * clamp(x, 0, 1)
+```
+
+When ASV Max is above zero, the larger of the two boosts applies; they do not
+add:
+
+```text
+support(x) = max(base_fl(x), min(adaptive_shape(x), base(x) + ASV Max))
+```
+
+Like the adaptive boost, FL Boost raises the peak
+support used for the expiratory downslope, reduces EPS relief through the
+`peak_support - PS` term, and can exceed the selected Max IPAP. FL Boost is
+not limited by ASV Max.
+
+The patch marks `FFL` as a runtime source so the firmware computes it in
+VAuto even when the extra-modes patch is not applied.
+
+### Expiration and pre-trigger assist
+
+The expiratory downslope uses the largest support reached during inspiration.
+EPS sets the maximum exhale relief below EPAP; zero disables relief. After an
+inspiration lasting at least 0.7 seconds, adaptive boost reduces the initial
+relief. The equations below assume unchanged settings:
+
+```text
+relief = max(0, EPS - 0.25 * max(0, peak_support - PS))
 ```
 
 The relief fades with remaining integrated breath volume and with current and
-recent expiratory timing. The expiratory phase is curved as follows:
+recent expiratory timing. Exh. Shape controls the descent between peak support
+and the expiratory offset. Higher levels hold more support during this descent:
 
 ```text
-x_exp = 0.25x + 0.75x^2
-support_exp = lerp(exhale_offset, peak_support, x_exp)
+s = -0.75 + 0.25 * Exh. Shape
+xc = clamp(x, 0, 1)
+x_exp = xc + s * xc * (1 - xc)
+support_exp = min(lerp(exhale_offset, peak_support, x_exp), end_support)
 ```
+
+The resulting expiratory support is capped at `end_support`, the support at
+the end of inspiration.
+
+Level 0 gives the original custom curve `0.25*xc + 0.75*xc^2`;
+level 3 follows the stock curve between the custom pressure endpoints; level 7
+gives `2*xc - xc^2`.
 
 During expiration, the wrapper also projects flow approximately 80 ms ahead.
 When the projected flow crosses the trigger threshold and current flow is
@@ -175,7 +231,7 @@ positive, it can add 0.2 or 0.4 cmH2O of support before the detected inspiration
 
 ### Trigger and cycle
 
-Custom T/C is available in S, ST, T, VAuto, and PAC. The EasyBreathe pressure
+Custom T/C is available in S, ST, VAuto, and PAC. The EasyBreathe pressure
 waveform does not use Custom T/C.
 
 Custom trigger combines:
@@ -186,27 +242,35 @@ Custom trigger combines:
 - proximity to the recent typical breath timing
 
 The custom score takes control when commanded pressure is stable or the
-projected flow indicates a likely inspiration. A score at or above `1.0` forces
-inspiration; a lower score prevents an early trigger. At other times, the
+projected flow indicates a likely inspiration. A score at or above `1.0` requests
+inspiration; a lower score holds expiration. At other times, the
 configured stock trigger threshold remains in use.
 
-Custom cycle compares basal-leak-corrected flow with the peak inspiratory flow
-of the same breath. The configured Cycle setting supplies the stock fraction
+Custom cycle compares leak-compensated flow with its peak during the same
+inspiration. The configured Cycle setting supplies the stock fraction
 `s`, from which the custom threshold is calculated:
 
 ```text
 custom_cycle_fraction = 0.5s - 0.225
 ```
 
-Expiration is selected when flow falls below that custom fraction of peak flow,
-or when the stock cycle condition has remained present for approximately
-600 ms. This delays cycling through short flow reductions while retaining a
-bounded path to expiration.
+Expiration is requested when flow falls below that custom fraction of peak
+flow, or when a low-flow counter reaches 600 ms. The counter counts up while
+flow is below the configured Cycle fraction of peak flow, and down otherwise.
 
-When Custom T/C is Off, the configured stock trigger and cycle sensitivities
-remain in use.
+Custom T/C cannot shorten inspiration below Ti Min or bypass the minimum
+expiratory time. Ti Max still ends inspiration, and modes with timed backup
+can still start a breath without a patient trigger. Before another patient
+trigger can be accepted, flow must fall below the configured Trigger threshold.
+
+With Custom T/C Off, triggering and cycling use the configured stock
+sensitivities.
 
 ### Pressure limits
+
+Exhale relief cannot lower the base pressure target below 4 cmH2O. If the stock
+target is already lower during a transition, Custom VAuto does not lower it
+further.
 
 Max IPAP limits the stock VAuto baseline. Adaptive support is added afterwards
 and can raise inspiratory pressure above the selected Max IPAP. ASV Max limits
@@ -224,6 +288,4 @@ and ASVAuto backup response is a separate
 ## Caveats
 
 - Large leaks or unstable triggering can distort flow and volume tracking.
-- The moving reference is updated only from breaths accepted as valid by the
-  custom breath tracker.
 - ASV and ASVAuto settings do not control Custom VAuto.

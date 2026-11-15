@@ -99,7 +99,7 @@ This patch lets users adjust humidification above or below the stock
 Lower targets reduce the requested moisture; higher targets increase it.
 Manual humidity levels remain available and work alongside this setting.
 
-With custom settings, **Target RH (%)** appears in clinical **Accessories**:
+With custom settings, **Target RH (%)** appears in clinical **Comfort**:
 70-100%, in steps of 1 percentage point. The setting is saved across restarts
 and is also available over UART as `RCH`. The default is 85%, unless a different
 value is selected when building the image.
@@ -109,6 +109,14 @@ Without this patch, the stock 85% target remains unchanged.
 
 The percentage is a target, not a measurement of humidity at the mask.
 Higher targets increase condensation risk; 100% targets saturation.
+
+## Therapy Screen
+
+Choose a round pressure indicator (**Simple**) or a pressure bar (**Bar**) under
+**Therapy scr.** in clinical **Options**. **Auto** selects the style according
+to the therapy mode.
+
+The **+Graph** variants add live flow and pressure traces. Bar is the default.
 
 ## Humid Start
 
@@ -125,7 +133,7 @@ can check it in the morning.
 
 ## Header Clock
 
-Enable **Clock** in clinical **Configuration** to replace the Home and active
+Enable **Clock** in clinical **Options** to replace the Home and active
 therapy-screen titles with the device time in 24-hour `HH:MM` format.
 
 ## Header Climate
@@ -151,7 +159,7 @@ estimated from a model of the humidifier chamber (`patches/humidity_model.h`):
 the room air plus the smaller of a plate bound and the stock heater-power bound
 on the added moisture, divided by the saturation humidity at the tube
 temperature. The plate bound uses a coupling of `0.25`
-(`header_climate_plate_coupling` in `patches/header_climate_abi.S`).
+(`header_climate_plate_coupling` in `patches/header_clock_abi.S`).
 Treat the value as a guide to the trend, not a measurement. It is probably too
 high in the first minutes, can read 100% when the estimate is above saturation,
 and has not been checked against a hygrometer.
@@ -161,7 +169,7 @@ With custom settings, clinical **Configuration** gets a **Climate** switch
 title, again. The switch takes an on/off variable and label string left free by
 the other custom settings; without one the readout stays on.
 
-Enable it with `--patch-header-climate y` or `PATCH_HEADER_CLIMATE=1`. It is off
+Enable it with `--patch-header-climate y`. It is off
 by default, needs the header clock patch (on by default), and is independent
 of the **Clock** setting.
 
@@ -221,5 +229,5 @@ damaged or unavailable.
 
 The controller is detected at startup. Devices with the original ILI9341 panel
 continue to use the stock display path, so the same patched image can support
-both the original and replacement controllers. Enable this driver when
-building with `PATCH_S10_LCD=1`.
+both the original and replacement controllers. Enable this driver with
+`--patch-fw-lcd y`.
