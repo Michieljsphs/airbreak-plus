@@ -146,7 +146,7 @@ estimated from a model of the humidifier chamber (`patches/humidity_model.h`):
 the room air plus the smaller of a plate bound and the stock heater-power bound
 on the added moisture, divided by the saturation humidity at the tube
 temperature. The plate bound uses a coupling of `0.25`
-(`header_climate_plate_coupling` in `patches/header_climate_abi.S`).
+(`header_climate_plate_coupling` in `patches/header_clock_abi.S`).
 Treat the value as a guide to the trend, not a measurement. It is probably too
 high in the first minutes, can read 100% when the estimate is above saturation,
 and has not been checked against a hygrometer.
@@ -156,7 +156,7 @@ With custom settings, clinical **Configuration** gets a **Climate** switch
 title, again. The switch takes an on/off variable and label string left free by
 the other custom settings; without one the readout stays on.
 
-Enable it with `--patch-header-climate y` or `PATCH_HEADER_CLIMATE=1`. It is off
+Enable it with `--patch-header-climate y`. It is off
 by default, needs the header clock patch (on by default), and is independent
 of the **Clock** setting.
 
