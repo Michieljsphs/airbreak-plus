@@ -1510,13 +1510,10 @@ class ASFirmwarePatches(CompiledPayloadMixin):
 
     def custom_patch_settings_header_climate(self):
         """Add a Climate switch for the header climate readout next to Clock."""
-        hint = 'build without e.g. --patch-st-ibr to add it'
-        enable = None
-        if self.custom_string_pool:
-            enable = self.custom_claim_free_g8_var(
-                self.FREE_SWITCH_SLOTS, 'header_climate')
+        enable = self.custom_claim_free_g8_var(
+            self.FREE_SWITCH_SLOTS, 'header_climate')
         if enable is None:
-            self._custom_detail('Climate switch: no free label string or on/off slot; ' + hint)
+            self._custom_detail('Climate switch: no free on/off slot')
             return
         label = self.redefine_fw_string(-1, {0: 'Climate'}, 'header_climate_label')
         dep = self.asf.find_var_table_index(4, 'RGT')
