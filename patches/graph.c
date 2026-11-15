@@ -229,7 +229,7 @@ STATIC int half_degrees(int raw) {
 STATIC float coupling(void) {
 	if (graph_coupling_var_id == 0xffffu)
 		return graph_plate_coupling;
-	return variable_get_by_id(graph_coupling_var_id) * 0.01f;
+	return coupling_from_raw(variable_get_by_id(graph_coupling_var_id));
 }
 
 /* The time the chart covers, in minutes. */
