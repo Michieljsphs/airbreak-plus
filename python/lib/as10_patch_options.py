@@ -15,6 +15,43 @@ def percentage(value):
     return percent
 
 
+# Air10 GUI palette roles (SX567): groups of palette entries that share one
+# stock color, named after how the stock colors are used (white text on
+# black, ResMed blue accent).
+# (role, label, --patch-custom-palette color, stock color)
+PALETTE_ROLES = (
+    ('text', 'Text', 'FFBB44', 'FFFFFF'),
+    ('secondary', 'Secondary text', '964848', '969696'),
+    ('dim', 'Dimmed text', '643232', '646464'),
+    ('frame', 'Frames and bars', '402020', '404040'),
+    ('background', 'Background', '080008', '000000'),
+    ('accent', 'Accent (selection)', 'CC3300', '0099CC'),
+    ('accent_dark', 'Dark accent', '003953', '003953'),
+    ('grey', 'Grey', '969696', '969696'),
+    ('light', 'Light grey', 'D0D0D0', 'D0D0D0'),
+)
+PALETTE_KEYS = tuple(role[0] for role in PALETTE_ROLES)
+
+
+def palette_colors(value):
+    """ROLE=RRGGBB[,ROLE=RRGGBB...] as a dict in role order."""
+    colors = {}
+    for item in filter(None, (part.strip() for part in value.split(','))):
+        key, sep, color = item.partition('=')
+        key, color = key.strip().lower(), color.strip().lstrip('#').upper()
+        if not sep or key not in PALETTE_KEYS:
+            raise argparse.ArgumentTypeError(
+                'expected ROLE=RRGGBB with ROLE one of: %s' % ', '.join(PALETTE_KEYS))
+        if len(color) != 6 or any(c not in '0123456789ABCDEF' for c in color):
+            raise argparse.ArgumentTypeError('%s: expected a hex color like FFBB44' % key)
+        colors[key] = color
+    return {key: colors[key] for key in PALETTE_KEYS if key in colors}
+
+
+def format_palette_colors(colors):
+    return ','.join('%s=%s' % item for item in colors.items())
+
+
 # Patch order is part of the implementation. Payloads must be present before
 # custom settings patch their ABI slots; all MOP handlers must be registered
 # before finalization installs the shared dispatcher and expands the variable
@@ -72,7 +109,13 @@ PLATFORM = Platform('air10', phases=(
                             Value(percentage, 'PERCENT'), 85.0),
               )),
         Patch('patch-custom-palette', 'Patch the custom color palette.',
-              True, 'custom_palette'),
+              True, 'custom_palette', parameters=(
+                  Parameter('palette-colors',
+                            'Single palette colors; roles left out keep the custom palette. '
+                            'Roles: %s.' % ', '.join(PALETTE_KEYS),
+                            Value(palette_colors, 'ROLE=RRGGBB,...',
+                                  format=format_palette_colors)),
+              )),
         Patch('patch-past-date', 'Allow setting past date in the menu and over UART.',
               True, 'patch_past_date'),
         Patch('patch-motor-nagscreen', 'Remove the "Motor life exceeded" nag screen.',

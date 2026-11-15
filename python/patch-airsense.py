@@ -29,6 +29,7 @@ from lib.custom_menu import MenuBuilder, stock, custom
 from lib.custom_menu_stock import StockMenu
 from lib.patch_config import parse_patch_args
 from lib import patch_options
+from lib.as10_patch_options import PALETTE_ROLES
 
 
 FIRMWARE_BUILD_ALPHABET = '0123456789ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz'
@@ -170,9 +171,10 @@ class ASFirmwarePatches(CompiledPayloadMixin):
         'AFH': 11,
     }
         
-    def __init__(self, asf, target_rh=85.0):
+    def __init__(self, asf, target_rh=85.0, palette_colors=None):
         self.asf = asf
         self.target_rh_percent = target_rh
+        self.palette_colors = palette_colors or {}
         self.applied_payloads = set()
         self.enabled_custom_settings_features = set()
         self.mop_callback_handlers = {}
@@ -3307,23 +3309,15 @@ class ASFirmwarePatches(CompiledPayloadMixin):
             return PatchOutcome.warn("palette signature not found")
         base += 8
 
-        self.asf.patch(b'\xCC\x33\x00\x00', base + 0x24, clobber=True)
-
-        for off in (0x00, 0x1C, 0x28, 0x40, 0x44, 0x48):
-            self.asf.patch(b'\xFF\xBB\x44\x00', base + off, clobber=True)
-
-        for off in (0x04, 0x0C):
-            self.asf.patch(b'\x96\x48\x48\x00', base + off, clobber=True)
-
-        self.asf.patch(b'\x64\x32\x32\x00', base + 0x08, clobber=True)
-
-        for off in (0x10, 0x14, 0x30, 0x4C):
-            self.asf.patch(b'\x40\x20\x20\x00', base + off, clobber=True)
-
-        for off in (0x18, 0x34, 0x50):
-            self.asf.patch(b'\x08\x00\x08\x00', base + off, clobber=True)
-
-        return PatchOutcome.ok(None, "Palette table: 0x%08X" % (self.asf.FLASH_BASE + base))
+        # --palette-colors overrides single roles; the others keep the custom palette.
+        details = ["Palette table: 0x%08X" % (self.asf.FLASH_BASE + base)]
+        for role, label, custom, _ in PALETTE_ROLES:
+            color = self.palette_colors.get(role, custom)
+            for off in PALETTE_OFFSETS[role]:
+                self.asf.patch(bytes.fromhex(color) + b'\x00', base + off, clobber=True)
+            if role in self.palette_colors:
+                details.append("%s: #%s" % (label, color))
+        return PatchOutcome.ok(None, *details)
 
 
     def patch_expand_heap(self):
@@ -3486,6 +3480,19 @@ class TeeStream:
 
 PATCH_OPTIONS = patch_options.load('air10')
 
+# Offsets of the SX567 palette entries (R, G, B, 0) of each PALETTE_ROLES role.
+PALETTE_OFFSETS = {
+    'text': (0x00, 0x1C, 0x28, 0x40, 0x44, 0x48),
+    'secondary': (0x04, 0x0C),
+    'dim': (0x08,),
+    'frame': (0x10, 0x14, 0x30, 0x4C),
+    'background': (0x18, 0x34, 0x50),
+    'accent': (0x24,),
+    'accent_dark': (0x2C, 0x38),
+    'grey': (0x20,),
+    'light': (0x3C,),
+}
+
 
 def build_argument_parser():
     parser = argparse.ArgumentParser(description='Patch AirSense firmware with selected updates.',
@@ -3577,7 +3584,8 @@ def run_patcher(args, detail_log=None):
 
     repo_dir = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
     build_identity = firmware_build_identity(repo_dir)
-    patches = ASFirmwarePatches(asf, target_rh=args.target_rh)
+    patches = ASFirmwarePatches(asf, target_rh=args.target_rh,
+                                 palette_colors=args.palette_colors)
 
     apply_patch_phases(patches, args, detail_log)
 
