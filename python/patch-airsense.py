@@ -3311,9 +3311,11 @@ class ASFirmwarePatches(CompiledPayloadMixin):
 
         # --palette-colors overrides single roles; the others keep the custom palette.
         details = ["Palette table: 0x%08X" % (self.asf.FLASH_BASE + base)]
-        for role, label, custom, _ in PALETTE_ROLES:
+        for role, label, custom, _, offsets in PALETTE_ROLES:
             color = self.palette_colors.get(role, custom)
-            for off in PALETTE_OFFSETS[role]:
+            if color is None:
+                continue
+            for off in offsets:
                 self.asf.patch(bytes.fromhex(color) + b'\x00', base + off, clobber=True)
             if role in self.palette_colors:
                 details.append("%s: #%s" % (label, color))
@@ -3479,19 +3481,6 @@ class TeeStream:
 
 
 PATCH_OPTIONS = patch_options.load('air10')
-
-# Offsets of the SX567 palette entries (R, G, B, 0) of each PALETTE_ROLES role.
-PALETTE_OFFSETS = {
-    'text': (0x00, 0x1C, 0x28, 0x40, 0x44, 0x48),
-    'secondary': (0x04, 0x0C),
-    'dim': (0x08,),
-    'frame': (0x10, 0x14, 0x30, 0x4C),
-    'background': (0x18, 0x34, 0x50),
-    'accent': (0x24,),
-    'accent_dark': (0x2C, 0x38),
-    'grey': (0x20,),
-    'light': (0x3C,),
-}
 
 
 def build_argument_parser():

@@ -18,17 +18,19 @@ def percentage(value):
 # Air10 GUI palette roles (SX567): groups of palette entries that share one
 # stock color, named after how the stock colors are used (white text on
 # black, ResMed blue accent).
-# (role, label, --patch-custom-palette color, stock color)
+# (role, label, --patch-custom-palette color or None, stock color, entry
+# offsets in the palette table). Roles without a custom color are left as
+# they are unless --palette-colors names them.
 PALETTE_ROLES = (
-    ('text', 'Text', 'FFBB44', 'FFFFFF'),
-    ('secondary', 'Secondary text', '964848', '969696'),
-    ('dim', 'Dimmed text', '643232', '646464'),
-    ('frame', 'Frames and bars', '402020', '404040'),
-    ('background', 'Background', '080008', '000000'),
-    ('accent', 'Accent (selection)', 'CC3300', '0099CC'),
-    ('accent_dark', 'Dark accent', '003953', '003953'),
-    ('grey', 'Grey', '969696', '969696'),
-    ('light', 'Light grey', 'D0D0D0', 'D0D0D0'),
+    ('text', 'Text', 'FFBB44', 'FFFFFF', (0x00, 0x1C, 0x28, 0x40, 0x44, 0x48)),
+    ('secondary', 'Secondary text', '964848', '969696', (0x04, 0x0C)),
+    ('dim', 'Dimmed text', '643232', '646464', (0x08,)),
+    ('frame', 'Frames and bars', '402020', '404040', (0x10, 0x14, 0x30, 0x4C)),
+    ('background', 'Background', '080008', '000000', (0x18, 0x34, 0x50)),
+    ('accent', 'Accent (selection)', 'CC3300', '0099CC', (0x24,)),
+    ('accent_dark', 'Dark accent', None, '003953', (0x2C, 0x38)),
+    ('grey', 'Grey', None, '969696', (0x20,)),
+    ('light', 'Light grey', None, 'D0D0D0', (0x3C,)),
 )
 PALETTE_KEYS = tuple(role[0] for role in PALETTE_ROLES)
 
@@ -111,7 +113,7 @@ PLATFORM = Platform('air10', phases=(
         Patch('patch-custom-palette', 'Patch the custom color palette.',
               True, 'custom_palette', parameters=(
                   Parameter('palette-colors',
-                            'Single palette colors; roles left out keep the custom palette. '
+                            'Single palette colors, given once; roles left out keep the custom palette. '
                             'Roles: %s.' % ', '.join(PALETTE_KEYS),
                             Value(palette_colors, 'ROLE=RRGGBB,...',
                                   format=format_palette_colors)),
