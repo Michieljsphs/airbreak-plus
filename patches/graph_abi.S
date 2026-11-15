@@ -51,7 +51,7 @@ graph_width_minutes:
 .global graph_plate_coupling
 .type graph_plate_coupling, %object
 graph_plate_coupling:
-	.float 0.3
+	.float 0.25
 
 /* Custom settings shown on the climate chart; 0xffff when not installed:
  * Graph Width (raw = tenths of an hour; none: graph_width_minutes), Humid

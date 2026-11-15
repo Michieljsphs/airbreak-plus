@@ -1702,11 +1702,13 @@ class ASFirmwarePatches(CompiledPayloadMixin):
             ('backlight_adapt', self.custom_patch_settings_backlight),
             ('target_rh', self.custom_patch_settings_target_rh),
             ('header_clock', self.custom_patch_settings_header_clock),
-            # Last: its switch claims a g[8] slot left free by the features above.
+            # After every fixed claim: it takes a value slot nobody else needs,
+            # ahead of Humid Start, which keeps the width's menu row.
+            ('graph_climate', self.custom_patch_settings_graph_width),
+            # Last: its switch claims a g[8] slot, and Min Tube and the coupling
+            # g[4] slots, left free by the features above.
             ('humid_start', self.custom_patch_settings_humid_start),
             ('header_climate', self.custom_patch_settings_header_climate),
-            # After every fixed claim: it takes a value slot nobody else needs.
-            ('graph_climate', self.custom_patch_settings_graph_width),
         )
         active = self.applied_payloads | self.enabled_custom_settings_features
         return [feature for source, feature in feature_patches if source in active]
