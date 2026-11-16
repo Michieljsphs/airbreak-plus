@@ -1218,6 +1218,9 @@ class ASFirmwarePatches(CompiledPayloadMixin):
                              7, 0, 0, 1, 1, self.asf.str_id_empty)
         self.redefine_g4_var(fl_var, 0x0007, 0, storage_dep, fl_label, 0,
                              250, 0, 1, 50, 10, cmh2o_units)
+        # RTI is not a stock member of the storage group; add it so FL Boost
+        # is saved like the other settings.
+        self.custom_storage_add(fl_var)
 
         # FL Boost reads the firmware's fuzzy flow-limitation index. Mark it as
         # a runtime source so it is computed even without the extra-modes patch.
