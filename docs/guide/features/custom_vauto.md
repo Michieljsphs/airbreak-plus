@@ -198,6 +198,10 @@ not limited by ASV Max.
 The patch marks `FFL` as a runtime source so the firmware computes it in
 VAuto even when the extra-modes patch is not applied.
 
+Custom VAuto needs a positive PS: with PS at 0.0 the controller leaves the stock
+VAuto shape in place and FL Boost has no effect. The FL Boost row is therefore
+hidden while PS is 0.0 and returns when PS is raised. The stored setting is kept.
+
 ### Expiration and pre-trigger assist
 
 The expiratory downslope uses the largest support reached during inspiration.

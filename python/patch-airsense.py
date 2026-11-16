@@ -1247,6 +1247,8 @@ class ASFirmwarePatches(CompiledPayloadMixin):
             before=stock('VTS'))
         for var in (max_var, sens_var, eps_var, shape_var, fl_var, tc_var):
             self.custom_menu_add_condition(var, vauto_var, self.mop_bitmask('VAuto'))
+        # With PS 0 the wrapper falls back to stock VAuto, so FL Boost has no effect.
+        self.custom_menu_add_condition(fl_var, 'SPT', self.mop_bitmask('VAuto'))
         self.custom_menu_add_condition(tc_var, 'EBE', self.mop_bitmask('S'), nonzero=False)
 
         # Patch the prebuilt wrapper's ABI slots instead of coupling its source to
