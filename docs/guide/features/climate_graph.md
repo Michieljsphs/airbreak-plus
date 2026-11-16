@@ -59,10 +59,8 @@ is on the LCD page of the configuration menu when the backlight patch is
 installed, otherwise in clinical **Options**. `--graph-width` sets its starting
 value. Changing it clears the chart and starts it again from that moment.
 
-The setting takes a free value slot left by the other patches. If none is free
-it is left out and `--graph-width` stays fixed; the build log says so. A slot
-may hold a stored value from the feature that used it before: set the width
-once in the menu if it looks wrong after flashing.
+The setting is the UART variable `RDT` and is saved with the other custom
+settings.
 
 ## When it starts and stops
 

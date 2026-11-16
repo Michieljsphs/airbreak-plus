@@ -219,6 +219,15 @@ class ASFirmwarePatches(CompiledPayloadMixin):
     def _mop_handler_detail(name, handler):
         return "Registered MOP callback handler: %s at 0x%08X" % (name, handler)
 
+    def _write_payload_u32(self, payload, symbol, value):
+        """Write one u32 ABI value at a named symbol in a built payload."""
+        if payload not in self.applied_payloads:
+            raise ValueError("payload %s was not applied" % payload)
+        elf_path = self._require_versioned_artifact(payload, 'elf')
+        address = self._elf_symbol_addr(elf_path, symbol)
+        self.asf.write_u32(address - self.asf.FLASH_BASE, value)
+        return address
+
     def _write_payload_u16(self, payload, symbol, value):
         """Write one u16 ABI value at a named symbol in a built payload."""
         if payload not in self.applied_payloads:
@@ -226,6 +235,15 @@ class ASFirmwarePatches(CompiledPayloadMixin):
         elf_path = self._require_versioned_artifact(payload, 'elf')
         address = self._elf_symbol_addr(elf_path, symbol)
         self.asf.write_u16(address - self.asf.FLASH_BASE, value)
+        return address
+
+    def _write_payload_u8(self, payload, symbol, value):
+        """Write one u8 ABI value at a named symbol in a built payload."""
+        if payload not in self.applied_payloads:
+            raise ValueError("payload %s was not applied" % payload)
+        elf_path = self._require_versioned_artifact(payload, 'elf')
+        address = self._elf_symbol_addr(elf_path, symbol)
+        self.asf.write_u8(address - self.asf.FLASH_BASE, value)
         return address
 
     def _inject_function_pointer_payload(self, name, pointer_off, hook_name,
@@ -1625,16 +1643,15 @@ class ASFirmwarePatches(CompiledPayloadMixin):
 
     def custom_patch_settings_graph_width(self):
         """Expose the climate chart width as a setting in hours, next to the display settings."""
-        var = self.custom_claim_free_g4_var(self.FREE_VALUE_SLOTS, 'graph_width')
-        if var is None:
-            self._custom_detail('Graph Width: no free value slot; --graph-width sets the width')
-            return
+        var = self.custom_claim_g4_var('RDT', 'graph_width')
         # Raw value is tenths of an hour: 0.2 h (12 min) to 12.0 h in steps of 6 minutes.
         label = self.redefine_fw_string(-1, {0: 'Graph Width (h)'}, 'graph_width_label')
         dep = self.asf.find_var_table_index(4, 'RGT')
         default = min(120, max(2, round(self.graph_width_minutes / 6)))
         self.redefine_g4_var(var, 0x0007, 0, dep, label, default, 120, 2, 1, 10, 1,
                              self.asf.str_id_empty)
+        # RDT is not a stock member of the storage group.
+        self.custom_storage_add(var)
         all_modes = self.mop_bitmask(*self.MOP_INDEX)
         if 'lcd' in self.custom_menu_pages:
             # On the LCD page, below the ambient light settings and above the headings.
@@ -1666,8 +1683,7 @@ class ASFirmwarePatches(CompiledPayloadMixin):
             ('backlight_adapt', self.custom_patch_settings_backlight),
             ('target_rh', self.custom_patch_settings_target_rh),
             ('header_clock', self.custom_patch_settings_header_clock),
-            # After every fixed claim: it takes a value slot nobody else needs,
-            # ahead of Humid Start, which keeps the width's menu row.
+            # After the backlight page exists: the width's row goes there.
             ('graph_climate', self.custom_patch_settings_graph_width),
             # Last: its switch claims a g[8] slot, and Min Tube and the coupling
             # g[4] slots, left free by the features above.
@@ -2958,13 +2974,10 @@ class ASFirmwarePatches(CompiledPayloadMixin):
         """Draw the climate chart instead of the flow and pressure trace."""
         if 'therapy_screen' not in self.applied_payloads:
             return PatchOutcome.skip("therapy-screen payload not installed")
-        elf_path = self._require_versioned_artifact('therapy_screen', 'elf')
-        address = self._elf_symbol_addr(elf_path, 'graph_climate')
-        self.asf.write_u8(address - self.asf.FLASH_BASE, 1)
+        address = self._write_payload_u8('therapy_screen', 'graph_climate', 1)
         details = ["Climate chart instead of the trace at 0x%08X" % address]
         width = self.graph_width_minutes
-        self.asf.write_u32(self._elf_symbol_addr(elf_path, 'graph_width_minutes')
-                           - self.asf.FLASH_BASE, width)
+        self._write_payload_u32('therapy_screen', 'graph_width_minutes', width)
         self.enabled_custom_settings_features.add('graph_climate')
         details.append("Chart width %d:%02d" % (width // 60, width % 60))
         if self.asf.cdx_ver in self.BUTTON_HOOK_SITES:
@@ -2972,7 +2985,7 @@ class ASFirmwarePatches(CompiledPayloadMixin):
             self.button_hook_add('home_hold', 'therapy_screen', 'graph_chart_reset',
                                  hold_ms=5000, consume=True, on_release=False)
             details.append("Home held 5 s restarts the climate chart")
-        return PatchOutcome.ok(*details)
+        return PatchOutcome.ok(None, *details)
 
     def patch_graph_keep_screen_on(self):
         """Request keep-awake during therapy for the +Graph screen choices."""
