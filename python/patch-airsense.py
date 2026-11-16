@@ -180,6 +180,7 @@ class ASFirmwarePatches(CompiledPayloadMixin):
         self.variable_callbacks = {}
         self.variable_callback_handlers = {}
         self.button_handlers = {}
+        self.button_hook_limits = {}
         self.keep_backlight_enabled = False
         self.keep_backlight_requests = {}
         self._init_compiled_payloads()
@@ -218,6 +219,15 @@ class ASFirmwarePatches(CompiledPayloadMixin):
     @staticmethod
     def _mop_handler_detail(name, handler):
         return "Registered MOP callback handler: %s at 0x%08X" % (name, handler)
+
+    def _write_payload_u32(self, payload, symbol, value):
+        """Write one u32 ABI value at a named symbol in a built payload."""
+        if payload not in self.applied_payloads:
+            raise ValueError("payload %s was not applied" % payload)
+        elf_path = self._require_versioned_artifact(payload, 'elf')
+        address = self._elf_symbol_addr(elf_path, symbol)
+        self.asf.write_u32(address - self.asf.FLASH_BASE, value)
+        return address
 
     def _write_payload_u16(self, payload, symbol, value):
         """Write one u16 ABI value at a named symbol in a built payload."""
@@ -803,8 +813,13 @@ class ASFirmwarePatches(CompiledPayloadMixin):
         return PatchOutcome.ok(None, *details)
 
     def button_hook_add(self, event, payload, symbol, *, hold_ms=None, consume=False,
-                        on_release=True):
-        """Bind a button event; holds can fire on release or once at their threshold."""
+                        on_release=True, limit_symbol=None):
+        """Bind a button event; holds can fire on release or once at their threshold.
+
+        limit_symbol names a u32 in the payload of a release handler. It receives
+        the hold time of the next longer handler on the same button that consumes
+        the hold at its threshold, or 0xffffffff when there is none.
+        """
         if self.asf.cdx_ver not in self.BUTTON_HOOK_SITES:
             raise ValueError("button hooks: unsupported CDX version %s" % self.asf.cdx_ver)
         event_name = event
@@ -829,17 +844,28 @@ class ASFirmwarePatches(CompiledPayloadMixin):
         handler = self._elf_symbol_addr(elf_path, symbol) | 1
         if (event, handler) in self.button_handlers:
             raise ValueError("button hooks: duplicate handler for %s" % event_name)
+        # Consuming handlers may share a hold event when their hold times differ:
+        # the shorter one acts on release and leaves the longer hold, which acts
+        # at its threshold, alone (limit_symbol).
         if consume and any(code == event and flags & 1 and hold == hold_ms
                            for (code, _), (flags, hold) in self.button_handlers.items()):
             raise ValueError("button hooks: %s already has a consuming handler" % event_name)
         flags = int(bool(consume)) | (0 if on_release else 2)
         self.button_handlers[event, handler] = (flags, hold_ms)
+        if limit_symbol is not None:
+            if not on_release:
+                raise ValueError("button hooks: limit_symbol applies only to release handlers")
+            self.button_hook_limits[event, handler] = (payload, limit_symbol)
 
     def patch_button_hooks(self):
         """Emit the completed registry and install shared panel/GUI input hooks."""
         if not self.button_handlers:
             return PatchOutcome.skip("no button handlers registered")
         init_site, take_site = self.BUTTON_HOOK_SITES[self.asf.cdx_ver]
+        for key, (payload, symbol) in self.button_hook_limits.items():
+            longer = [hold for (code, _), (flags, hold) in self.button_handlers.items()
+                      if code == key[0] and flags == 3 and hold > self.button_handlers[key][1]]
+            self._write_payload_u32(payload, symbol, min(longer, default=0xffffffff))
         name = 'button_hooks'
         data, _, elf_path = self._load_versioned_payload(name)
         start = self._elf_symbol_addr(elf_path, 'start')
@@ -3003,9 +3029,10 @@ class ASFirmwarePatches(CompiledPayloadMixin):
         flash, _ = self._inject_payload(name, data)
         self.applied_payloads.add(name)
         self.button_hook_add('home_hold', name, 'humidifier_hold_toggle',
-                             hold_ms=2000, consume=True, on_release=True)
-        return PatchOutcome.ok(self._payload_detail(name, len(data), flash),
-                               "Home held 2-5 s switches the humidifier off and on")
+                             hold_ms=2000, consume=True, on_release=True,
+                             limit_symbol='humidifier_hold_max_ms')
+        return PatchOutcome.ok(None, self._payload_detail(name, len(data), flash),
+                               "Home held 2 s switches the humidifier off and on")
 
     def patch_graph_climate(self):
         """Draw the climate chart instead of the flow and pressure trace."""

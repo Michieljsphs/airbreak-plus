@@ -194,6 +194,7 @@ $(foreach v,$(PAYLOAD_LAYOUT_VERSIONS),$(eval $(call S10_VERSIONED_OBJECTS_templ
 
 S10_PAYLOAD_ENTRY_breath_tracking := 0
 S10_PAYLOAD_ENTRY_custom_menu_hooks := custom_menu_hook_append
+S10_PAYLOAD_ENTRY_humidifier_hold := humidifier_hold_toggle
 S10_PAYLOAD_ENTRY_s10_lcd_ili9325 := lcd_board_init
 S10_PAYLOAD_OBJECTS_custom_menu_hooks := custom_menu_hooks_entry custom_menu_hooks
 S10_PAYLOAD_OBJECTS_therapy_screen := therapy_screen therapy_screen_abi graph graph_abi

@@ -39,6 +39,9 @@
 # ASV backup-rate runtime control.
 # --patch-fw-asv-wrapper n
 
+# Switch the humidifier off and on by holding Home for 2 s; SX567 only.
+# --patch-humidifier-hold n
+
 # Keep the screen awake for +Graph choices; requires --patch-therapy-screen.
 # --patch-graph-keep-screen-on n
 
