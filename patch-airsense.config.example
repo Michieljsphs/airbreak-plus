@@ -36,6 +36,13 @@
 # Square Wave.
 # --patch-fw-squarewave n
 
+# Tube and plate temperatures and estimated RH in the screen headers; SX567 only,
+# requires --patch-header-clock. -decimal shows one decimal, -always shows the
+# readout in every screen title; both require --patch-header-climate.
+# --patch-header-climate n
+# --patch-header-climate-decimal n
+# --patch-header-climate-always n
+
 # ASV backup-rate runtime control.
 # --patch-fw-asv-wrapper n
 

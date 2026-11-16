@@ -38,19 +38,8 @@ header_climate_var_id:
     .short 0xffff
 .size header_climate_var_id, . - header_climate_var_id
 
-// Plate bound of the chamber estimate (humidity_model.h): fraction of the
-// plate's rise above ambient over which the chamber adds saturation humidity;
-// keep in step with humid_start_plate_coupling.
-.align 2
-.global header_climate_plate_coupling
-.type header_climate_plate_coupling, %object
-header_climate_plate_coupling:
-    .float 0.25
-.size header_climate_plate_coupling, . - header_climate_plate_coupling
-
 // Custom-settings plate coupling (raw = coupling * 100), shared with
-// humid_start; 0xffff uses header_climate_plate_coupling above.
-.align 1
+// humid_start; 0xffff uses HUMIDITY_PLATE_COUPLING (humidity_model.h).
 .global header_climate_coupling_var_id
 .type header_climate_coupling_var_id, %object
 header_climate_coupling_var_id:

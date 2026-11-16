@@ -238,6 +238,15 @@ class ASFirmwarePatches(CompiledPayloadMixin):
         self.asf.write_u16(address - self.asf.FLASH_BASE, value)
         return address
 
+    def _write_payload_u8(self, payload, symbol, value):
+        """Write one u8 ABI value at a named symbol in a built payload."""
+        if payload not in self.applied_payloads:
+            raise ValueError("payload %s was not applied" % payload)
+        elf_path = self._require_versioned_artifact(payload, 'elf')
+        address = self._elf_symbol_addr(elf_path, symbol)
+        self.asf.write_u8(address - self.asf.FLASH_BASE, value)
+        return address
+
     def _inject_function_pointer_payload(self, name, pointer_off, hook_name,
                                          original_symbol=None,
                                          expected_original=None):
@@ -512,34 +521,6 @@ class ASFirmwarePatches(CompiledPayloadMixin):
         return self._custom_claim_var(
             request, owner, self.custom_g8_reclaimed,
             self.custom_g8_claims, 8)
-
-    # Display-only slot first: the others hold therapy switches (iBR, AutoEPAP,
-    # Square Wave, Backup Rate, Custom VAuto), whose stored value would carry
-    # over if a later build gives the slot back to its feature.
-    FREE_SWITCH_SLOTS = ('RXH', 'RXW', 'RSA', 'RPF', 'RPW', 'RPO', 'RPH', 'RXM')
-
-    def custom_claim_free_g8_var(self, candidates, owner):
-        """Claim the first unclaimed reclaimed g[8] candidate, or return None."""
-        for request in candidates:
-            vid = self.asf.resolve_var_id(request)
-            if vid in self.custom_g8_reclaimed and vid not in self.custom_g8_claims:
-                if request != 'RXH':
-                    self._custom_detail('WARNING: %s uses the %s slot of a therapy switch; after '
-                                        'flashing, check iBR, AutoEPAP, Square Wave and Backup Rate '
-                                        'in the menu' % (owner, request))
-                return self.custom_claim_g8_var(request, owner)
-        return None
-
-    # Value slots a setting without a fixed one takes the first free of.
-    FREE_VALUE_SLOTS = ('RDT', 'RTI', 'LEF', 'RCW', 'RCH', 'RCF', 'RDW', 'RDH', 'RCM', 'RDM', 'RDF')
-
-    def custom_claim_free_g4_var(self, candidates, owner):
-        """Claim the first unclaimed reclaimed g[4] candidate, or return None."""
-        for request in candidates:
-            vid = self.asf.resolve_var_id(request)
-            if vid in self.custom_g4_reclaimed and vid not in self.custom_g4_claims:
-                return self.custom_claim_g4_var(request, owner)
-        return None
 
     def custom_claim_g4_var(self, request, owner=None):
         """Claim one exact reclaimed g[4] variable and return its UART name."""
@@ -1539,15 +1520,13 @@ class ASFirmwarePatches(CompiledPayloadMixin):
 
     def custom_patch_settings_header_climate(self):
         """Add a Climate switch for the header climate readout next to Clock."""
-        enable = self.custom_claim_free_g8_var(
-            self.FREE_SWITCH_SLOTS, 'header_climate')
-        if enable is None:
-            self._custom_detail('Climate switch: no free on/off slot')
-            return
+        enable = self.custom_claim_g8_var('ZRA', 'header_climate')
         label = self.redefine_fw_string(-1, {0: 'Climate'}, 'header_climate_label')
         dep = self.asf.find_var_table_index(4, 'RGT')
         self.redefine_g8_var(enable, 0x0007, 0, dep, label, 1,
                              2, 0, 0x00000003, self.asf.str_id_off_on_base, 0)
+        # ZRA is not a stock member of the storage group.
+        self.custom_storage_add(enable)
         self.custom_menu_add('configuration', enable, self.CUSTOM_MENU_MODE_BITS)
         vid = self.asf.resolve_var_id(enable)
         addr = self._write_payload_u16('header_clock', 'header_climate_var_id', vid)
@@ -1635,47 +1614,45 @@ class ASFirmwarePatches(CompiledPayloadMixin):
 
     def custom_patch_settings_humid_start(self):
         """Expose the Humid Start switch, Min Tube and coupling in Accessories."""
-        # Runs after the fixed-name features and uses what they leave: a free
-        # on/off slot for the switch and a free value slot for each of Min Tube
-        # and the coupling. Label strings are never short; once the reclaimed
-        # pool is empty, new string IDs are allocated. The switch comes first,
-        # then Min Tube, then the coupling.
+        # Each setting has one slot, so its UART name is the same in every
+        # build. RMM and LEF are used by no other feature and are not stock
+        # members of the storage group. No third value slot is unused, so the
+        # coupling takes RDM, which belongs to iVAPS AutoEPAP (Max EPAP): a
+        # build with AutoEPAP has no Start Coupling row and uses the built-in
+        # coupling.
         dep = self.asf.find_var_table_index(4, 'RGT')
-        enable = self.custom_claim_free_g8_var(
-            self.FREE_SWITCH_SLOTS, 'humid_start_enable')
-        if enable is None:
-            self._custom_detail('Humid Start switch: no free on/off slot')
-        else:
-            label = self.redefine_fw_string(-1, {0: 'Humid Start'}, 'humid_start_enable_label')
-            self.redefine_g8_var(enable, 0x0007, 0, dep, label, 1,
-                                 2, 0, 0x00000003, self.asf.str_id_off_on_base, 0)
-            self.custom_menu_add('accessories', enable, self.CUSTOM_MENU_MODE_BITS)
-            vid = self.asf.resolve_var_id(enable)
-            addr = self._write_payload_u16('humid_start', 'humid_start_enable_var_id', vid)
-            self._custom_detail('Humid Start: %s var_id=0x%04X at 0x%08X' % (enable, vid, addr))
-            self._graph_climate_var('graph_humid_start_var_id', vid)
+        enable = self.custom_claim_g8_var('RMM', 'humid_start_enable')
+        label = self.redefine_fw_string(-1, {0: 'Humid Start'}, 'humid_start_enable_label')
+        self.redefine_g8_var(enable, 0x0007, 0, dep, label, 1,
+                             2, 0, 0x00000003, self.asf.str_id_off_on_base, 0)
+        self.custom_storage_add(enable)
+        self.custom_menu_add('accessories', enable, self.CUSTOM_MENU_MODE_BITS)
+        vid = self.asf.resolve_var_id(enable)
+        addr = self._write_payload_u16('humid_start', 'humid_start_enable_var_id', vid)
+        self._custom_detail('Humid Start: %s var_id=0x%04X at 0x%08X' % (enable, vid, addr))
+        self._graph_climate_var('graph_humid_start_var_id', vid)
 
         # Minimum tube temperature: raw value is whole degC, 16-30, default 16
         # (no minimum beyond the lowest tube setting).
-        min_tube = self.custom_claim_free_g4_var(self.FREE_VALUE_SLOTS, 'humid_start_min_tube')
-        if min_tube is None:
-            self._custom_detail('Min Tube: no free value slot')
-        else:
-            label = self.redefine_fw_string(-1, {0: 'Min Tube (C)'}, 'humid_start_min_tube_label')
-            self.redefine_g4_var(min_tube, 0x0007, 0, dep, label,
-                                 16, 30, 16, 0, 1, 1, self.asf.str_id_empty)
-            self.custom_menu_add('accessories', min_tube, self.CUSTOM_MENU_MODE_BITS)
-            vid = self.asf.resolve_var_id(min_tube)
-            addr = self._write_payload_u16('humid_start', 'humid_start_min_tube_var_id', vid)
-            self._custom_detail('Min Tube: %s var_id=0x%04X at 0x%08X' % (min_tube, vid, addr))
-            self._graph_climate_var('graph_min_tube_var_id', vid)
+        min_tube = self.custom_claim_g4_var('LEF', 'humid_start_min_tube')
+        label = self.redefine_fw_string(-1, {0: 'Min Tube (C)'}, 'humid_start_min_tube_label')
+        self.redefine_g4_var(min_tube, 0x0007, 0, dep, label,
+                             16, 30, 16, 0, 1, 1, self.asf.str_id_empty)
+        self.custom_storage_add(min_tube)
+        self.custom_menu_add('accessories', min_tube, self.CUSTOM_MENU_MODE_BITS)
+        vid = self.asf.resolve_var_id(min_tube)
+        addr = self._write_payload_u16('humid_start', 'humid_start_min_tube_var_id', vid)
+        self._custom_detail('Min Tube: %s var_id=0x%04X at 0x%08X' % (min_tube, vid, addr))
+        self._graph_climate_var('graph_min_tube_var_id', vid)
 
         # Plate coupling: raw value is the coupling * 100, 0.10-1.00 in steps
         # of 0.05, default 0.25.
-        coupling = self.custom_claim_free_g4_var(self.FREE_VALUE_SLOTS, 'humid_start_coupling')
-        if coupling is None:
-            self._custom_detail('Start Coupling: no free value slot')
+        owner = self.custom_g4_claims.get(self.asf.resolve_var_id('RDM'))
+        if owner is not None:
+            self._custom_detail('Start Coupling: RDM is used by %s; no menu row, '
+                                'the built-in coupling applies' % owner)
             return
+        coupling = self.custom_claim_g4_var('RDM', 'humid_start_coupling')
         label = self.redefine_fw_string(-1, {0: 'Start Coupling'}, 'humid_start_coupling_label')
         self.redefine_g4_var(coupling, 0x0007, 0, dep, label,
                              25, 100, 10, 2, 100, 5, self.asf.str_id_empty)
@@ -1690,16 +1667,15 @@ class ASFirmwarePatches(CompiledPayloadMixin):
 
     def custom_patch_settings_graph_width(self):
         """Expose the climate chart width as a setting in hours, next to the display settings."""
-        var = self.custom_claim_free_g4_var(self.FREE_VALUE_SLOTS, 'graph_width')
-        if var is None:
-            self._custom_detail('Graph Width: no free value slot; --graph-width sets the width')
-            return
+        var = self.custom_claim_g4_var('RDT', 'graph_width')
         # Raw value is tenths of an hour: 0.2 h (12 min) to 12.0 h in steps of 6 minutes.
         label = self.redefine_fw_string(-1, {0: 'Graph Width (h)'}, 'graph_width_label')
         dep = self.asf.find_var_table_index(4, 'RGT')
         default = min(120, max(2, round(self.graph_width_minutes / 6)))
         self.redefine_g4_var(var, 0x0007, 0, dep, label, default, 120, 2, 1, 10, 1,
                              self.asf.str_id_empty)
+        # RDT is not a stock member of the storage group.
+        self.custom_storage_add(var)
         all_modes = self.mop_bitmask(*self.MOP_INDEX)
         if 'lcd' in self.custom_menu_pages:
             # On the LCD page, below the ambient light settings and above the headings.
@@ -1731,11 +1707,9 @@ class ASFirmwarePatches(CompiledPayloadMixin):
             ('backlight_adapt', self.custom_patch_settings_backlight),
             ('target_rh', self.custom_patch_settings_target_rh),
             ('header_clock', self.custom_patch_settings_header_clock),
-            # After every fixed claim: it takes a value slot nobody else needs,
-            # ahead of Humid Start, which keeps the width's menu row.
+            # After the backlight page exists: the width's row goes there.
             ('graph_climate', self.custom_patch_settings_graph_width),
-            # Last: its switch claims a g[8] slot, and Min Tube and the coupling
-            # g[4] slots, left free by the features above.
+            # After autoepap: Start Coupling gives way to its Max EPAP on RDM.
             ('humid_start', self.custom_patch_settings_humid_start),
             ('header_climate', self.custom_patch_settings_header_climate),
         )
@@ -3038,13 +3012,10 @@ class ASFirmwarePatches(CompiledPayloadMixin):
         """Draw the climate chart instead of the flow and pressure trace."""
         if 'therapy_screen' not in self.applied_payloads:
             return PatchOutcome.skip("therapy-screen payload not installed")
-        elf_path = self._require_versioned_artifact('therapy_screen', 'elf')
-        address = self._elf_symbol_addr(elf_path, 'graph_climate')
-        self.asf.write_u8(address - self.asf.FLASH_BASE, 1)
+        address = self._write_payload_u8('therapy_screen', 'graph_climate', 1)
         details = ["Climate chart instead of the trace at 0x%08X" % address]
         width = self.graph_width_minutes
-        self.asf.write_u32(self._elf_symbol_addr(elf_path, 'graph_width_minutes')
-                           - self.asf.FLASH_BASE, width)
+        self._write_payload_u32('therapy_screen', 'graph_width_minutes', width)
         self.enabled_custom_settings_features.add('graph_climate')
         details.append("Chart width %d:%02d" % (width // 60, width % 60))
         if self.asf.cdx_ver in self.BUTTON_HOOK_SITES:
@@ -3052,7 +3023,7 @@ class ASFirmwarePatches(CompiledPayloadMixin):
             self.button_hook_add('home_hold', 'therapy_screen', 'graph_chart_reset',
                                  hold_ms=5000, consume=True, on_release=False)
             details.append("Home held 5 s restarts the climate chart")
-        return PatchOutcome.ok(*details)
+        return PatchOutcome.ok(None, *details)
 
     def patch_graph_keep_screen_on(self):
         """Request keep-awake during therapy for the +Graph screen choices."""
@@ -3464,8 +3435,7 @@ class ASFirmwarePatches(CompiledPayloadMixin):
             return PatchOutcome.skip("unsupported CDX version %s" % self.asf.cdx_ver)
 
         elf_path = self._require_versioned_artifact('header_clock', 'elf')
-        address = self._elf_symbol_addr(elf_path, 'header_climate_enabled')
-        self.asf.write_u8(address - self.asf.FLASH_BASE, 1)
+        address = self._write_payload_u8('header_clock', 'header_climate_enabled', 1)
         self.enabled_custom_settings_features.add('header_climate')
         details = ["Climate readout enabled at 0x%08X" % address]
 
@@ -3488,18 +3458,14 @@ class ASFirmwarePatches(CompiledPayloadMixin):
         """Show the climate readout temperatures with one decimal."""
         if 'header_climate' not in self.enabled_custom_settings_features:
             return PatchOutcome.skip("header climate not installed")
-        elf_path = self._require_versioned_artifact('header_clock', 'elf')
-        address = self._elf_symbol_addr(elf_path, 'header_climate_decimal')
-        self.asf.write_u8(address - self.asf.FLASH_BASE, 1)
+        address = self._write_payload_u8('header_clock', 'header_climate_decimal', 1)
         return PatchOutcome.ok("Climate temperatures with a decimal at 0x%08X" % address)
 
     def patch_header_climate_always(self):
         """Show the climate readout in every screen title, not only Home and therapy."""
         if 'header_climate' not in self.enabled_custom_settings_features:
             return PatchOutcome.skip("header climate not installed")
-        elf_path = self._require_versioned_artifact('header_clock', 'elf')
-        address = self._elf_symbol_addr(elf_path, 'header_climate_always')
-        self.asf.write_u8(address - self.asf.FLASH_BASE, 1)
+        address = self._write_payload_u8('header_clock', 'header_climate_always', 1)
         return PatchOutcome.ok("Climate readout in every title at 0x%08X" % address)
 
     def patch_backlight_adapt(self):
