@@ -166,7 +166,9 @@ and has not been checked against a hygrometer.
 
 With custom settings, clinical **Configuration** gets a **Climate** switch
 (Off, On; default On) next to **Clock**. Off shows the clock, or the stock
-title, again. Without custom settings the readout stays on.
+title, again. The switch takes the first free on/off slot, and is left out
+when there is none (the plus preset uses them all); the readout then stays
+on. Without custom settings the readout stays on.
 
 Enable it with `--patch-header-climate y`. It is off
 by default, needs the header clock patch (on by default), and is independent

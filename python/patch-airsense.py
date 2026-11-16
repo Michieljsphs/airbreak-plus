@@ -1572,13 +1572,16 @@ class ASFirmwarePatches(CompiledPayloadMixin):
 
     def custom_patch_settings_header_climate(self):
         """Add a Climate switch for the header climate readout next to Clock."""
-        enable = self.custom_claim_g8_var('ZRA', 'header_climate')
+        enable = self.custom_claim_free_g8_var(
+            self.FREE_SWITCH_SLOTS, 'header_climate')
+        if enable is None:
+            self._custom_detail('Climate switch: no free on/off slot')
+            return
         label = self.redefine_fw_string(-1, {0: 'Climate'}, 'header_climate_label')
         dep = self.asf.find_var_table_index(4, 'RGT')
         self.redefine_g8_var(enable, 0x0007, 0, dep, label, 1,
                              2, 0, 0x00000003, self.asf.str_id_off_on_base, 0)
-        # ZRA is not a stock member of the storage group.
-        self.custom_storage_add(enable)
+        self.custom_storage_add_unless_member(enable)
         self.custom_menu_add('configuration', enable, self.CUSTOM_MENU_MODE_BITS)
         vid = self.asf.resolve_var_id(enable)
         addr = self._write_payload_u16('header_clock', 'header_climate_var_id', vid)
