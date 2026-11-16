@@ -77,7 +77,7 @@ stock final pressure limiter.
 | Expiration | Stock pressure return toward EPAP | Custom downslope with adjustable exhale relief |
 | Trigger preparation | Stock response | May add up to 0.4 cmH2O of pre-trigger pressure assist |
 | Trigger and cycle decisions | Configured stock thresholds | Stock thresholds or Custom T/C decisions |
-| Final pressure | Limited by Max IPAP | Adaptive boost can exceed the selected Max IPAP; see Pressure limits |
+| Final pressure | Limited by Max IPAP | Adaptive boost and FL Boost can exceed the selected Max IPAP; see Pressure limits |
 | Backup rate | None | None |
 | Reported mode | VAuto | VAuto |
 
@@ -169,9 +169,11 @@ level = level + rate * (FFL - level)
 fl_ps = FL Boost * clamp((level - 0.05) / (0.25 - 0.05), 0, 1)
 ```
 
-A single flattened breath moves the level by at most 15% of its FFL value, so
-isolated spikes add little or no support. Sustained flow limitation reaches
-the full setting within a few breaths. The slow release fades the support over a
+A single flattened breath moves the level by at most 15% of its FFL value. A
+mildly flattened breath (FFL below about 0.33) adds nothing. One fully
+flattened breath (FFL 1.00) adds half of the setting on the next breath, which
+then fades over about 35 breaths. Sustained flow limitation reaches the full
+setting within a few breaths. The slow release fades the support over a
 few minutes after flow limitation clears (about 17 breaths to fall from full
 to half), so the boost does not switch off as soon as it starts working.
 
@@ -274,7 +276,9 @@ further.
 
 Max IPAP limits the stock VAuto baseline. Adaptive support is added afterwards
 and can raise inspiratory pressure above the selected Max IPAP. ASV Max limits
-this addition relative to the custom base shape, not absolute IPAP.
+this addition relative to the custom base shape, not absolute IPAP. FL Boost
+is added the same way. It is limited by its own setting, at most 5 cmH2O, and
+not by ASV Max.
 
 The stock final limiter uses the upper allowed bound of the Max IPAP setting,
 not the value selected in the menu.
