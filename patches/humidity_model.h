@@ -37,13 +37,15 @@ extern int humidity_model_coefficients_get(void *unused, float *k0, float *k1,
  */
 #define HUMIDITY_PLATE_COUPLING 0.25f
 
-/* The Start Coupling setting (raw = coupling * 100) raised to its menu minimum,
+/* The Start Coupling setting (raw = coupling * 100) held to its menu range,
  * so a stale stored value cannot starve or flood the estimate.
  */
 static inline float coupling_from_raw(int raw)
 {
     if (raw < 10)
         raw = 10;
+    if (raw > 100)
+        raw = 100;
     return raw * 0.01f;
 }
 
