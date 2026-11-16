@@ -1470,20 +1470,6 @@ class ASFirmwarePatches(CompiledPayloadMixin):
         addr = self._write_payload_u16('header_clock', 'header_clock_var_id', vid)
         self._custom_detail('Clock: %s var_id=0x%04X at 0x%08X' % (var, vid, addr))
 
-    def custom_patch_settings_header_climate(self):
-        """Add a Climate switch for the header climate readout next to Clock."""
-        enable = self.custom_claim_g8_var('ZRA', 'header_climate')
-        label = self.redefine_fw_string(-1, {0: 'Climate'}, 'header_climate_label')
-        dep = self.asf.find_var_table_index(4, 'RGT')
-        self.redefine_g8_var(enable, 0x0007, 0, dep, label, 1,
-                             2, 0, 0x00000003, self.asf.str_id_off_on_base, 0)
-        # ZRA is not a stock member of the storage group.
-        self.custom_storage_add(enable)
-        self.custom_menu_add('configuration', enable, self.CUSTOM_MENU_MODE_BITS)
-        vid = self.asf.resolve_var_id(enable)
-        addr = self._write_payload_u16('header_clock', 'header_climate_var_id', vid)
-        self._custom_detail('Climate: %s var_id=0x%04X at 0x%08X' % (enable, vid, addr))
-
     def custom_patch_settings_backlight(self):
         """Expose persistent Backlight controls on a generated LCD page."""
         low_var = 'ATH'
@@ -1579,7 +1565,6 @@ class ASFirmwarePatches(CompiledPayloadMixin):
             ('backlight_adapt', self.custom_patch_settings_backlight),
             ('target_rh', self.custom_patch_settings_target_rh),
             ('header_clock', self.custom_patch_settings_header_clock),
-            ('header_climate', self.custom_patch_settings_header_climate),
         )
         active = self.applied_payloads | self.enabled_custom_settings_features
         return [feature for source, feature in feature_patches if source in active]
