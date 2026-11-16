@@ -90,6 +90,7 @@ All patches below are **enabled by default** unless noted.
 | Color palette | Applies custom color scheme | `--patch-custom-palette` |
 | [Backlight adaptation](features/backlight.md) | Continuously adjusts LCD and button brightness to ambient light | `--patch-fw-backlight` |
 | [Keep backlight](features/general.md#keep-backlight) | Hold the dial to toggle screen keep-awake | `--patch-keep-backlight` |
+| [Humidifier hold](features/general.md#humidifier-hold) | Hold Home to switch the humidifier off and on; off by default | `--patch-humidifier-hold` |
 | [Header clock](features/general.md#header-clock) | Adds Clock in Configuration to show time on Home and therapy screens | `--patch-header-clock` |
 | [Custom settings](../custom_settings.md) | Exposes menu settings for active compiled payloads and optional features | `--patch-custom-settings` |
 | [Target humidity](features/general.md#target-humidity) | Adjusts target humidity in Auto and Manual; adds a menu control with custom settings | `--patch-target-rh`, with `--target-rh PERCENT` (default 85) |
