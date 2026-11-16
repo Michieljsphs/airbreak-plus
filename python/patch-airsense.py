@@ -1578,6 +1578,7 @@ class ASFirmwarePatches(CompiledPayloadMixin):
         vid = self.asf.resolve_var_id(enable)
         addr = self._write_payload_u16('humid_start', 'humid_start_enable_var_id', vid)
         self._custom_detail('Humid Start: %s var_id=0x%04X at 0x%08X' % (enable, vid, addr))
+        self._graph_climate_var('graph_humid_start_var_id', vid)
 
         # Minimum tube temperature: raw value is whole degC, 16-30, default 16
         # (no minimum beyond the lowest tube setting).
@@ -1590,6 +1591,7 @@ class ASFirmwarePatches(CompiledPayloadMixin):
         vid = self.asf.resolve_var_id(min_tube)
         addr = self._write_payload_u16('humid_start', 'humid_start_min_tube_var_id', vid)
         self._custom_detail('Min Tube: %s var_id=0x%04X at 0x%08X' % (min_tube, vid, addr))
+        self._graph_climate_var('graph_min_tube_var_id', vid)
 
         # Plate coupling: raw value is the coupling * 100, 0.10-1.00 in steps
         # of 0.05, default 0.25.
