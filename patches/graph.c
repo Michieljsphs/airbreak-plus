@@ -174,7 +174,6 @@ extern const unsigned short graph_width_var_id;
 extern const unsigned short graph_humid_start_var_id;
 extern const unsigned short graph_min_tube_var_id;
 extern const unsigned short graph_coupling_var_id;
-extern const float graph_plate_coupling;
 
 STATIC void climate_noop(therapy_worker *node) { }
 
@@ -182,6 +181,16 @@ static const therapy_worker_method climate_methods[7] = {
 	climate_noop, climate_noop, climate_noop, climate_noop,
 	climate_noop, climate_noop, climate_noop
 };
+
+STATIC unsigned irq_save(void) {
+	unsigned saved;
+	__asm__ volatile ("mrs %0, primask\n\tcpsid i" : "=r" (saved) :: "memory");
+	return saved;
+}
+
+STATIC void irq_restore(unsigned saved) {
+	__asm__ volatile ("msr primask, %0" :: "r" (saved) : "memory");
+}
 
 /* The chart, made on first use; NULL when the heap has no room. */
 STATIC climate_state_t *climate_state(void) {
@@ -194,9 +203,16 @@ STATIC climate_state_t *climate_state(void) {
 	uint8 *p = (uint8 *)s;
 	for (unsigned i = 0; i < sizeof(*s); i++)
 		p[i] = 0;
+	/* The stock append links the node enabled, with the base worker methods,
+	 * whose unimplemented slots abort. This runs in the screen task while the
+	 * therapy task may be walking the list, so the node must not be seen
+	 * before it has the chart's own methods.
+	 */
+	unsigned saved = irq_save();
 	therapy_worker_append(&s->node, 2);
 	s->node.methods = climate_methods;
 	s->node.enabled = 0;
+	irq_restore(saved);
 	millisecond_timer_init(s->seen, 0);
 	s->columns_per_tick = 40;
 	return s;
@@ -228,7 +244,7 @@ STATIC int half_degrees(int raw) {
 
 STATIC float coupling(void) {
 	if (graph_coupling_var_id == 0xffffu)
-		return graph_plate_coupling;
+		return HUMIDITY_PLATE_COUPLING;
 	return coupling_from_raw(variable_get_by_id(graph_coupling_var_id));
 }
 

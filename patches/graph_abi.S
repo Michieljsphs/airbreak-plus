@@ -45,17 +45,9 @@ graph_climate:
 graph_width_minutes:
 	.word 60
 
-/* Plate bound of the RH estimate (humidity_model.h); keep in step with
- * humid_start_plate_coupling.
- */
-.global graph_plate_coupling
-.type graph_plate_coupling, %object
-graph_plate_coupling:
-	.float 0.25
-
 /* Custom settings shown on the climate chart; 0xffff when not installed:
  * Graph Width (raw = tenths of an hour; none: graph_width_minutes), Humid
- * Start (switch: on, Min Tube: no line, coupling: the constant above).
+ * Start (switch: on, Min Tube: no line, coupling: HUMIDITY_PLATE_COUPLING).
  */
 .balign 2
 .global graph_width_var_id
