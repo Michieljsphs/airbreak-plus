@@ -227,6 +227,15 @@ class ASFirmwarePatches(CompiledPayloadMixin):
         self.asf.write_u16(address - self.asf.FLASH_BASE, value)
         return address
 
+    def _write_payload_u8(self, payload, symbol, value):
+        """Write one u8 ABI value at a named symbol in a built payload."""
+        if payload not in self.applied_payloads:
+            raise ValueError("payload %s was not applied" % payload)
+        elf_path = self._require_versioned_artifact(payload, 'elf')
+        address = self._elf_symbol_addr(elf_path, symbol)
+        self.asf.write_u8(address - self.asf.FLASH_BASE, value)
+        return address
+
     def _inject_function_pointer_payload(self, name, pointer_off, hook_name,
                                          original_symbol=None,
                                          expected_original=None):
@@ -501,23 +510,6 @@ class ASFirmwarePatches(CompiledPayloadMixin):
         return self._custom_claim_var(
             request, owner, self.custom_g8_reclaimed,
             self.custom_g8_claims, 8)
-
-    # Display-only slot first: the others hold therapy switches (iBR, AutoEPAP,
-    # Square Wave, Backup Rate, Custom VAuto), whose stored value would carry
-    # over if a later build gives the slot back to its feature.
-    FREE_SWITCH_SLOTS = ('RXH', 'RXW', 'RSA', 'RPF', 'RPW', 'RPO', 'RPH', 'RXM')
-
-    def custom_claim_free_g8_var(self, candidates, owner):
-        """Claim the first unclaimed reclaimed g[8] candidate, or return None."""
-        for request in candidates:
-            vid = self.asf.resolve_var_id(request)
-            if vid in self.custom_g8_reclaimed and vid not in self.custom_g8_claims:
-                if request != 'RXH':
-                    self._custom_detail('WARNING: %s uses the %s slot of a therapy switch; after '
-                                        'flashing, check iBR, AutoEPAP, Square Wave and Backup Rate '
-                                        'in the menu' % (owner, request))
-                return self.custom_claim_g8_var(request, owner)
-        return None
 
     def custom_claim_g4_var(self, request, owner=None):
         """Claim one exact reclaimed g[4] variable and return its UART name."""
@@ -1480,15 +1472,13 @@ class ASFirmwarePatches(CompiledPayloadMixin):
 
     def custom_patch_settings_header_climate(self):
         """Add a Climate switch for the header climate readout next to Clock."""
-        enable = self.custom_claim_free_g8_var(
-            self.FREE_SWITCH_SLOTS, 'header_climate')
-        if enable is None:
-            self._custom_detail('Climate switch: no free on/off slot')
-            return
+        enable = self.custom_claim_g8_var('ZRA', 'header_climate')
         label = self.redefine_fw_string(-1, {0: 'Climate'}, 'header_climate_label')
         dep = self.asf.find_var_table_index(4, 'RGT')
         self.redefine_g8_var(enable, 0x0007, 0, dep, label, 1,
                              2, 0, 0x00000003, self.asf.str_id_off_on_base, 0)
+        # ZRA is not a stock member of the storage group.
+        self.custom_storage_add(enable)
         self.custom_menu_add('configuration', enable, self.CUSTOM_MENU_MODE_BITS)
         vid = self.asf.resolve_var_id(enable)
         addr = self._write_payload_u16('header_clock', 'header_climate_var_id', vid)
@@ -1589,7 +1579,6 @@ class ASFirmwarePatches(CompiledPayloadMixin):
             ('backlight_adapt', self.custom_patch_settings_backlight),
             ('target_rh', self.custom_patch_settings_target_rh),
             ('header_clock', self.custom_patch_settings_header_clock),
-            # Last: its switch claims a g[8] slot left free by the features above.
             ('header_climate', self.custom_patch_settings_header_climate),
         )
         active = self.applied_payloads | self.enabled_custom_settings_features
@@ -3248,8 +3237,7 @@ class ASFirmwarePatches(CompiledPayloadMixin):
             return PatchOutcome.skip("unsupported CDX version %s" % self.asf.cdx_ver)
 
         elf_path = self._require_versioned_artifact('header_clock', 'elf')
-        address = self._elf_symbol_addr(elf_path, 'header_climate_enabled')
-        self.asf.write_u8(address - self.asf.FLASH_BASE, 1)
+        address = self._write_payload_u8('header_clock', 'header_climate_enabled', 1)
         self.enabled_custom_settings_features.add('header_climate')
         details = ["Climate readout enabled at 0x%08X" % address]
 
@@ -3272,18 +3260,14 @@ class ASFirmwarePatches(CompiledPayloadMixin):
         """Show the climate readout temperatures with one decimal."""
         if 'header_climate' not in self.enabled_custom_settings_features:
             return PatchOutcome.skip("header climate not installed")
-        elf_path = self._require_versioned_artifact('header_clock', 'elf')
-        address = self._elf_symbol_addr(elf_path, 'header_climate_decimal')
-        self.asf.write_u8(address - self.asf.FLASH_BASE, 1)
+        address = self._write_payload_u8('header_clock', 'header_climate_decimal', 1)
         return PatchOutcome.ok("Climate temperatures with a decimal at 0x%08X" % address)
 
     def patch_header_climate_always(self):
         """Show the climate readout in every screen title, not only Home and therapy."""
         if 'header_climate' not in self.enabled_custom_settings_features:
             return PatchOutcome.skip("header climate not installed")
-        elf_path = self._require_versioned_artifact('header_clock', 'elf')
-        address = self._elf_symbol_addr(elf_path, 'header_climate_always')
-        self.asf.write_u8(address - self.asf.FLASH_BASE, 1)
+        address = self._write_payload_u8('header_clock', 'header_climate_always', 1)
         return PatchOutcome.ok("Climate readout in every title at 0x%08X" % address)
 
     def patch_backlight_adapt(self):
