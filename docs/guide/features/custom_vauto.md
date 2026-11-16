@@ -200,7 +200,8 @@ VAuto even when the extra-modes patch is not applied.
 
 Custom VAuto needs a positive PS: with PS at 0.0 the controller leaves the stock
 VAuto shape in place and FL Boost has no effect. The FL Boost row is therefore
-hidden while PS is 0.0 and returns when PS is raised. The stored setting is kept.
+greyed out (visible but not editable) while PS is 0.0 and editable again when PS
+is raised. The stored setting is kept. Grey-out needs the SX567 firmware.
 
 ### Expiration and pre-trigger assist
 

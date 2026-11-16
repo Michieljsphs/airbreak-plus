@@ -621,8 +621,14 @@ class ASFirmwarePatches(CompiledPayloadMixin):
                                   for name, container in self.custom_menu_pages.items()}
         self.custom_menu_plan = plan
 
-    def custom_menu_add_condition(self, var, source, mode_mask=None, *, nonzero=True):
-        """Require source to be zero/nonzero for var to appear in the selected modes."""
+    def custom_menu_add_condition(self, var, source, mode_mask=None, *, nonzero=True, grey=False):
+        """Require source to be zero/nonzero for var to appear in the selected modes.
+
+        With grey=True the row stays visible and is greyed out (not editable)
+        while the condition fails, instead of being hidden. SX567 only.
+        """
+        if grey and not self.asf.cdx_ver.startswith('SX567-'):
+            raise ValueError("custom_menu_add_condition: grey-out is supported on SX567 only")
         if mode_mask is None:
             mode_mask = self.CUSTOM_MENU_MODE_BITS
         mode_mask = int(mode_mask)
@@ -632,7 +638,8 @@ class ASFirmwarePatches(CompiledPayloadMixin):
         source_id = self.asf.resolve_var_id(source)
         if self.asf.find_var_table_number(source_id) not in (4, 8):
             raise ValueError("custom_menu_add_condition: %s must be a g[4]/g[8] source" % source)
-        self.custom_menu_conditions.append((vid, source_id, mode_mask, int(bool(nonzero))))
+        self.custom_menu_conditions.append(
+            (vid, source_id, mode_mask, int(bool(nonzero)) | (2 if grey else 0)))
 
     def mop_bitmask(self, *modes):
         """Build a g[24]/MOP visibility mask from MOP names or numeric indexes."""
@@ -1247,8 +1254,8 @@ class ASFirmwarePatches(CompiledPayloadMixin):
             before=stock('VTS'))
         for var in (max_var, sens_var, eps_var, shape_var, fl_var, tc_var):
             self.custom_menu_add_condition(var, vauto_var, self.mop_bitmask('VAuto'))
-        # With PS 0 the wrapper falls back to stock VAuto, so FL Boost has no effect.
-        self.custom_menu_add_condition(fl_var, 'SPT', self.mop_bitmask('VAuto'))
+        # With PS 0 the wrapper falls back to stock VAuto, so FL Boost has no effect: grey it out.
+        self.custom_menu_add_condition(fl_var, 'SPT', self.mop_bitmask('VAuto'), grey=True)
         self.custom_menu_add_condition(tc_var, 'EBE', self.mop_bitmask('S'), nonzero=False)
 
         # Patch the prebuilt wrapper's ABI slots instead of coupling its source to
