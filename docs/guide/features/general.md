@@ -151,9 +151,11 @@ Treat the value as a guide to the trend, not a measurement. It is probably too
 high in the first minutes, can read 100% when the estimate is above saturation,
 and has not been checked against a hygrometer.
 
-The readout has no menu switch: it stays on once enabled. The settings it
-could have used belong to the stock Reminder popup, which still reads them,
-and using them made the device restart when an SD card was inserted.
+With custom settings, clinical **Configuration** gets a **Climate** switch
+(Off, On; default On) next to **Clock**. Off shows the clock, or the stock
+title, again. The switch takes the first free on/off slot, and is left out
+when there is none (the plus preset uses them all); the readout then stays
+on. Without custom settings the readout stays on.
 
 Enable it with `--patch-header-climate y`. It is off
 by default, needs the header clock patch (on by default), and is independent
@@ -163,7 +165,7 @@ of the **Clock** setting.
 
 `--patch-header-climate-always y` shows the readout in every screen title, so
 menus such as Settings and My Options show it instead of their names. It needs
-`--patch-header-climate`. Screens without a
+`--patch-header-climate` and follows the **Climate** switch. Screens without a
 humidifier keep their stock titles.
 
 ### Decimals

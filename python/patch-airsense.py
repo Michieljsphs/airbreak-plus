@@ -517,6 +517,51 @@ class ASFirmwarePatches(CompiledPayloadMixin):
             request, owner, self.custom_g4_reclaimed,
             self.custom_g4_claims, 4)
 
+    # Switch slots a setting without a fixed one takes the first free of.
+    # Display-only slot first: the others hold therapy switches (iBR, AutoEPAP,
+    # Square Wave, Backup Rate, Custom VAuto), whose stored value would carry
+    # over if a later build gives the slot back to its feature. RMM and ZRA
+    # are left out: stock code still reads them for the Reminder popup, and
+    # a build using them restarted when an SD card was inserted. LET is left
+    # out with them.
+    FREE_SWITCH_SLOTS = ('RXH', 'RXW', 'RSA', 'RPF', 'RPW', 'RPO', 'RPH', 'RXM')
+
+    def custom_claim_free_g8_var(self, candidates, owner):
+        """Claim the first unclaimed reclaimed g[8] candidate, or return None."""
+        for request in candidates:
+            vid = self.asf.resolve_var_id(request)
+            if vid in self.custom_g8_reclaimed and vid not in self.custom_g8_claims:
+                if request != 'RXH':
+                    self._custom_detail('WARNING: %s uses the %s slot of a therapy switch; after '
+                                        'flashing, check iBR, AutoEPAP, Square Wave and Backup Rate '
+                                        'in the menu' % (owner, request))
+                return self.custom_claim_g8_var(request, owner)
+        return None
+
+    # Value slots a setting without a fixed one takes the first free of. LEF
+    # is left out, like LET: they are placeholders of a stock service.
+    FREE_VALUE_SLOTS = ('RDT', 'RTI', 'RCW', 'RCH', 'RCF', 'RDW', 'RDH', 'RCM', 'RDM', 'RDF')
+
+    def custom_claim_free_g4_var(self, candidates, owner):
+        """Claim the first unclaimed reclaimed g[4] candidate, or return None."""
+        for request in candidates:
+            vid = self.asf.resolve_var_id(request)
+            if vid in self.custom_g4_reclaimed and vid not in self.custom_g4_claims:
+                return self.custom_claim_g4_var(request, owner)
+        return None
+
+    def custom_storage_add_unless_member(self, var):
+        """Queue a variable for CSG unless the stock group already holds it."""
+        rec = self.asf.find_var_group('CSG')
+        if rec is None:
+            raise ValueError("custom_patch_settings: CSG variable group not found")
+        members = self.asf.read_u32(rec + 8) - self.asf.FLASH_BASE
+        count = self.asf.read_u32(rec + 0x0c)
+        vid = self.asf.resolve_var_id(var)
+        if any(self.asf.read_u16(members + 2 * i) == vid for i in range(count)):
+            return
+        self.custom_storage_add(var)
+
     def redefine_g8_var(self, var, flags, callback, dep_head, name_str, default,
                         num_options, param_0a, perm_mask, base_str, param_12):
         """Rewrite a g[8] descriptor with caller-provided raw fields."""
@@ -1470,6 +1515,23 @@ class ASFirmwarePatches(CompiledPayloadMixin):
         addr = self._write_payload_u16('header_clock', 'header_clock_var_id', vid)
         self._custom_detail('Clock: %s var_id=0x%04X at 0x%08X' % (var, vid, addr))
 
+    def custom_patch_settings_header_climate(self):
+        """Add a Climate switch for the header climate readout next to Clock."""
+        enable = self.custom_claim_free_g8_var(
+            self.FREE_SWITCH_SLOTS, 'header_climate')
+        if enable is None:
+            self._custom_detail('Climate switch: no free on/off slot')
+            return
+        label = self.redefine_fw_string(-1, {0: 'Climate'}, 'header_climate_label')
+        dep = self.asf.find_var_table_index(4, 'RGT')
+        self.redefine_g8_var(enable, 0x0007, 0, dep, label, 1,
+                             2, 0, 0x00000003, self.asf.str_id_off_on_base, 0)
+        self.custom_storage_add_unless_member(enable)
+        self.custom_menu_add('configuration', enable, self.CUSTOM_MENU_MODE_BITS)
+        vid = self.asf.resolve_var_id(enable)
+        addr = self._write_payload_u16('header_clock', 'header_climate_var_id', vid)
+        self._custom_detail('Climate: %s var_id=0x%04X at 0x%08X' % (enable, vid, addr))
+
     def custom_patch_settings_backlight(self):
         """Expose persistent Backlight controls on a generated LCD page."""
         low_var = 'ATH'
@@ -1565,6 +1627,8 @@ class ASFirmwarePatches(CompiledPayloadMixin):
             ('backlight_adapt', self.custom_patch_settings_backlight),
             ('target_rh', self.custom_patch_settings_target_rh),
             ('header_clock', self.custom_patch_settings_header_clock),
+            # Last: its switch claims a g[8] slot left free by the features above.
+            ('header_climate', self.custom_patch_settings_header_climate),
         )
         active = self.applied_payloads | self.enabled_custom_settings_features
         return [feature for source, feature in feature_patches if source in active]
