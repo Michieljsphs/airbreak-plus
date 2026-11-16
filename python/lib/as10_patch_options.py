@@ -70,7 +70,7 @@ PLATFORM = Platform('air10', phases=(
               False, 'patch_header_climate', requires=('patch-header-clock',)),
         Patch('patch-header-climate-decimal',
               'Show the climate readout temperatures with one decimal (27.4 instead of 27).',
-              False, 'patch_header_climate_decimal'),
+              False, 'patch_header_climate_decimal', requires=('patch-header-climate',)),
         Patch('patch-header-climate-always',
               'Show the climate readout in every screen title (menus too), not only Home and therapy.',
               False, 'patch_header_climate_always', requires=('patch-header-climate',)),
