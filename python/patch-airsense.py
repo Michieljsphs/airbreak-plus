@@ -29,6 +29,7 @@ from lib.custom_menu import MenuBuilder, stock, custom
 from lib.custom_menu_stock import StockMenu
 from lib.patch_config import parse_patch_args
 from lib import patch_options
+from lib.as10_patch_options import PALETTE_ROLES
 
 
 FIRMWARE_BUILD_ALPHABET = '0123456789ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz'
@@ -180,12 +181,13 @@ class ASFirmwarePatches(CompiledPayloadMixin):
     }
         
     def __init__(self, asf, target_rh=85.0, graph_width=60, vauto_start_ps=0.0,
-                 humid_start_coupling_row=True):
+                 humid_start_coupling_row=True, palette_colors=None):
         self.asf = asf
         self.humid_start_coupling_row = humid_start_coupling_row  # --humid-start-coupling-row
         self.target_rh_percent = target_rh
         self.graph_width_minutes = graph_width  # --graph-width, climate chart width
         self.vauto_start_ps = vauto_start_ps
+        self.palette_colors = palette_colors or {}
         self.applied_payloads = set()
         self.enabled_custom_settings_features = set()
         self.mop_callback_handlers = {}
@@ -3966,23 +3968,17 @@ class ASFirmwarePatches(CompiledPayloadMixin):
             return PatchOutcome.warn("palette signature not found")
         base += 8
 
-        self.asf.patch(b'\xCC\x33\x00\x00', base + 0x24, clobber=True)
-
-        for off in (0x00, 0x1C, 0x28, 0x40, 0x44, 0x48):
-            self.asf.patch(b'\xFF\xBB\x44\x00', base + off, clobber=True)
-
-        for off in (0x04, 0x0C):
-            self.asf.patch(b'\x96\x48\x48\x00', base + off, clobber=True)
-
-        self.asf.patch(b'\x64\x32\x32\x00', base + 0x08, clobber=True)
-
-        for off in (0x10, 0x14, 0x30, 0x4C):
-            self.asf.patch(b'\x40\x20\x20\x00', base + off, clobber=True)
-
-        for off in (0x18, 0x34, 0x50):
-            self.asf.patch(b'\x08\x00\x08\x00', base + off, clobber=True)
-
-        return PatchOutcome.ok(None, "Palette table: 0x%08X" % (self.asf.FLASH_BASE + base))
+        # --palette-colors overrides single roles; the others keep the custom palette.
+        details = ["Palette table: 0x%08X" % (self.asf.FLASH_BASE + base)]
+        for role, label, custom, _, offsets in PALETTE_ROLES:
+            color = self.palette_colors.get(role, custom)
+            if color is None:
+                continue
+            for off in offsets:
+                self.asf.patch(bytes.fromhex(color) + b'\x00', base + off, clobber=True)
+            if role in self.palette_colors:
+                details.append("%s: #%s" % (label, color))
+        return PatchOutcome.ok(None, *details)
 
 
     def patch_expand_heap(self):
@@ -4238,7 +4234,8 @@ def run_patcher(args, detail_log=None):
     build_identity = firmware_build_identity(repo_dir)
     patches = ASFirmwarePatches(asf, target_rh=args.target_rh, graph_width=args.graph_width,
                                 vauto_start_ps=args.vauto_start_ps,
-                                humid_start_coupling_row=args.humid_start_coupling_row)
+                                humid_start_coupling_row=args.humid_start_coupling_row,
+                                palette_colors=args.palette_colors)
 
     apply_patch_phases(patches, args, detail_log)
 

@@ -30,6 +30,8 @@ def graph_width(value):
 
 def graph_width_text(minutes):
     return '%d:%02d' % divmod(minutes, 60)
+
+
 def cmh2o_start_ps(value):
     try:
         cmh2o = float(value)
@@ -38,6 +40,45 @@ def cmh2o_start_ps(value):
     if cmh2o is None or not 0 <= cmh2o <= 10 or abs(cmh2o * 5 - round(cmh2o * 5)) > 1e-6:
         raise argparse.ArgumentTypeError('0 to 10 cmH2O in steps of 0.2 expected.')
     return cmh2o
+
+
+# Air10 GUI palette roles (SX567): groups of palette entries that share one
+# stock color, named after how the stock colors are used (white text on
+# black, ResMed blue accent).
+# (role, label, --patch-custom-palette color or None, stock color, entry
+# offsets in the palette table). Roles without a custom color are left as
+# they are unless --palette-colors names them.
+PALETTE_ROLES = (
+    ('text', 'Text', 'FFBB44', 'FFFFFF', (0x00, 0x1C, 0x28, 0x40, 0x44, 0x48)),
+    ('secondary', 'Secondary text', '964848', '969696', (0x04, 0x0C)),
+    ('dim', 'Dimmed text', '643232', '646464', (0x08,)),
+    ('frame', 'Frames and bars', '402020', '404040', (0x10, 0x14, 0x30, 0x4C)),
+    ('background', 'Background', '080008', '000000', (0x18, 0x34, 0x50)),
+    ('accent', 'Accent (selection)', 'CC3300', '0099CC', (0x24,)),
+    ('accent_dark', 'Dark accent', None, '003953', (0x2C, 0x38)),
+    ('grey', 'Grey', None, '969696', (0x20,)),
+    ('light', 'Light grey', None, 'D0D0D0', (0x3C,)),
+)
+PALETTE_KEYS = tuple(role[0] for role in PALETTE_ROLES)
+
+
+def palette_colors(value):
+    """ROLE=RRGGBB[,ROLE=RRGGBB...] as a dict in role order."""
+    colors = {}
+    for item in filter(None, (part.strip() for part in value.split(','))):
+        key, sep, color = item.partition('=')
+        key, color = key.strip().lower(), color.strip().lstrip('#').upper()
+        if not sep or key not in PALETTE_KEYS:
+            raise argparse.ArgumentTypeError(
+                'expected ROLE=RRGGBB with ROLE one of: %s' % ', '.join(PALETTE_KEYS))
+        if len(color) != 6 or any(c not in '0123456789ABCDEF' for c in color):
+            raise argparse.ArgumentTypeError('%s: expected a hex color like FFBB44' % key)
+        colors[key] = color
+    return {key: colors[key] for key in PALETTE_KEYS if key in colors}
+
+
+def format_palette_colors(colors):
+    return ','.join('%s=%s' % item for item in colors.items())
 
 
 # Patch order is part of the implementation. Payloads must be present before
@@ -128,7 +169,13 @@ PLATFORM = Platform('air10', categories=(
                             Value(str2bool, 'y/n'), True),
               )),
         Patch('patch-custom-palette', 'Patch the custom color palette.',
-              True, 'custom_palette', category='Quality of life'),
+              True, 'custom_palette', category='Quality of life', parameters=(
+                  Parameter('palette-colors',
+                            'Single palette colors, given once; roles left out keep the custom palette. '
+                            'Roles: %s.' % ', '.join(PALETTE_KEYS),
+                            Value(palette_colors, 'ROLE=RRGGBB,...',
+                                  format=format_palette_colors)),
+              )),
         Patch('patch-past-date', 'Allow setting past date in the menu and over UART.',
               True, 'patch_past_date', category='Quality of life'),
         Patch('patch-motor-nagscreen', 'Remove the "Motor life exceeded" nag screen.',
