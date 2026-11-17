@@ -132,7 +132,8 @@ PLATFORM = Platform('air10', categories=(
         Patch('patch-graph-climate',
               'Show the climate chart instead of the flow and pressure trace: plate and tube temperatures '
               'and estimated RH over --graph-width.',
-              False, 'patch_graph_climate', category='Therapy modifications', requires=('patch-therapy-screen',), parameters=(
+              False, 'patch_graph_climate', category='Quality of life',
+              requires=('patch-therapy-screen',), parameters=(
                   Parameter('graph-width', 'Time the climate chart covers, 0:10 to 12:00. Default: 1:00.',
                             Value(graph_width, 'H:MM', format=graph_width_text), 60),
               )),
