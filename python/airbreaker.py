@@ -7,6 +7,7 @@ and the selected platform's Tcl commands; on Windows, Make and OpenOCD run in WS
 CAN, TCP bridge and BLE actions run the repository's Python tools with this window's
 interpreter.
 """
+import argparse
 import filecmp
 import json
 import os
@@ -20,7 +21,7 @@ import sys
 import textwrap
 import threading
 import tkinter as tk
-from tkinter import filedialog, messagebox, simpledialog, ttk
+from tkinter import colorchooser, filedialog, messagebox, simpledialog, ttk
 from tkinter import font as tkfont
 import traceback
 
@@ -29,6 +30,7 @@ REPO = os.path.dirname(HERE)
 sys.path.insert(0, HERE)
 sys.path.insert(0, os.path.join(HERE, "lib"))   # resmed_credentials imports its neighbours as the tools do
 from lib import patch_config, patch_options  # noqa: E402
+from lib.as10_patch_options import PALETTE_KEYS, PALETTE_ROLES, format_palette_colors, palette_colors  # noqa: E402
 
 TITLE = "AirBreaker"
 DEFAULT_PRESET = "airbreaker"
@@ -370,6 +372,7 @@ class App(tk.Tk):
         self.params = {}    # parameter option -> StringVar with its value as typed
         self.param_widgets = {}   # parameter option -> its entry or combobox, disabled while the patch is off
         self.inherited_labels = {}   # inherited entries of repeatable parameters
+        self.palette = None   # swatches of --palette-colors, while the window shows that parameter
         self.checks = {}    # patch option -> Checkbutton, bold when this preset sets it
         self.name = ""          # empty for a form that has not been named as a preset
         self.base = []          # presets this preset selects (--preset); they apply under it
@@ -674,6 +677,7 @@ class App(tk.Tk):
         self.params.clear()
         self.param_widgets.clear()
         self.inherited_labels.clear()
+        self.palette = None
         self.checks.clear()
         groups = self.platform.patch_groups()
         columns = [ttk.Frame(self.option_area) for _ in range(2)]
@@ -745,10 +749,78 @@ class App(tk.Tk):
             Tooltip(widget, lambda p=parameter: wrap_lines(p.description +
                     (" Several values are separated by spaces." if p.value.repeat else "")))
             self.param_widgets[parameter.option] = widget
+            if parameter.option == "palette-colors":
+                self.add_palette(frame, patch, self.params[parameter.option])
             if parameter.value.repeat:
                 inherited = ttk.Label(frame, foreground="#666666", wraplength=520)
                 inherited.grid(row=frame.grid_size()[1], column=0, sticky="w", padx=(22, 0))
                 self.inherited_labels[parameter.option] = inherited
+
+    def add_palette(self, frame, patch, var):
+        """One color swatch per palette role under --palette-colors; a click opens a color picker that writes
+        the ROLE=RRGGBB text of the field. Roles the text leaves out show the colors the patch uses."""
+        box = ttk.Frame(frame)
+        box.grid(row=frame.grid_size()[1], column=0, columnspan=2, sticky="w", padx=(22, 0), pady=(0, 4))
+        self.palette = {"var": var, "patch": patch.option, "swatches": {}, "widgets": []}
+        for i, (role, label, custom, stock, _) in enumerate(PALETTE_ROLES):
+            cell = ttk.Frame(box)
+            cell.grid(row=i // 3, column=i % 3, sticky="w", padx=(0, 12), pady=1)
+            swatch = tk.Label(cell, width=3, relief="solid", borderwidth=1, cursor="hand2")
+            swatch.pack(side="left")
+            name = ttk.Label(cell, text=label, cursor="hand2")
+            name.pack(side="left", padx=(4, 0))
+            for widget in (swatch, name):
+                widget.bind("<Button-1>", lambda _, r=role: self.pick_color(r))
+                Tooltip(widget, lambda r=role, c=custom, s=stock: wrap_lines(
+                    "%s: #%s\nCustom palette: %s\nStock ResMed: #%s\nClick to choose a color."
+                    % (r, self.palette_color(r), "#" + c if c else "unchanged", s)))
+            self.palette["swatches"][role] = swatch
+            self.palette["widgets"] += [swatch, name]
+        buttons = ttk.Frame(box)
+        buttons.grid(row=(len(PALETTE_ROLES) + 2) // 3, column=0, columnspan=3, sticky="w", pady=(4, 0))
+        for text, colors in (("Custom palette colors", {}),
+                             ("Stock ResMed colors", {role: stock for role, _, _, stock, _ in PALETTE_ROLES})):
+            button = ttk.Button(buttons, text=text, command=lambda c=colors: self.set_palette(c))
+            button.pack(side="left", padx=(0, 6))
+            self.palette["widgets"].append(button)
+        self.update_palette()
+
+    def palette_chosen(self):
+        """The colors the field names, by role; {} while its text is invalid."""
+        try:
+            return palette_colors(self.palette["var"].get())
+        except argparse.ArgumentTypeError:
+            return {}
+
+    def palette_color(self, role):
+        """The color a role gets: the field's, else the custom palette's, else the stock color."""
+        for key, _, custom, stock, _ in PALETTE_ROLES:
+            if key == role:
+                return self.palette_chosen().get(role) or custom or stock
+
+    def set_palette(self, colors):
+        """Writes the field: only colors that differ from what the patch uses without it are kept."""
+        default = {role: custom or stock for role, _, custom, stock, _ in PALETTE_ROLES}
+        kept = {role: colors[role] for role in PALETTE_KEYS if role in colors and colors[role] != default[role]}
+        self.palette["var"].set(format_palette_colors(kept))
+
+    def pick_color(self, role):
+        if not self.enabled[self.palette["patch"]].get():
+            return
+        label = next(r[1] for r in PALETTE_ROLES if r[0] == role)
+        _, color = colorchooser.askcolor(color="#" + self.palette_color(role), parent=self,
+                                         title="%s - %s" % (TITLE, label))
+        if color:
+            self.set_palette({**{r: self.palette_color(r) for r in PALETTE_KEYS}, role: color.lstrip("#").upper()})
+
+    def update_palette(self):
+        """Swatch colors from the field; grey while the palette patch is off."""
+        on = self.enabled[self.palette["patch"]].get()
+        for role, swatch in self.palette["swatches"].items():
+            swatch.config(background="#" + self.palette_color(role) if on else "#d9d9d9")
+        for widget in self.palette["widgets"]:
+            if isinstance(widget, (ttk.Label, ttk.Button)):
+                widget.state(["!disabled"] if on else ["disabled"])
 
     def tooltip_text(self, patch):
         """The patch's declaration: description, default, parameters, dependencies, and what sets it now."""
@@ -893,6 +965,8 @@ class App(tk.Tk):
         for parameter, patch in self.parameters:
             self.param_widgets[parameter.option].state(
                 ["!disabled"] if self.enabled[patch.option].get() else ["disabled"])
+        if self.palette:
+            self.update_palette()
         values = self.shown()
         if values is None:
             self.cmdline.set("Invalid value: %s" % self.error)
