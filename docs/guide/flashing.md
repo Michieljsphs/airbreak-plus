@@ -1,6 +1,7 @@
 # Flashing
 
 Two methods: SWD (via OpenOCD) or UART (via [`resmed_flash.py`](../tools/resmed_flash.md)).
+[AirBreaker](airbreaker.md#flashing) runs both from a window.
 
 ## Method 1: OpenOCD (SWD)
 
@@ -20,29 +21,6 @@ Takes about 30 seconds. The device reboots automatically.
 ```
 flash_new stm32.bin
 ```
-
-### From AirBreaker
-
-See the [AirBreaker guide](airbreaker.md) for setup on Windows, Linux and WSL.
-
-The Flash device section of `airbreaker.bat` (or
-`python python/airbreaker.py`) runs the same commands without a telnet
-session. Each button runs `run-ocd.sh` once with the chosen adapter (and
-`-s SERIAL` when given), one command of `tcl/airsense.cfg` and `shutdown`;
-the exit code tells whether it worked:
-
-| Button | Command |
-|--------|---------|
-| Check device | none; the config reports stock or patched firmware |
-| Dump backup | `dump BACKUP` |
-| Flash | `flash_new FIRMWARE` |
-| Verify | `verify FIRMWARE` |
-| Reset | `reset run` |
-
-For example, Verify runs
-`./run-ocd.sh --interface stlink -c "verify {build/stm32-patched.bin}" -c shutdown`.
-On Windows it runs in WSL, where `run-ocd.sh` also attaches the adapter with
-usbipd. Flash asks for confirmation and warns when no backup exists.
 
 ## Method 2: UART
 
@@ -85,7 +63,7 @@ The 1MB flash is divided into regions:
 | Region | Offset | Size | Content |
 |--------|--------|------|---------|
 | BLX | 0x00000 | 16 KB | Bootloader |
-| CCX | 0x04000 | 240 KB | Configuration (variable descriptors, signal tables, strings) |
+| CCX | 0x04000 | 240 KB | Model definition (variable descriptors, signal tables, strings) |
 | CDX | 0x40000 | 768 KB | Application firmware (therapy algorithms, GUI, drivers) |
 | CMX | -- | -- | CCX+CDX combined (used by the flash protocol as a single block) |
 

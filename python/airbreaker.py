@@ -1,20 +1,11 @@
-"""AirBreaker: a window for the Air 10 patch options, patching and flashing.
+"""AirBreaker: Air10 and Air11 patch selection, builds, flashing and dumps.
 
-The patches, their phases, descriptions, defaults, parameters and dependencies come from the shared option
-declarations (python/lib/as10_patch_options.py through patch_options.load("air10")). Presets and option files
-are read, validated and written with python/lib/patch_config.py, the code the patcher and make use too.
-The window edits a user preset, presets/user/air10/NAME.config, which can build on another preset such as the
-built-in plus. Ticking a patch also ticks the patches it requires; unticking one unticks the patches that
-require it. Options the preset sets itself are shown bold, and Save writes only those. The local options file
-patch-airsense.config is edited by hand and applies under every preset, so the window shows what it sets.
-Build runs make AIR10_FIRMWARE=INPUT PATCH_ARGS='--preset NAME' build/stm32-patched.bin, with its output in
-the log: make builds the payloads, patches the image and tracks the options and the input image in the image's
-.config state file. Flash device does over SWD what docs/guide/flashing.md does in the OpenOCD telnet console:
-each button runs run-ocd.sh once with the adapter (and its serial number, if given) and one of the
-tcl/airsense.cfg commands (dump, flash_new, verify, ...); the exit code tells whether it worked. On Windows
-make and run-ocd.sh run in WSL. The paths and choices are remembered in
-~/.airbreaker.json. Needs only Python with tkinter (included in the Windows installer). Start it with
-airbreaker.bat (no console) or python python/airbreaker.py.
+Patch declarations and configuration come from lib.patch_options and lib.patch_config.
+Build passes the full form selection to Make; saving a preset is a separate operation
+that retains only its own options and base preset selections. SWD actions use run-ocd.sh
+and the selected platform's Tcl commands; on Windows, Make and OpenOCD run in WSL. UART,
+CAN, TCP bridge and BLE actions run the repository's Python tools with this window's
+interpreter.
 """
 import filecmp
 import json
@@ -29,41 +20,90 @@ import sys
 import textwrap
 import threading
 import tkinter as tk
-from tkinter import filedialog, messagebox, ttk
+from tkinter import filedialog, messagebox, simpledialog, ttk
 from tkinter import font as tkfont
 import traceback
 
 HERE = os.path.dirname(os.path.abspath(__file__))   # <repo>/python
 REPO = os.path.dirname(HERE)
 sys.path.insert(0, HERE)
+sys.path.insert(0, os.path.join(HERE, "lib"))   # resmed_credentials imports its neighbours as the tools do
 from lib import patch_config, patch_options  # noqa: E402
 
 TITLE = "AirBreaker"
-PLATFORM = patch_options.load("air10")
-LOCAL_FILE = patch_config.REPO / patch_config.LOCAL_FILES[PLATFORM.name]
-USER_PRESETS = patch_config.REPO / patch_config.preset_dirs(PLATFORM.name)[0]   # presets/user/air10
 DEFAULT_PRESET = "airbreaker"
-PRESET_NAME = re.compile(r"[A-Za-z0-9][A-Za-z0-9_.-]*\Z")   # also in make PATCH_ARGS: no spaces, quotes, leading dash
+PRESET_NAME = re.compile(r"[A-Za-z0-9][A-Za-z0-9_.-]*\Z")
 PRESET_NAME_RULE = "a preset name starts with a letter or digit and uses letters, digits, '.', '_' and '-' only."
 HEADER = "# Written by AirBreaker (python/airbreaker.py): the options this preset sets itself."
 NO_BASE = "(none)"
 SETTINGS_FILE = os.path.join(os.path.expanduser("~"), ".airbreaker.json")
-# The one fact about the Makefile this window needs: the target that builds the image from AIR10_FIRMWARE and
-# PATCH_ARGS (documented in docs/patch_options.md). Its options and input are tracked by make, not here.
-OUTPUT_TARGET = "build/stm32-patched.bin"
-OUTPUT = os.path.join(REPO, *OUTPUT_TARGET.split("/"))
-INPUT_COPY = "airbreaker-input.bin"   # copy of an input firmware whose path make cannot take
-DEFAULT_BACKUP = os.path.join(REPO, "stm32.bin")   # where docs/guide/openocd.md has the stock dump
-STEPS = (("choose", "1 Choose patches"), ("save", "2 Save"), ("patch", "3 Build"), ("backup", "4 Dump backup"),
-         ("flash", "5 Flash"))   # the checklist above the options
-
-
-def parameter_items(patch):
-    return [(parameter, patch) for parameter in patch.parameters]
-
-
-PARAMETERS = [item for patch in PLATFORM.patches() for item in parameter_items(patch)]   # (parameter, patch)
-OPTIONS = [patch.option for patch in PLATFORM.patches()] + [parameter.option for parameter, _ in PARAMETERS]
+# Build targets, flash connections and flash regions; patch definitions remain in patch_options. A region is
+# (label, what Flash runs): the Tcl flash command over SWD, the tool's region options over the other connections.
+# The first region is the default.
+TARGETS = {
+    "air10": dict(firmware="AIR10_FIRMWARE", patch_args="AIR10_PATCH_ARGS",
+                  output="build/stm32-patched.bin", config="airsense", backup="stm32.bin",
+                  links=("swd", "uart", "airbridge"),
+                  swd_regions=(("full image", "flash_new"), ("BLX (bootloader)", "flash_blx")),
+                  regions=(("CMX (model definition and firmware)", ("--block", "cmx")),
+                           ("CCX (model definition)", ("--block", "ccx")),
+                           ("CDX (firmware)", ("--block", "cdx")),
+                           ("BLX (bootloader)", ("--block", "blx", "--include-bootloader")),
+                           ("all (BLX and CMX)", ("--block", "all", "--include-bootloader")))),
+    "air11": dict(firmware="AS11_FIRMWARE", patch_args="AIR11_PATCH_ARGS",
+                  output="build/as11-patched.bin", config="as11", backup="as11.bin",
+                  links=("swd", "can", "aircannect", "ble"),
+                  swd_regions=(("full image", "flash_new"), ("FGBL (bootloader)", "flash_fgbl")),
+                  regions=(("APCX (model definition and application)", ("--block", "apcx")),
+                           ("CONF (model definition)", ("--block", "conf")),
+                           ("APPL (application)", ("--block", "appl")),
+                           ("FGBL (bootloader)", ("--block", "fgbl", "--include-bootloader")),
+                           ("FGCB (complete flash)", ("--block", "fgcb", "--include-bootloader")))),
+}
+# Flash connections. SWD runs run-ocd.sh. The others run a Python tool of the repository with this window's
+# interpreter, which opens the serial port, socket or Bluetooth itself (on Windows without WSL); option and prefix
+# turn the connection field into the tool's device argument. mode selects what the buttons run (TOOL_ACTIONS);
+# without it, the Protocol choice does.
+LINKS = {
+    "swd": dict(label="SWD (OpenOCD)", mode="swd"),
+    "uart": dict(label="UART", mode="uart", field="port", option="-p", prefix=""),
+    "airbridge": dict(label="AirBridge (TCP)", mode="uart", field="host", option="-p", prefix="tcp:"),
+    "can": dict(label="CAN", field="port", option="-d", prefix="can:"),
+    "aircannect": dict(label="AirCANnect (TCP)", field="host", option="-d", prefix="tcp:"),
+    "ble": dict(label="BLE", mode="native", field="device", option="-d", prefix="ble:"),
+}
+PROTOCOLS = {"native": "native (JSON-RPC)", "service": "patched bootloader"}
+FILE = object()   # the file argument of an action
+# What the buttons run over each tool protocol: action -> (tool, arguments); a missing action is unavailable. Flash
+# adds the region's options. more lists the actions outside the standard steps: (label, file name, tool, arguments).
+TOOL_ACTIONS = {
+    "uart": dict(check=("resmed_flash.py", "--info"),
+                 dump=("resmed_flash.py", "--dump", FILE),
+                 flash=("resmed_flash.py", "-f", FILE),
+                 more=(("Dump EEPROM", "eeprom.bin", "resmed_flash.py", "--dump-eeprom", FILE),)),
+    "native": dict(check=("as11_config.py", "get", "ApplicationIdentifier", "BootloaderIdentifier"),
+                   flash=("as11_flash.py", "flash", "-f", FILE),
+                   reset=("as11_config.py", "reset")),
+    "service": dict(check=("as11_flash.py", "service", "enter"),
+                    dump=("as11_flash.py", "service", "read-flash", FILE, "--enter"),
+                    flash=("as11_flash.py", "service", "flash", "-f", FILE),
+                    reset=("as11_flash.py", "service", "reset"),
+                    more=(("Dump NOR", "nor.bin", "as11_flash.py", "service", "read-nor", FILE, "--enter"),)),
+}
+# SWD actions: a Tcl command of the platform's OpenOCD configuration; Flash puts the region's command before the file.
+SWD_ACTIONS = dict(check=(), dump=("dump", FILE), flash=(FILE,), verify=("verify", FILE), reset=("reset run",))
+DEVICE_BUTTONS = (   # action, button text, tooltip
+    ("check", "Check device", "Connects and reports the device identity."),
+    ("dump", "Dump backup", "Saves the complete firmware to the backup file."),
+    ("flash", "Flash", "Writes the selected region of the firmware file to the device."),
+    ("verify", "Verify", "Compares the device flash with the firmware file."),
+    ("reset", "Reset", "Restarts the device."),
+)
+FILE_NAMES = dict(dump="BACKUP", flash="FIRMWARE", verify="FIRMWARE")   # the file in tooltips
+BLE_APPLY = ("authenticated", "plain")
+CAN_TYPES = ("auto", "waveshare")
+STEPS = (("choose", "1 Choose patches"), ("patch", "2 Build"), ("backup", "3 Dump backup"),
+         ("flash", "4 Flash"))
 
 
 def value_text(value, syntax=None):
@@ -79,16 +119,17 @@ def value_text(value, syntax=None):
     return patch_config.format_value(value, syntax)
 
 
-def user_presets():
-    return sorted(path.stem for path in USER_PRESETS.glob("*.config") if path.is_file())
+def user_presets(platform):
+    directory = patch_config.REPO / patch_config.preset_dirs(platform.name)[0]
+    return sorted(path.stem for path in directory.glob("*.config") if path.is_file())
 
 
-def preset_path(name):
-    return USER_PRESETS / (name + ".config")
+def preset_path(platform, name):
+    return patch_config.REPO / patch_config.preset_dirs(platform.name)[0] / (name + ".config")
 
 
 def layer_label(layer):
-    return LOCAL_FILE.name if layer.source == "local" else "preset " + layer.path.stem
+    return layer.path.name if layer.source == "local" else "preset " + layer.path.stem
 
 
 class Tooltip:
@@ -165,9 +206,32 @@ def ocd_interfaces():
     return result.stdout.split() if result.returncode == 0 else []
 
 
+def serial_ports():
+    """The serial ports the tools can open, as they name them; [] without pyserial."""
+    try:
+        from serial.tools import list_ports
+    except ImportError:
+        return []
+    return sorted(port.device for port in list_ports.comports())
+
+
+def ble_devices():
+    """The stored Air11 pairings as the tools take them: the alias, or the address of a device without one."""
+    try:
+        import resmed_credentials
+        stored = resmed_credentials.load_all_credentials()
+    except ImportError:
+        return []
+    except resmed_credentials.TransportError:   # unreadable file: the tool reports it
+        return []
+    return sorted(entry.get("alias") or address for address, entry in stored.items()
+                  if resmed_credentials.credential_family(entry) == "as11")
+
+
 def use_wsl():
     """Whether tools run through WSL. The one toolchain rule: on Windows, make and the tools it runs (the ARM
-    toolchain, the patcher, OpenOCD) run in WSL (docs/guide/wsl_setup.md); elsewhere they run on this system."""
+    toolchain, the patcher) and OpenOCD run in WSL (docs/guide/wsl_setup.md); elsewhere they run on this system.
+    The Python device tools run with this window's interpreter everywhere."""
     return os.name == "nt"
 
 
@@ -211,7 +275,7 @@ def stop_in_wsl():
 
 
 def make_input(firmware):
-    """The firmware as make gets it in AIR10_FIRMWARE (repo-relative inside the repository, else a WSL or
+    """The firmware as make gets it (repo-relative inside the repository, else a WSL or
     absolute path); None when the path cannot be passed to make."""
     path = os.path.realpath(firmware)
     try:
@@ -227,17 +291,22 @@ def make_input(firmware):
     return path
 
 
-def make_command(path, preset, verbose):
-    """make building OUTPUT_TARGET from the input path (see make_input) with the preset; the Makefile tracks
-    the options and the input in its .config state file."""
-    args = ["make", "AIR10_FIRMWARE=" + path, "PATCH_ARGS=--preset " + preset]   # make picks the jobs
-    return tool_command(args + (["V=1"] if verbose else []) + [OUTPUT_TARGET])
+def make_command(target, path, options, verbose):
+    """Pass the form selection through the platform-specific Make variable, overriding its environment value."""
+    # Make expands dollars before the recipe shell interprets the quoted arguments.
+    arguments = shlex.join(options).replace("$", "$$")
+    args = ["make", target["firmware"] + "=" + path, target["patch_args"] + "=" + arguments]
+    return tool_command(args + (["V=1"] if verbose else []) + [target["output"]])
 
 
 WSL_TOOLS_HINT = "WSL needs openocd and lsusb (usbutils); see docs/guide/wsl_setup.md."
+PYSERIAL_HINT = ("The UART and CAN tools need pyserial in %s: pip install pyserial, or the python3-serial package."
+                 % sys.executable)
 LOG_HINTS = (   # output -> what to do about it, shown when the command ends
     ("openocd: command not found", WSL_TOOLS_HINT),
     ("lsusb: command not found", WSL_TOOLS_HINT),
+    ("No module named 'serial'", PYSERIAL_HINT),
+    ("pyserial is required", PYSERIAL_HINT),
     ("Error: open failed", "OpenOCD found no adapter: check the programmer's USB cable and driver, or in WSL "
      "that usbipd shares it (docs/guide/openocd.md)."),
 )
@@ -292,24 +361,30 @@ class App(tk.Tk):
         super().__init__()
         self.geometry("1280x900")
         self.settings = load_settings()
+        self.platform_settings = self.settings.get("platforms", {})
+        platform_name = self.settings.get("platform", "air10")
+        if platform_name not in TARGETS:
+            platform_name = "air10"
+        self.configure_platform(platform_name)
         self.enabled = {}   # patch option -> BooleanVar: patch selected
         self.params = {}    # parameter option -> StringVar with its value as typed
         self.param_widgets = {}   # parameter option -> its entry or combobox, disabled while the patch is off
+        self.inherited_labels = {}   # inherited entries of repeatable parameters
         self.checks = {}    # patch option -> Checkbutton, bold when this preset sets it
-        self.required_by = {patch.option: [other.option for other in PLATFORM.patches()
-                                           if patch.option in other.requires] for patch in PLATFORM.patches()}
-        self.name = ""          # the preset shown, presets/user/air10/NAME.config
+        self.name = ""          # empty for a form that has not been named as a preset
         self.base = []          # presets this preset selects (--preset); they apply under it
         self.underlying = {}    # option -> value from the local options file and the base presets
         self.explicit = set()   # options the preset file sets itself: kept even where they equal self.underlying
+        self.platform_values = {}   # e.g. an existing preset's --all-patches fallback
         self.sources = {}       # option -> the file under this preset that sets it
-        self.local_options = ()   # what patch-airsense.config sets, shown as a note
+        self.local_options = ()   # what the platform's local options file sets, shown as a note
         self.foreign = False      # the preset file was not written by this window: ask before replacing it
         self.saved_text = None    # the preset file as last loaded or saved; None when it could not be read
         self.loading = False
         self.proc = None
         self.done = ""          # log text when the running command succeeds
         self.flashing = False   # the running command writes the device flash: ask before stopping it
+        self.in_wsl = False     # the running command runs in WSL, where stop_in_wsl() ends it
         self.hints = []         # LOG_HINTS matched by the running command's output
         self.lines = queue.Queue()
         self.error = ""         # why shown() found an invalid value
@@ -317,7 +392,17 @@ class App(tk.Tk):
         bold = tkfont.nametofont("TkDefaultFont").copy()
         bold.configure(weight="bold")
         self.bold = bold   # the style only keeps the font name
-        ttk.Style(self).configure("Changed.TCheckbutton", font=bold)
+        ttk.Style(self).configure("Patch.TCheckbutton", wraplength=520)
+        ttk.Style(self).configure("Changed.Patch.TCheckbutton", font=bold, wraplength=520)
+
+        platform_bar = ttk.Frame(self)
+        platform_bar.pack(fill="x", padx=8, pady=(8, 0))
+        ttk.Label(platform_bar, text="Platform:").pack(side="left")
+        self.platform_var = tk.StringVar(value=platform_name)
+        self.platform_box = ttk.Combobox(platform_bar, textvariable=self.platform_var,
+                                         values=list(TARGETS), state="readonly", width=10)
+        self.platform_box.pack(side="left", padx=6)
+        self.platform_box.bind("<<ComboboxSelected>>", lambda _: self.switch_platform())
 
         checklist = ttk.Frame(self)   # what is done, in the order to do it
         checklist.pack(fill="x", padx=8, pady=(8, 0))
@@ -326,13 +411,8 @@ class App(tk.Tk):
         for key, text in STEPS:
             self.steps[key] = ttk.Label(checklist, text=text)
             self.steps[key].pack(side="left", padx=(0, 18))
-        Tooltip(checklist, lambda: wrap_lines(
-            "The steps in order. A tick means it is done: the options are saved, make built the image from this "
-            "window with the saved options and this input firmware, a backup file exists, and the device was "
-            "flashed from this window with that image. Step 4 matters most: the stock dump is the only way to "
-            "restore the device."))
         self.flashed = None    # file_id() of the image last flashed from this window
-        self.built = None      # (preset, saved text, input) of the last successful build in this window
+        self.built = None      # platform, effective option arguments and input identity of the last build
         self.kind = None       # "build" or "flash" for the running command, whose success updates the checklist
         self.pending = None    # what self.built or self.flashed becomes when the running command succeeds
 
@@ -351,9 +431,15 @@ class App(tk.Tk):
         scroll.pack(side="right", fill="y")
         canvas.pack(side="left", fill="both", expand=True)
         inner = ttk.Frame(canvas)
+        self.option_area = inner
         window = canvas.create_window(0, 0, window=inner, anchor="nw")
         inner.bind("<Configure>", lambda e: canvas.configure(scrollregion=canvas.bbox("all")))
-        canvas.bind("<Configure>", lambda e: canvas.itemconfigure(window, width=e.width))
+        def resize_options(event):
+            canvas.itemconfigure(window, width=event.width)
+            width = max(200, (event.width - 100) // 2)
+            ttk.Style(self).configure("Patch.TCheckbutton", wraplength=width)
+            ttk.Style(self).configure("Changed.Patch.TCheckbutton", wraplength=width)
+        canvas.bind("<Configure>", resize_options)
 
         def wheel(event):   # only scroll the options while the mouse is over them
             under = self.winfo_containing(event.x_root, event.y_root)
@@ -364,23 +450,11 @@ class App(tk.Tk):
         for sequence in ("<MouseWheel>", "<Button-4>", "<Button-5>"):
             self.bind_all(sequence, wheel)
 
-        columns = [ttk.Frame(inner) for _ in range(2)]   # one LabelFrame per patch phase, in two columns
-        for i, column in enumerate(columns):
-            column.grid(row=1, column=i, sticky="nwe", padx=(0, 8) if i == 0 else (0, 4))
-            inner.columnconfigure(i, weight=1, uniform="column")
-        rows = [0, 0]
-        for phase in PLATFORM.phases:
-            i = rows.index(min(rows))
-            rows[i] += len(phase.patches) + sum(len(p.parameters) for p in phase.patches) + 2
-            frame = ttk.LabelFrame(columns[i], text=phase.name, padding=8)
-            frame.pack(fill="x", pady=(0, 8))
-            frame.columnconfigure(0, weight=1)
-            for patch in phase.patches:
-                self.add_option(frame, patch)
+        self.render_options()
 
         bar = ttk.Frame(top)
         bar.pack(fill="x", pady=(8, 0))
-        ttk.Label(bar, text="Preset:").pack(side="left")
+        ttk.Label(bar, text="Preset (optional):").pack(side="left")
         self.preset_var = tk.StringVar()
         self.preset_box = ttk.Combobox(bar, textvariable=self.preset_var, width=18)
         self.preset_box.pack(side="left", padx=(4, 0))
@@ -389,15 +463,14 @@ class App(tk.Tk):
         Tooltip(self.preset_box, lambda: wrap_lines(
             "The user preset this window edits: %s/NAME.config. Pick one, or type a new name and press Enter. "
             "Save writes it; a changed name saves a copy under that name."
-            % os.path.relpath(USER_PRESETS, REPO).replace(os.sep, "/")))
+            % os.path.relpath(self.user_presets_dir, REPO).replace(os.sep, "/")))
         ttk.Label(bar, text="Based on:").pack(side="left", padx=(12, 0))
         self.base_var = tk.StringVar()
         self.base_box = ttk.Combobox(bar, textvariable=self.base_var, state="readonly", width=14)
         self.base_box.pack(side="left", padx=(4, 0))
         self.base_box.bind("<<ComboboxSelected>>", lambda _: self.base_changed())
         Tooltip(self.base_box, lambda: wrap_lines(
-            "A preset this one builds on, such as plus. Its options apply "
-            "first; this preset only stores what differs from it."))
+            "The base preset. Its options apply first; saved overrides take precedence."))
         ttk.Button(bar, text="Save", command=self.save).pack(side="left", padx=(12, 0))
         ttk.Button(bar, text="Reload", command=self.reload).pack(side="left", padx=(6, 0))
         clear = ttk.Button(bar, text="Clear own options", command=self.clear)
@@ -411,7 +484,7 @@ class App(tk.Tk):
         self.local_note.pack(fill="x", pady=(6, 0))
         Tooltip(self.local_note, lambda: wrap_lines(
             "The local options file %s applies under every preset, also for make. It is edited by hand; see "
-            "docs/patch_options.md." % LOCAL_FILE.name))
+            "docs/patch_options.md." % self.local_file.name))
         line = ttk.Frame(top)
         line.pack(fill="x", pady=(6, 0))
         ttk.Label(line, text="Preset file:").pack(side="left")
@@ -419,15 +492,15 @@ class App(tk.Tk):
         ttk.Entry(line, textvariable=self.cmdline, state="readonly", font=("Consolas", 9)).pack(
             side="left", fill="x", expand=True, padx=(6, 0))
 
-        settings = self.settings
+        settings = self.platform_settings.get(self.platform.name, {})
         sections = ttk.Frame(bottom)   # left: patch an image, right: flash it to the device
         sections.pack(fill="x")
         patch = ttk.LabelFrame(sections, text="Build firmware (make)", padding=8)
         patch.pack(side="left", fill="both", expand=True)
         patch.columnconfigure(1, weight=1)
         self.infile = tk.StringVar(value=settings.get("input", ""))
-        self.outfile = tk.StringVar(value=OUTPUT)   # the Makefile target; make keeps it in step with its inputs
-        self.verbose = tk.BooleanVar(value=settings.get("verbose", False))
+        self.outfile = tk.StringVar(value=self.output)   # the Makefile target; make keeps it in step with its inputs
+        self.verbose = tk.BooleanVar(value=self.settings.get("verbose", False))
         ttk.Label(patch, text="Input firmware:").grid(row=0, column=0, sticky="w", pady=(0, 4))
         ttk.Entry(patch, textvariable=self.infile).grid(row=0, column=1, sticky="we", padx=6, pady=(0, 4))
         ttk.Button(patch, text="Browse...", command=lambda: self.browse(self.infile, False)).grid(
@@ -440,60 +513,134 @@ class App(tk.Tk):
         self.patch_btn = ttk.Button(actions, text="Build", command=self.patch)
         self.patch_btn.pack(side="left")
         Tooltip(self.patch_btn, lambda: wrap_lines(
-            "Saves the preset, then builds %s with make: the payloads (needed once, and again after changing "
-            "patches/), then the patched image. make decides what is out of date. Runs%s: "
-            "make AIR10_FIRMWARE=INPUT PATCH_ARGS='--preset %s' %s"
-            % (OUTPUT_TARGET, " in WSL" if use_wsl() else "", self.name, OUTPUT_TARGET)))
+            "Build %s from the current patch selection." % self.target["output"]))
         self.stop_btn = ttk.Button(actions, text="Stop", command=self.stop, state="disabled")
         self.stop_btn.pack(side="left", padx=(6, 0))
         ttk.Checkbutton(actions, text="Verbose (per-patch details, V=1)", variable=self.verbose).pack(
             side="left", padx=12)
 
-        flash = ttk.LabelFrame(sections, text="Flash device (SWD, OpenOCD)", padding=8)
+        flash = ttk.LabelFrame(sections, text="Flash device", padding=8)
         flash.pack(side="left", fill="both", expand=True, padx=(8, 0))
         flash.columnconfigure(1, weight=1)
-        self.ocd_interface = tk.StringVar(value=settings.get("ocd_interface", ""))   # empty: run-ocd.sh's default
-        self.ocd_serial = tk.StringVar(value=settings.get("ocd_serial", ""))
-        self.flash_file = tk.StringVar(value=settings.get("flash_file") or OUTPUT)
-        self.backup = tk.StringVar(value=settings.get("backup") or DEFAULT_BACKUP)
-        ttk.Label(flash, text="Adapter:").grid(row=0, column=0, sticky="w", pady=(0, 4))
-        adapter = ttk.Frame(flash)
-        adapter.grid(row=0, column=1, columnspan=2, sticky="w", padx=6, pady=(0, 4))
+        self.ocd_interface = tk.StringVar(value=self.settings.get("ocd_interface", ""))
+        self.ocd_serial = tk.StringVar(value=self.settings.get("ocd_serial", ""))
+        self.flash_file = tk.StringVar(value=settings.get("flash_file") or self.output)
+        self.backup = tk.StringVar(value=settings.get("backup") or self.default_backup)
+        self.link_var, self.protocol_var, self.region_var = tk.StringVar(), tk.StringVar(), tk.StringVar()
+        self.can_type, self.ble_apply, self.ble_key = tk.StringVar(), tk.StringVar(), tk.StringVar()
+        self.fields = {name: tk.StringVar() for name in ("port", "host", "device")}   # LINKS field -> its value
+
+        ttk.Label(flash, text="Connection:").grid(row=0, column=0, sticky="w", pady=(0, 4))
+        choice = ttk.Frame(flash)
+        choice.grid(row=0, column=1, columnspan=2, sticky="w", padx=6, pady=(0, 4))
+        self.link_box = ttk.Combobox(choice, textvariable=self.link_var, state="readonly", width=17)
+        self.link_box.pack(side="left")
+        self.link_box.bind("<<ComboboxSelected>>", lambda _: self.link_changed())
+        self.protocol_label = ttk.Label(choice, text="Protocol:")
+        self.protocol_box = ttk.Combobox(choice, textvariable=self.protocol_var, values=list(PROTOCOLS.values()),
+                                         state="readonly", width=19)
+        self.protocol_box.bind("<<ComboboxSelected>>", lambda _: self.link_changed())
+        Tooltip(self.protocol_box, lambda: wrap_lines(
+            "native: the JSON-RPC interface of the running application. patched bootloader: the bootloader "
+            "service of patch-fgbl-service, which also dumps the flash; the tool enters it with a reset."))
+
+        self.field_label = ttk.Label(flash)
+        self.field_label.grid(row=1, column=0, sticky="w", pady=(0, 4))
+        fields = ttk.Frame(flash)   # the fields of the selected connection: one of self.field_frames
+        fields.grid(row=1, column=1, columnspan=2, sticky="w", padx=6, pady=(0, 4))
+        swd = ttk.Frame(fields)
         # run-ocd.sh owns the list of adapters. It is asked in the background, as WSL can take a while to start.
-        self.adapters = ttk.Combobox(adapter, textvariable=self.ocd_interface, state="readonly", width=7)
+        self.adapters = ttk.Combobox(swd, textvariable=self.ocd_interface, state="readonly", width=7)
         self.adapters.pack(side="left")
         self.adapter_names = None   # set by the thread below, shown by pump()
         threading.Thread(target=lambda: setattr(self, "adapter_names", ocd_interfaces()), daemon=True).start()
-        ttk.Label(adapter, text="Serial (optional):").pack(side="left", padx=(12, 4))
-        serial = ttk.Entry(adapter, textvariable=self.ocd_serial, width=26)
+        ttk.Label(swd, text="Serial (optional):").pack(side="left", padx=(12, 4))
+        serial = ttk.Entry(swd, textvariable=self.ocd_serial, width=26)
         serial.pack(side="left")
         Tooltip(serial, lambda: wrap_lines(
             "Selects one of several connected adapters by its serial number (run-ocd.sh -s SERIAL). Leave empty "
             "with a single adapter."))
-        ttk.Label(adapter, text="via run-ocd.sh%s" % (" in WSL" if use_wsl() else ""), foreground="#888888").pack(
+        ttk.Label(swd, text="via run-ocd.sh%s" % (" in WSL" if use_wsl() else ""), foreground="#888888").pack(
             side="left", padx=(12, 0))
-        for row, (label, var, saving) in enumerate((("Firmware:", self.flash_file, False),
-                                                    ("Backup (dump):", self.backup, True)), start=2):
+        port = ttk.Frame(fields)
+        port_box = ttk.Combobox(port, textvariable=self.fields["port"], width=24,
+                                postcommand=lambda: port_box.configure(values=serial_ports()))
+        port_box.pack(side="left")
+        Tooltip(port_box, lambda: wrap_lines(
+            "The serial port of the USB-UART adapter, such as COM3 or /dev/ttyACM0." if self.link() == "uart" else
+            "The serial port of the CAN adapter, such as COM3 or /dev/ttyACM0, or a SocketCAN interface such as "
+            "can0."))
+        self.can_type_label = ttk.Label(port, text="Adapter type:")
+        self.can_type_box = ttk.Combobox(port, textvariable=self.can_type, values=CAN_TYPES, state="readonly",
+                                         width=10)
+        Tooltip(self.can_type_box, lambda: wrap_lines(
+            "auto: SLCAN on a serial port, SocketCAN on an interface such as can0. Waveshare adapters need "
+            "waveshare."))
+        host = ttk.Frame(fields)
+        host_entry = ttk.Entry(host, textvariable=self.fields["host"], width=26)
+        host_entry.pack(side="left")
+        Tooltip(host_entry, lambda: wrap_lines("The host name or address of the bridge, optionally with a port."))
+        ttk.Label(host, text="HOST[:PORT]", foreground="#888888").pack(side="left", padx=(12, 0))
+        ble = ttk.Frame(fields)
+        ble_box = ttk.Combobox(ble, textvariable=self.fields["device"], width=24,
+                               postcommand=lambda: ble_box.configure(values=ble_devices()))
+        ble_box.pack(side="left")
+        Tooltip(ble_box, lambda: wrap_lines(
+            "A paired device: its alias or address. Pair it once from a terminal with python/as11_config.py devices "
+            "pair ADDRESS."))
+        ttk.Label(ble, text="Apply:").pack(side="left", padx=(12, 4))
+        apply_box = ttk.Combobox(ble, textvariable=self.ble_apply, values=BLE_APPLY, state="readonly", width=13)
+        apply_box.pack(side="left")
+        apply_box.bind("<<ComboboxSelected>>", lambda _: self.link_changed())
+        Tooltip(apply_box, lambda: wrap_lines(
+            "authenticated needs the device's OTA key. plain needs firmware with patch-rpc-permissions."))
+        self.field_frames = dict(swd=swd, port=port, host=host, device=ble)
+        self.can_type_label.pack(side="left", padx=(12, 4))   # measured with the CAN fields; link_changed() hides them
+        self.can_type_box.pack(side="left")
+        self.update_idletasks()   # the size of the widest fields, so that switching keeps the section's width
+        fields.configure(width=max(frame.winfo_reqwidth() for frame in self.field_frames.values()),
+                         height=max(frame.winfo_reqheight() for frame in self.field_frames.values()))
+        fields.pack_propagate(False)
+
+        key_entry = ttk.Entry(flash, textvariable=self.ble_key)
+        self.key_row = (ttk.Label(flash, text="OTA key file:"), key_entry, ttk.Button(
+            flash, text="Browse...", command=lambda: self.browse(
+                self.ble_key, False, [("OTA key", "*.hex *.bin *.key"), ("All files", "*.*")])))
+        self.key_row[0].grid(row=2, column=0, sticky="w", pady=(0, 4))
+        key_entry.grid(row=2, column=1, sticky="we", padx=6, pady=(0, 4))
+        self.key_row[2].grid(row=2, column=2, pady=(0, 4))
+        Tooltip(key_entry, lambda: wrap_lines(
+            "Optional: the OTA key, 32 bytes or 64 hexadecimal digits. Without it the tool takes the key stored "
+            "for the paired device or AS11_OTA_KEY."))
+        for row, (label, var, saving) in ((3, ("Firmware:", self.flash_file, False)),
+                                          (5, ("Backup (dump):", self.backup, True))):
             ttk.Label(flash, text=label).grid(row=row, column=0, sticky="w", pady=(0, 4))
             ttk.Entry(flash, textvariable=var).grid(row=row, column=1, sticky="we", padx=6, pady=(0, 4))
             ttk.Button(flash, text="Browse...", command=lambda v=var, s=saving: self.browse(v, s)).grid(
                 row=row, column=2, pady=(0, 4))
-        ocd_actions = ttk.Frame(flash)
-        ocd_actions.grid(row=4, column=0, columnspan=3, sticky="w", pady=(8, 0))
-        self.ocd_buttons = []
-        for text, command, tip in (
-                ("Check device", self.ocd_check, "Connects and reports whether the device runs stock or patched "
-                 "firmware."),
-                ("Dump backup", self.ocd_dump, "Saves the whole 1 MB flash to the backup file (dump). Do this "
-                 "once on stock firmware before flashing: it is the only way to restore the device."),
-                ("Flash", self.ocd_flash, "Writes the firmware file to the device and verifies it (flash_new). "
-                 "Takes about 30 seconds; the device reboots afterwards."),
-                ("Verify", self.ocd_verify, "Compares the device flash with the firmware file (verify)."),
-                ("Reset", self.ocd_reset, "Restarts the device (reset run).")):
-            button = ttk.Button(ocd_actions, text=text, command=command)
+        ttk.Label(flash, text="Region:").grid(row=4, column=0, sticky="w", pady=(0, 4))
+        self.region_box = ttk.Combobox(flash, textvariable=self.region_var, state="readonly", width=40)
+        self.region_box.grid(row=4, column=1, sticky="w", padx=6, pady=(0, 4))
+        Tooltip(self.region_box, lambda: wrap_lines(
+            "What Flash writes from the firmware file. Over UART, CAN and BLE, an interrupted bootloader write "
+            "leaves a device that only SWD can recover."))
+
+        device_actions = ttk.Frame(flash)
+        device_actions.grid(row=6, column=0, columnspan=3, sticky="w", pady=(8, 0))
+        handlers = dict(check=self.device_check, dump=self.device_dump, flash=self.device_flash,
+                        verify=self.device_verify, reset=self.device_reset)
+        self.device_buttons = {}
+        for action, text, tip in DEVICE_BUTTONS:
+            button = ttk.Button(device_actions, text=text, command=handlers[action])
             button.pack(side="left", padx=(0, 6))
-            Tooltip(button, lambda t=tip: wrap_lines(t))
-            self.ocd_buttons.append(button)
+            Tooltip(button, lambda a=action, t=tip: self.action_tip(a, t))
+            self.device_buttons[action] = button
+        self.more_menu = tk.Menu(self, tearoff=False)
+        self.more_btn = ttk.Menubutton(device_actions, text="More", menu=self.more_menu)
+        self.more_btn.pack(side="left")
+        Tooltip(self.more_btn, lambda: wrap_lines("Device data outside the standard steps, such as an EEPROM or NOR "
+                                                  "dump."))
+        self.load_link_settings(settings)
 
         self.log = tk.Text(bottom, state="disabled", wrap="none", font=("Consolas", 10), height=10)
         self.log.pack(fill="both", expand=True, pady=(8, 0))
@@ -503,15 +650,76 @@ class App(tk.Tk):
 
         for var in (self.backup, self.infile):
             var.trace_add("write", lambda *_: self.update_steps())
-        self.load_preset(self.settings.get("preset") or DEFAULT_PRESET)
+        self.load_preset(settings.get("preset") or "")
         self.after(100, self.pump)
         self.protocol("WM_DELETE_WINDOW", self.on_close)
+
+    def configure_platform(self, name):
+        self.target = TARGETS[name]
+        self.platform = patch_options.load(name)
+        self.local_file = patch_config.REPO / patch_config.LOCAL_FILES[self.platform.name]
+        self.user_presets_dir = patch_config.REPO / patch_config.preset_dirs(self.platform.name)[0]
+        self.output = os.path.join(REPO, *self.target["output"].split("/"))
+        self.default_backup = os.path.join(REPO, self.target["backup"])
+        self.parameters = [(parameter, patch) for patch in self.platform.patches() for parameter in patch.parameters]
+        self.options = [patch.option for patch in self.platform.patches()] + [p.option for p, _ in self.parameters]
+        self.required_by = {p.option: [other.option for other in self.platform.patches() if p.option in other.requires]
+                            for p in self.platform.patches()}
+
+    def render_options(self):
+        self.option_area.master.yview_moveto(0)
+        for widget in self.option_area.winfo_children():
+            widget.destroy()
+        self.enabled.clear()
+        self.params.clear()
+        self.param_widgets.clear()
+        self.inherited_labels.clear()
+        self.checks.clear()
+        groups = self.platform.patch_groups()
+        columns = [ttk.Frame(self.option_area) for _ in range(2)]
+        rows = [0, 0]
+        for i, column in enumerate(columns):
+            column.grid(row=0, column=i, sticky="nwe", padx=(0, 8))
+            self.option_area.columnconfigure(i, weight=1, uniform="column")
+        for name, patches in groups.items():
+            if not patches:
+                continue
+            i = rows.index(min(rows))
+            rows[i] += len(patches) + sum(len(p.parameters) for p in patches) + 2
+            frame = ttk.LabelFrame(columns[i], text=name, padding=8)
+            frame.pack(fill="x", pady=(0, 8))
+            frame.columnconfigure(0, weight=1)
+            for patch in patches:
+                self.add_option(frame, patch)
+
+    def switch_platform(self):
+        name = self.platform_var.get()
+        previous = self.platform.name
+        if name == previous:
+            return
+        if self.proc or not self.confirm_preset_change():
+            self.platform_var.set(previous)
+            return
+        self.save_settings()
+        self.loading = True
+        self.configure_platform(name)
+        self.render_options()
+        settings = self.platform_settings.get(self.platform.name, {})
+        self.infile.set(settings.get("input", ""))
+        self.outfile.set(self.output)
+        self.flash_file.set(settings.get("flash_file") or self.output)
+        self.backup.set(settings.get("backup") or self.default_backup)
+        self.load_link_settings(settings)
+        self.built = self.flashed = None
+        self.load_preset(settings.get("preset") or "")
+        self.save_settings()
 
     def add_option(self, frame, patch):
         """A checkbox with the patch description, then one field per parameter."""
         row = frame.grid_size()[1]
         self.enabled[patch.option] = tk.BooleanVar()
         check = ttk.Checkbutton(frame, text=patch.description.rstrip("."), variable=self.enabled[patch.option],
+                                style="Patch.TCheckbutton",
                                 command=lambda: self.toggled(patch.option))
         check.grid(row=row, column=0, sticky="w")
         Tooltip(check, lambda: self.tooltip_text(patch))   # shows the option name
@@ -537,6 +745,10 @@ class App(tk.Tk):
             Tooltip(widget, lambda p=parameter: wrap_lines(p.description +
                     (" Several values are separated by spaces." if p.value.repeat else "")))
             self.param_widgets[parameter.option] = widget
+            if parameter.value.repeat:
+                inherited = ttk.Label(frame, foreground="#666666", wraplength=520)
+                inherited.grid(row=frame.grid_size()[1], column=0, sticky="w", padx=(22, 0))
+                self.inherited_labels[parameter.option] = inherited
 
     def tooltip_text(self, patch):
         """The patch's declaration: description, default, parameters, dependencies, and what sets it now."""
@@ -561,45 +773,48 @@ class App(tk.Tk):
     # Values: dicts from option name to the parsed value, as patch_config.layer_values() returns them.
 
     def layers(self, base, name=None):
-        """Configuration layers under this preset, as the patcher builds them for make PATCH_ARGS='--preset
-        NAME': the local options file (and the presets it selects), then the base presets."""
-        preset_parser = patch_config.options_parser(PLATFORM)
+        """Local configuration followed by the selected base presets."""
+        preset_parser = patch_config.options_parser(self.platform)
         layers = [layer for layer in patch_config.config_layers(
-            PLATFORM.name, [], patch_config.local_options_parser(PLATFORM), preset_parser)
+            self.platform.name, [], patch_config.local_options_parser(self.platform), preset_parser)
             if layer.source != "command line"]
-        base_layers = patch_config.preset_layers(PLATFORM.name, base, USER_PRESETS, preset_parser)
+        base_layers = patch_config.preset_layers(self.platform.name, base, self.user_presets_dir, preset_parser)
         name = name or self.name
         # the local options file may select this preset too, as make allows; a base preset may not
-        if name in base or preset_path(name).resolve() in [layer.path for layer in base_layers]:
+        if name and (name in base or preset_path(self.platform, name).resolve() in [layer.path for layer in base_layers]):
             raise ValueError("preset %s selects itself through %s" % (name, " + ".join(base)))
         return layers + base_layers
 
     def set_base(self, base):
         """Reads what applies under this preset with these base presets. Raises OSError or ValueError."""
         layers = self.layers(base)
-        args = vars(patch_config.effective_args(PLATFORM, layers))
-        self.underlying = {option: args[patch_options.dest(option)] for option in OPTIONS}
+        # Keep a preset's global fallback (e.g. --all-patches n) without turning
+        # its inherited switch values into explicit overrides when it is saved.
+        fallback = patch_config.Layer("preset", None, (),
+                                      tuple(patch_config.option_args(self.platform, self.platform_values)))
+        args = patch_config.effective_args(self.platform, layers + [fallback])
+        self.underlying = {p.option: self.platform.selected(args, p) for p in self.platform.patches()}
+        self.underlying.update((p.option, getattr(args, patch_options.dest(p.option))) for p, _ in self.parameters)
         self.sources = {}
         for layer in layers:
-            for option in patch_config.layer_values(PLATFORM, layer):
-                if option in OPTIONS:
+            for option in patch_config.layer_values(self.platform, layer):
+                if option in self.options:
                     self.sources[option] = layer_label(layer)
         local = [layer for layer in layers if layer.source == "local"][0]
         self.local_options = tuple("--preset " + preset for preset in local.presets) + local.options
         self.base = list(base)
 
     def shown(self):
-        """option -> value of every patch and parameter as shown, parsed by the patcher's own option parser;
-        a parameter of an unticked patch keeps the value under this preset, or the preset's own value when it
-        sets one. None for an invalid value."""
+        """Full effective form values, parsed with the shared option declarations; None for invalid input."""
         tokens = []
-        for patch in PLATFORM.patches():
+        for patch in self.platform.patches():
             tokens += ["--" + patch.option, "y" if self.enabled[patch.option].get() else "n"]
-        typed = set()
-        for parameter, patch in PARAMETERS:
+        for parameter, patch in self.parameters:
             text = self.params[parameter.option].get().strip()
-            if (self.enabled[patch.option].get() or parameter.option in self.explicit) and text:
-                typed.add(parameter.option)
+            if parameter.value.repeat:
+                for item in self.underlying[parameter.option] or ():
+                    tokens += ["--" + parameter.option, patch_config.format_value(item, parameter.value)]
+            if text:
                 try:
                     items = shlex.split(text) if parameter.value.repeat else [text]
                 except ValueError as exc:
@@ -608,33 +823,43 @@ class App(tk.Tk):
                 for item in items:
                     tokens += ["--" + parameter.option, item]
         try:
-            args = vars(patch_config.options_parser(PLATFORM).parse_args(tokens))
+            args = vars(patch_config.options_parser(self.platform).parse_args(tokens))
         except ValueError as exc:
             self.error = str(exc)
             return None
-        values = {option: args[patch_options.dest(option)] for option in OPTIONS}
-        for parameter, patch in PARAMETERS:
-            if parameter.option not in typed and not self.enabled[patch.option].get():
-                values[parameter.option] = self.underlying[parameter.option]
+        values = {option: args[patch_options.dest(option)] for option in self.options}
         return values
 
     def own_values(self, values):
         """What the preset file stores: the options it sets itself and those that differ from what applies
         under it."""
-        return {option: value for option, value in values.items()
-                if option in self.explicit or value != self.underlying[option]}
+        own = {option: value for option, value in values.items()
+               if option in self.explicit or value != self.underlying[option]}
+        for parameter, _ in self.parameters:
+            if parameter.value.repeat:
+                # Repeated options append to the base; the field edits only the additions.
+                added = (values[parameter.option] or [])[len(self.underlying[parameter.option] or ()):]
+                if added:
+                    own[parameter.option] = added
+                else:
+                    own.pop(parameter.option, None)
+        return {**self.platform_values, **own}
 
     def preset_text(self, own):
-        return HEADER + "\n" + patch_config.option_text(PLATFORM, own, self.base)
+        return HEADER + "\n" + patch_config.option_text(self.platform, own, self.base)
 
     def apply(self, own):
         """Shows own (the options this preset sets) over what applies under it."""
         self.loading = True
-        for patch in PLATFORM.patches():
+        for patch in self.platform.patches():
             self.enabled[patch.option].set(bool(own.get(patch.option, self.underlying[patch.option])))
-        for parameter, _ in PARAMETERS:
-            self.params[parameter.option].set(value_text(own.get(parameter.option, self.underlying[parameter.option]),
-                                                         parameter.value))
+        for parameter, _ in self.parameters:
+            inherited = self.underlying[parameter.option]
+            value = own.get(parameter.option, None if parameter.value.repeat else inherited)
+            self.params[parameter.option].set(value_text(value, parameter.value))
+            if parameter.value.repeat:
+                self.inherited_labels[parameter.option].config(
+                    text="Inherited: " + value_text(inherited, parameter.value) if inherited else "")
         self.base_var.set(" + ".join(self.base) or NO_BASE)
         self.loading = False
         self.refresh()
@@ -648,9 +873,8 @@ class App(tk.Tk):
         if self.loading or not hasattr(self, "backup"):
             return
         done = {
-            "save": preset_path(self.name).is_file() and not self.dirty(),
-            "patch": os.path.isfile(self.outfile.get().strip()) and self.built == (
-                self.name, self.saved_text, self.infile.get().strip()),
+            "patch": self.built is not None and os.path.isfile(self.outfile.get().strip())
+                     and self.built == self.build_key(),
             "backup": os.path.isfile(self.backup.get().strip()),
             "flash": self.flashed is not None and self.flashed == file_id(self.outfile.get().strip()),
         }
@@ -664,9 +888,9 @@ class App(tk.Tk):
 
     def refresh(self, *_):
         """Parameter states, bold for options this preset sets, the preset file line and the title."""
-        if self.loading or not self.name:
+        if self.loading:
             return
-        for parameter, patch in PARAMETERS:
+        for parameter, patch in self.parameters:
             self.param_widgets[parameter.option].state(
                 ["!disabled"] if self.enabled[patch.option].get() else ["disabled"])
         values = self.shown()
@@ -674,12 +898,13 @@ class App(tk.Tk):
             self.cmdline.set("Invalid value: %s" % self.error)
             return
         own = self.own_values(values)
-        for patch in PLATFORM.patches():
-            self.checks[patch.option].config(style="Changed.TCheckbutton" if patch.option in own else "TCheckbutton")
-        self.cmdline.set(shlex.join(patch_config.option_args(PLATFORM, own, self.base)))
+        for patch in self.platform.patches():
+            self.checks[patch.option].config(style="Changed.Patch.TCheckbutton" if patch.option in own else "Patch.TCheckbutton")
+        self.cmdline.set(shlex.join(patch_config.option_args(self.platform, own, self.base)))
         self.local_note.config(text="%s also applies under this preset: %s" % (
-            LOCAL_FILE.name, shlex.join(self.local_options)) if self.local_options else "")
-        self.title("%s - preset %s%s" % (TITLE, self.name, " *" if self.dirty() else ""))
+            self.local_file.name, shlex.join(self.local_options)) if self.local_options else "")
+        self.title("%s - %s%s%s" % (TITLE, self.platform.name,
+                   " - " + self.name if self.name else "", " *" if self.dirty() else ""))
         self.update_steps()
 
     def toggled(self, option):
@@ -692,7 +917,7 @@ class App(tk.Tk):
 
     def follow(self, option, on, changed):
         """Ticking a patch ticks what it requires; unticking one unticks the patches that require it."""
-        related = PLATFORM.patch(option).requires if on else self.required_by[option]
+        related = self.platform.patch(option).requires if on else self.required_by[option]
         for other in related:
             if self.enabled[other].get() != on:
                 self.enabled[other].set(on)
@@ -700,33 +925,40 @@ class App(tk.Tk):
                 self.follow(other, on, changed)
 
     def load_preset(self, name):
-        """Shows a user preset; a name without a file starts a new preset on the built-in defaults."""
+        """Load a user preset, or show the local configuration when no preset is selected."""
+        self.loading = True
         self.name = name
-        self.preset_box.config(values=user_presets())
+        self.preset_box.config(values=user_presets(self.platform))
         self.preset_var.set(name)
-        self.base_box.config(values=[NO_BASE] + [p for p in patch_config.preset_files(PLATFORM.name) if p != name])
-        path = preset_path(name)
+        self.base_box.config(values=[NO_BASE] + [p for p in patch_config.preset_files(self.platform.name) if p != name])
+        path = preset_path(self.platform, name)
         base, own, self.foreign = [], {}, False
+        self.platform_values = {}
         try:
-            if path.is_file():
+            if name and path.is_file():
                 text = path.read_text(encoding="utf-8")
                 self.foreign = not text.startswith(HEADER)
                 base, options = patch_config.split_presets(patch_config.read_options(path))
-                own = patch_config.layer_values(PLATFORM, patch_config.Layer("preset", path, tuple(base),
+                own = patch_config.layer_values(self.platform, patch_config.Layer("preset", path, tuple(base),
                                                                              tuple(options)))
                 status = "Loaded %s" % path
             else:
-                status = "New preset %s: Save writes %s" % (name, path)
+                status = "New preset %s" % name if name else ""
+            self.platform_values = {p.option: own[p.option] for p in self.platform.parameters if p.option in own}
             self.set_base(base)
         except (OSError, ValueError) as exc:
             messagebox.showerror(TITLE, "%s could not be read:\n\n%s\n\nThe built-in defaults are shown; Save "
                                  "replaces the preset." % (path, exc))
             self.base, own, self.foreign = [], {}, True
-            self.underlying = vars(patch_config.options_parser(PLATFORM).parse_args([]))
-            self.underlying = {option: self.underlying[patch_options.dest(option)] for option in OPTIONS}
+            self.platform_values = {}
+            defaults = patch_config.options_parser(self.platform).parse_args([])
+            self.underlying = {p.option: self.platform.selected(defaults, p) for p in self.platform.patches()}
+            self.underlying.update((p.option, getattr(defaults, patch_options.dest(p.option)))
+                                   for p, _ in self.parameters)
             self.sources, self.local_options = {}, ()
             status = "Could not read %s" % path.name
-        own = {option: value for option, value in own.items() if option in OPTIONS}
+        own = {option: value for option, value in own.items()
+               if option in self.options or option in self.platform_values}
         self.explicit = set(own)
         # an untouched new preset is not a change; one that could not be read always is
         self.saved_text = None if status.startswith("Could") else self.preset_text(own)
@@ -737,17 +969,22 @@ class App(tk.Tk):
         name = name.strip()
         if name == self.name:
             return
-        if not PRESET_NAME.match(name):
+        if name and not PRESET_NAME.match(name):
             messagebox.showerror(TITLE, PRESET_NAME_RULE[0].upper() + PRESET_NAME_RULE[1:])
             self.preset_var.set(self.name)
             return
-        if self.dirty():
-            answer = messagebox.askyesnocancel(TITLE, "Save the changes to preset %s first?" % self.name)
-            if answer is None or (answer and not self.save(self.name)):
-                self.preset_var.set(self.name)
-                return
+        if not self.confirm_preset_change():
+            self.preset_var.set(self.name)
+            return
         self.load_preset(name)
         self.save_settings()
+
+    def confirm_preset_change(self):
+        if not self.dirty():
+            return True
+        question = "Save the changes to preset %s?" % self.name if self.name else "Save these options as a preset?"
+        answer = messagebox.askyesnocancel(TITLE, question)
+        return answer is not None and (not answer or self.save(self.name))
 
     def base_changed(self):
         """Shows the new base preset with the options this preset sets itself on top."""
@@ -777,6 +1014,14 @@ class App(tk.Tk):
         self.load_preset(self.name)
 
     def clear(self):
+        previous = self.platform_values
+        self.platform_values = {}
+        try:
+            self.set_base(self.base)
+        except (OSError, ValueError) as exc:
+            self.platform_values = previous
+            messagebox.showerror(TITLE, str(exc))
+            return
         self.explicit = set()
         self.apply({})
         self.status.config(text="Only the base preset shown; Save writes it")
@@ -784,6 +1029,11 @@ class App(tk.Tk):
     def save(self, name=None):
         """Writes the preset: its base presets and the options it sets itself. False when not saved."""
         name = (name or self.preset_var.get()).strip()
+        if not name:
+            name = simpledialog.askstring(TITLE, "Preset name:", initialvalue=DEFAULT_PRESET, parent=self)
+            if name is None:
+                return False
+            name = name.strip()
         if not PRESET_NAME.match(name):
             messagebox.showerror(TITLE, "Not saved: " + PRESET_NAME_RULE)
             return False
@@ -792,18 +1042,18 @@ class App(tk.Tk):
             messagebox.showerror(TITLE, "Not saved:\n\n%s" % self.error)
             return False
         own = self.own_values(values)
-        path = preset_path(name)
+        path = preset_path(self.platform, name)
         try:   # validate the whole configuration as the patcher will see it
             layer = patch_config.Layer("preset", path, tuple(self.base),
-                                       tuple(patch_config.option_args(PLATFORM, own)))
-            errors = PLATFORM.dependency_errors(
-                patch_config.effective_args(PLATFORM, self.layers(self.base, name) + [layer]))
+                                       tuple(patch_config.option_args(self.platform, own)))
+            errors = self.platform.dependency_errors(
+                patch_config.effective_args(self.platform, self.layers(self.base, name) + [layer]))
         except (OSError, ValueError) as exc:
             errors = [str(exc)]
         if errors:
             messagebox.showerror(TITLE, "Not saved:\n\n%s" % "\n".join(errors))
             return False
-        if name in patch_config.preset_files(PLATFORM.name) and not path.is_file() and not messagebox.askyesno(
+        if name in patch_config.preset_files(self.platform.name) and not path.is_file() and not messagebox.askyesno(
                 TITLE, "A user preset named %s replaces the built-in preset %s, also for make.\n\nSave anyway?"
                 % (name, name)):
             return False
@@ -821,32 +1071,40 @@ class App(tk.Tk):
             return False
         if name != self.name:
             self.name = name
-            self.preset_box.config(values=user_presets())
-            self.base_box.config(values=[NO_BASE] + [p for p in patch_config.preset_files(PLATFORM.name)
+            self.preset_var.set(name)
+            self.preset_box.config(values=user_presets(self.platform))
+            self.base_box.config(values=[NO_BASE] + [p for p in patch_config.preset_files(self.platform.name)
                                                      if p != name])
             self.save_settings()
         self.foreign = False
+        self.explicit = set(own)
         self.saved_text = text
         self.status.config(text="Saved %s" % path)
         self.refresh()
         return True
 
-    def browse(self, var, saving):
+    def browse(self, var, saving, filetypes=(("Firmware image", "*.bin"), ("All files", "*.*"))):
         start = os.path.dirname(var.get()) or REPO
-        kwargs = dict(initialdir=start, filetypes=[("Firmware image", "*.bin"), ("All files", "*.*")])
+        kwargs = dict(initialdir=start, filetypes=list(filetypes))
         path = (filedialog.asksaveasfilename(defaultextension=".bin", **kwargs) if saving
                 else filedialog.askopenfilename(**kwargs))
         if path:
             var.set(os.path.normpath(path))
 
     def save_settings(self):
+        self.platform_settings[self.platform.name] = {
+            "input": self.infile.get(), "flash_file": self.flash_file.get(),
+            "backup": self.backup.get(), "preset": self.name,
+            "link": self.link(), "protocol": self.link_protocol(), "can_type": self.can_type.get(),
+            "ble_apply": self.ble_apply.get(), "ble_key": self.ble_key.get(),
+            **{name: var.get() for name, var in self.fields.items()},
+        }
         try:
             with open(SETTINGS_FILE, "w", encoding="utf-8") as f:
-                json.dump({"input": self.infile.get(),
+                json.dump({"platform": self.platform.name,
+                           "platforms": self.platform_settings,
                            "verbose": self.verbose.get(), "ocd_interface": self.ocd_interface.get(),
-                           "ocd_serial": self.ocd_serial.get(),
-                           "flash_file": self.flash_file.get(), "backup": self.backup.get(),
-                           "preset": self.name}, f, indent=2)
+                           "ocd_serial": self.ocd_serial.get()}, f, indent=2)
         except OSError:
             pass
 
@@ -861,13 +1119,13 @@ class App(tk.Tk):
         self.log.config(state="disabled")
 
     def patch(self):
-        """Saves the preset, then builds OUTPUT_TARGET from the input firmware with make."""
+        """Build the current form selection, independently of preset saving."""
         infile = self.infile.get().strip()
         if not os.path.isfile(infile):
             messagebox.showerror(TITLE, "Choose the original firmware image to patch.")
             return
-        if os.path.realpath(infile) == os.path.realpath(OUTPUT):
-            messagebox.showerror(TITLE, "%s is what make builds; choose the original firmware image." % OUTPUT_TARGET)
+        if os.path.realpath(infile) == os.path.realpath(self.output):
+            messagebox.showerror(TITLE, "%s is what make builds; choose the original firmware image." % self.target["output"])
             return
         if use_wsl() and not wsl_exe():
             messagebox.showerror(TITLE, "wsl.exe was not found. make runs in WSL on Windows; see "
@@ -875,14 +1133,20 @@ class App(tk.Tk):
             return
         if not self.ensure_wsl_tools():
             return
-        if self.dirty() and not self.save():
+        values = self.shown()
+        if values is None:
+            messagebox.showerror(TITLE, self.error)
             return
-        if not preset_path(self.name).is_file() and not self.save():   # make reads the preset from its file
+        options = patch_config.option_args(self.platform, values)
+        errors = self.platform.dependency_errors(patch_config.options_parser(self.platform).parse_args(options))
+        if errors:
+            messagebox.showerror(TITLE, "Cannot build:\n\n" + "\n".join(errors))
             return
         self.save_settings()
         path = make_input(infile)
         if path is None:   # make cannot take the path (spaces, special characters): work from a copy
-            copy = os.path.join(REPO, "build", INPUT_COPY)
+            copy_name = "airbreaker-%s-input.bin" % self.platform.name
+            copy = os.path.join(REPO, "build", copy_name)
             try:
                 os.makedirs(os.path.dirname(copy), exist_ok=True)
                 # an unchanged copy keeps its time, so make does not rebuild the image for it
@@ -891,18 +1155,24 @@ class App(tk.Tk):
             except OSError as exc:
                 messagebox.showerror(TITLE, "Could not copy %s to %s: %s" % (infile, copy, exc))
                 return
-            self.append("make cannot take the path of %s; building from a copy, build/%s" % (infile, INPUT_COPY),
+            self.append("make cannot take the path of %s; building from a copy, build/%s" % (infile, copy_name),
                         "warn")
             path = make_input(copy)
             if path is None:
                 messagebox.showerror(TITLE, "WSL cannot reach the repository folder %s." % REPO)
                 return
-        command = make_command(path, self.name, self.verbose.get())
-        # what is built: the options as saved now and this input, also when they change while make runs
-        self.pending = (self.name, self.saved_text, infile)
-        self.run("Building %s from %s with preset %s%s" % (OUTPUT_TARGET, infile, self.name,
-                                                           " (in WSL)" if use_wsl() else ""),
-                 command, "%s built" % OUTPUT_TARGET, kind="build")
+        command = make_command(self.target, path, options, self.verbose.get())
+        self.pending = self.build_key(values)
+        self.run("Building %s from %s%s" % (self.target["output"], infile,
+                                             " (in WSL)" if use_wsl() else ""),
+                 command, "%s built" % self.target["output"], kind="build")
+
+    def build_key(self, values=None):
+        values = self.shown() if values is None else values
+        if values is None:
+            return None
+        return (self.platform.name, tuple(patch_config.option_args(self.platform, values)),
+                file_id(self.infile.get().strip()))
 
     def ensure_wsl_tools(self):
         """False when WSL lacks make, the ARM toolchain or python3. Shows the command that installs them and, on a
@@ -944,22 +1214,25 @@ class App(tk.Tk):
             self.append("Could not start %s: %s" % (command[0], exc), "fail")
             return
         self.flashing = flashing
+        self.in_wsl = use_wsl() and command[0] == wsl_exe()   # tool_command(), not a Python device tool
+        self.platform_box.config(state="disabled")
         threading.Thread(target=self.reader, args=(self.proc,), daemon=True).start()
         for button in self.action_buttons():
             button.config(state="disabled")
         self.stop_btn.config(state="normal")
 
     def action_buttons(self):
-        return [self.patch_btn] + self.ocd_buttons
+        return [self.patch_btn, self.more_btn, *self.device_buttons.values()]
 
     def stop(self, ask=True):
         if self.proc and self.proc.poll() is None:
             if self.flashing and ask and not messagebox.askyesno(
                     TITLE, "Flashing is in progress. Stopping now can leave the device without working firmware "
-                    "until it is flashed again over SWD.\n\nStop anyway?", icon="warning"):
+                    "until it is flashed again.\n\nStop anyway?", icon="warning"):
                 return
             if use_wsl():
-                stop_in_wsl()
+                if self.in_wsl:
+                    stop_in_wsl()
                 self.proc.terminate()
             else:   # make or run-ocd.sh and everything they started, such as the patcher or openocd
                 try:
@@ -968,7 +1241,7 @@ class App(tk.Tk):
                     pass
 
     def tcl_path(self, path):
-        """A file argument for the airsense.cfg commands: relative to the repo (OpenOCD runs there) when inside
+        """A file argument for the platform's Tcl commands: relative to the repo (OpenOCD runs there) when inside
         it, otherwise absolute, as a WSL path on Windows. Braced for Tcl. None, after telling the user, when
         WSL cannot reach the file."""
         path = os.path.realpath(path)
@@ -990,9 +1263,8 @@ class App(tk.Tk):
         return "{%s}" % path.replace("\\", "/")
 
     def openocd_command(self, commands):
-        """run-ocd.sh with the adapter, which connects with tcl/airsense.cfg and reports the device state, then
-        these commands and shutdown. run-ocd.sh also attaches the adapter to WSL with usbipd."""
-        args = ["bash", "run-ocd.sh"]
+        """Selected platform and adapter, followed by Tcl actions and shutdown."""
+        args = ["bash", "run-ocd.sh", self.target["config"]]
         if self.ocd_interface.get():
             args += ["--interface", self.ocd_interface.get()]
         serial = self.ocd_serial.get().strip()
@@ -1013,17 +1285,167 @@ class App(tk.Tk):
             self.run(title, command, done, kind, flashing)
 
     def flash_image(self):
-        """The firmware file to flash or verify; flash_new itself rejects anything but a full image."""
+        """The existing image file to flash or verify."""
         path = self.flash_file.get().strip()
         if not os.path.isfile(path):
             messagebox.showerror(TITLE, "Choose the firmware image (e.g. the patched output).")
             return None
         return path
 
-    def ocd_check(self):
-        self.run_openocd("Checking device", [], "device checked")
+    def link(self):
+        return next(key for key, link in LINKS.items() if link["label"] == self.link_var.get())
 
-    def ocd_dump(self):
+    def link_protocol(self):
+        return next(key for key, label in PROTOCOLS.items() if label == self.protocol_var.get())
+
+    def mode(self):
+        """What the buttons run: "swd" or a TOOL_ACTIONS protocol."""
+        return LINKS[self.link()].get("mode") or self.link_protocol()
+
+    def link_text(self):
+        link = LINKS[self.link()]
+        return link["label"] if "mode" in link else "%s, %s" % (link["label"], self.protocol_var.get())
+
+    def actions(self):
+        return SWD_ACTIONS if self.mode() == "swd" else TOOL_ACTIONS[self.mode()]
+
+    def regions(self):
+        return self.target["swd_regions" if self.mode() == "swd" else "regions"]
+
+    def region(self):
+        """What Flash runs for the selected region: a Tcl command over SWD, tool options otherwise."""
+        return dict(self.regions())[self.region_var.get()]
+
+    def load_link_settings(self, settings):
+        """The platform's connection as last used; the region starts at its default."""
+        links = self.target["links"]
+        self.link_box["values"] = [LINKS[key]["label"] for key in links]
+        self.link_var.set(LINKS[settings.get("link") if settings.get("link") in links else links[0]]["label"])
+        self.protocol_var.set(PROTOCOLS.get(settings.get("protocol"), PROTOCOLS["native"]))
+        for name, var in self.fields.items():
+            var.set(settings.get(name, ""))
+        self.can_type.set(settings.get("can_type") if settings.get("can_type") in CAN_TYPES else CAN_TYPES[0])
+        self.ble_apply.set(settings.get("ble_apply") if settings.get("ble_apply") in BLE_APPLY else BLE_APPLY[0])
+        self.ble_key.set(settings.get("ble_key", ""))
+        self.region_var.set("")
+        self.link_changed()
+
+    def link_changed(self):
+        """Shows the fields and regions of the selected connection and enables what it can do. A region the
+        connection also has stays selected."""
+        link = LINKS[self.link()]
+        field = link.get("field", "swd")
+        self.field_label.config(text=dict(swd="Adapter:", port="Port:", host="Host:", device="Device:")[field])
+        for name, frame in self.field_frames.items():
+            if name == field:
+                frame.pack(side="left")
+            else:
+                frame.pack_forget()
+        for widget, padx in ((self.protocol_label, (12, 4)), (self.protocol_box, 0)):
+            if "mode" in link:
+                widget.pack_forget()
+            else:
+                widget.pack(side="left", padx=padx)
+        for widget, padx in ((self.can_type_label, (12, 4)), (self.can_type_box, 0)):
+            if self.link() == "can":
+                widget.pack(side="left", padx=padx)
+            else:
+                widget.pack_forget()
+        for widget in self.key_row:
+            if self.link() == "ble":
+                widget.grid()
+                widget.state(["!disabled"] if self.ble_apply.get() == "authenticated" else ["disabled"])
+            else:
+                widget.grid_remove()
+        names = [label for label, _ in self.regions()]
+        self.region_box["values"] = names
+        if self.region_var.get() not in names:
+            self.region_var.set(names[0])
+        self.update_device_buttons()
+
+    def update_device_buttons(self):
+        """Enables the actions of the selected connection while no command runs, and fills the More menu."""
+        actions = self.actions()
+        idle = self.proc is None
+        for action, button in self.device_buttons.items():
+            button.state(["!disabled"] if idle and action in actions else ["disabled"])
+        self.more_menu.delete(0, "end")
+        for label, name, tool, *args in actions.get("more", ()):
+            self.more_menu.add_command(label=label + "...", command=lambda l=label, n=name, t=tool, a=args:
+                                       self.device_more(l, n, t, a))
+        self.more_btn.state(["!disabled"] if idle and "more" in actions else ["disabled"])
+
+    def swd_words(self, action, path):
+        """The Tcl command of an SWD action as words, the file braced by tcl_path()."""
+        words = [path if word is FILE else word for word in SWD_ACTIONS[action]]
+        return [self.region()] + words if action == "flash" else words
+
+    def tool_args(self, action, path):
+        """The tool of an action over the selected connection and its arguments after the device options."""
+        tool, *args = TOOL_ACTIONS[self.mode()][action]
+        args = [path if arg is FILE else arg for arg in args]
+        if action == "flash":
+            args += self.region()
+            if self.link() == "ble":
+                key = self.ble_key.get().strip()
+                if self.ble_apply.get() == "plain":
+                    args.append("--apply-plain")
+                elif key:
+                    args += ["--key-file", os.path.abspath(key)]
+        return tool, args
+
+    def device_args(self, value):
+        """The tool's device options for the value of the connection field."""
+        link = LINKS[self.link()]
+        args = [link["option"], link["prefix"] + value]
+        if self.link() == "can" and self.can_type.get() != "auto":
+            args += ["--can-flavour", self.can_type.get()]
+        return args
+
+    def action_tip(self, action, tip):
+        """The button's tooltip: what it does and, over the selected connection, what it runs."""
+        if action not in self.actions():
+            return wrap_lines("%s Not available over %s." % (tip, self.link_text()))
+        path = FILE_NAMES.get(action)
+        if self.mode() == "swd":
+            words = self.swd_words(action, path)
+            runs = "OpenOCD: " + (" ".join(words) if words else "connect only")
+        else:
+            tool, args = self.tool_args(action, path)
+            field = LINKS[self.link()]["field"]
+            device = self.device_args(self.fields[field].get().strip() or field.upper())
+            runs = shlex.join(["python/" + tool] + device + args)
+        return wrap_lines(tip) + "\n\n" + wrap_lines(runs)
+
+    def run_device(self, action, path, title, done, kind=None, flashing=False):
+        """Runs an action over the selected connection; path is its file, if it has one."""
+        if self.mode() != "swd":
+            tool, args = self.tool_args(action, path and os.path.abspath(path))
+            self.run_tool(title, tool, args, done, kind, flashing)
+            return
+        if path is not None:
+            path = self.tcl_path(path)
+            if path is None:
+                return
+        words = self.swd_words(action, path)
+        self.run_openocd("%s over %s" % (title, self.link_text()), [" ".join(words)] if words else [], done, kind,
+                         flashing)
+
+    def run_tool(self, title, tool, args, done, kind=None, flashing=False):
+        """Runs a Python tool of the repository with this window's interpreter on the selected connection."""
+        link = LINKS[self.link()]
+        value = self.fields[link["field"]].get().strip()
+        if not value:
+            messagebox.showerror(TITLE, "Enter the %s for %s." % (link["field"], link["label"]))
+            return
+        self.save_settings()
+        command = [sys.executable, "-u", os.path.join(HERE, tool)] + self.device_args(value) + list(args)
+        self.run("%s over %s" % (title, self.link_text()), command, done, kind, flashing)
+
+    def device_check(self):
+        self.run_device("check", None, "Checking device", "device checked")
+
+    def device_dump(self):
         path = self.backup.get().strip()
         if not path:
             messagebox.showerror(TITLE, "Choose where the backup is written.")
@@ -1033,40 +1455,47 @@ class App(tk.Tk):
                 "device.\n\nOverwrite it?" % path, icon="warning", default="no"):
             return
         os.makedirs(os.path.dirname(os.path.abspath(path)), exist_ok=True)
-        target = self.tcl_path(path)
-        if target:
-            self.run_openocd("Dumping device flash to %s" % path, ["dump %s" % target], "%s written" % path)
+        self.run_device("dump", path, "Dumping device flash to %s" % path, "%s written" % path)
 
-    def ocd_flash(self):
+    def device_flash(self):
         path = self.flash_image()
         if not path:
             return
         backup = self.backup.get().strip()
         if not os.path.isfile(backup) and not messagebox.askyesno(
-                TITLE, "No backup found at %s.\n\nDumping the stock firmware before flashing is mandatory "
-                "(docs/guide/openocd.md): it is the only way to restore the device. Flash anyway?" % backup,
-                icon="warning", default="no"):
+                TITLE, "No backup found at %s.\n\nA dump of the device before flashing is the only way to restore "
+                "it. Flash anyway?" % backup, icon="warning", default="no"):
             return
+        region = self.region_var.get()
+        risk = ("An interrupted bootloader write leaves a device that only SWD can recover. "
+                if self.mode() != "swd" and "--include-bootloader" in self.region() else "")
         if not messagebox.askyesno(
-                TITLE, "Flash %s to the device?\n\nThis replaces the whole firmware and takes about 30 seconds. "
-                "Keep the device and the programmer connected until the log says Done." % path,
+                TITLE, "Flash %s of %s to the %s device over %s?\n\n%sKeep the device and the connection up until "
+                "the log says Done." % (region, path, self.platform.name, self.link_text(), risk),
                 icon="warning", default="no"):
             return
-        image = self.tcl_path(path)
-        if image:
-            self.pending = file_id(path)
-            self.run_openocd("Flashing %s" % path, ["flash_new %s" % image],
-                             "%s flashed and verified; the device reboots" % path, kind="flash", flashing=True)
+        self.pending = file_id(path)
+        self.run_device("flash", path, "Flashing %s of %s" % (region, path), "%s flashed" % path, kind="flash",
+                        flashing=True)
 
-    def ocd_verify(self):
+    def device_verify(self):
         path = self.flash_image()
-        image = path and self.tcl_path(path)
-        if image:
-            self.run_openocd("Verifying device flash against %s" % path, ["verify %s" % image],
-                             "device flash matches %s" % path)
+        if path:
+            self.run_device("verify", path, "Verifying device flash against %s" % path,
+                            "device flash matches %s" % path)
 
-    def ocd_reset(self):
-        self.run_openocd("Resetting device", ["reset run"], "device reset")
+    def device_reset(self):
+        self.run_device("reset", None, "Resetting device", "device reset")
+
+    def device_more(self, label, name, tool, args):
+        """An action of the More menu: a tool that writes the file chosen here."""
+        path = filedialog.asksaveasfilename(
+            initialdir=os.path.dirname(os.path.abspath(self.backup.get().strip() or self.default_backup)),
+            initialfile=name, defaultextension=".bin", filetypes=[("Raw image", "*.bin"), ("All files", "*.*")])
+        if path:
+            path = os.path.abspath(path)
+            self.run_tool("%s to %s" % (label, path), tool, [path if arg is FILE else arg for arg in args],
+                          "%s written" % path)
 
     def reader(self, proc):
         for raw in proc.stdout:
@@ -1104,16 +1533,15 @@ class App(tk.Tk):
         for hint in self.hints:
             self.append(hint, "warn")
         self.proc, self.flashing, self.kind, self.pending = None, False, None, None
-        for button in self.action_buttons():
-            button.config(state="normal")
+        self.platform_box.config(state="readonly")
+        self.patch_btn.config(state="normal")
+        self.update_device_buttons()
         self.stop_btn.config(state="disabled")
         self.update_steps()
 
     def on_close(self):
-        if self.dirty():
-            answer = messagebox.askyesnocancel(TITLE, "Save the changes to preset %s?" % self.name)
-            if answer is None or (answer and not self.save()):
-                return
+        if not self.confirm_preset_change():
+            return
         if self.flashing and not messagebox.askyesno(
                 TITLE, "Flashing is in progress. Closing stops it and can leave the device without working "
                 "firmware.\n\nClose anyway?", icon="warning", default="no"):
