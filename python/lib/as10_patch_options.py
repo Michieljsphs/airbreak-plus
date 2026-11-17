@@ -100,7 +100,8 @@ PLATFORM = Platform('air10', categories=(
               )),
         Patch('patch-humid-start',
               'Humid Start: hold the heated tube at the target RH temperature while the humidifier warms up.',
-              False, 'patch_humid_start', requires=('patch-font-repack',)),
+              False, 'patch_humid_start', category='Quality of life',
+              requires=('patch-font-repack',)),
         Patch('patch-custom-palette', 'Patch the custom color palette.',
               True, 'custom_palette', category='Quality of life'),
         Patch('patch-past-date', 'Allow setting past date in the menu and over UART.',
@@ -113,7 +114,8 @@ PLATFORM = Platform('air10', categories=(
         Patch('patch-graph-climate',
               'Show the climate chart instead of the flow and pressure trace: plate and tube temperatures '
               'and estimated RH over --graph-width.',
-              False, 'patch_graph_climate', requires=('patch-therapy-screen',), parameters=(
+              False, 'patch_graph_climate', category='Quality of life',
+              requires=('patch-therapy-screen',), parameters=(
                   Parameter('graph-width', 'Time the climate chart covers, 0:10 to 12:00. Default: 1:00.',
                             Value(graph_width, 'H:MM', format=graph_width_text), 60),
               )),
