@@ -179,8 +179,10 @@ class ASFirmwarePatches(CompiledPayloadMixin):
         'AFH': 11,
     }
         
-    def __init__(self, asf, target_rh=85.0, graph_width=60, vauto_start_ps=0.0):
+    def __init__(self, asf, target_rh=85.0, graph_width=60, vauto_start_ps=0.0,
+                 humid_start_coupling_row=True):
         self.asf = asf
+        self.humid_start_coupling_row = humid_start_coupling_row  # --humid-start-coupling-row
         self.target_rh_percent = target_rh
         self.graph_width_minutes = graph_width  # --graph-width, climate chart width
         self.vauto_start_ps = vauto_start_ps
@@ -2008,6 +2010,9 @@ class ASFirmwarePatches(CompiledPayloadMixin):
 
         # Plate coupling: raw value is the coupling * 100, 0.10-1.00 in steps
         # of 0.05, default 0.25.
+        if not self.humid_start_coupling_row:
+            self._custom_detail('Start Coupling: row left out (--humid-start-coupling-row n); the built-in coupling applies')
+            return
         coupling = self.custom_claim_free_g4_var(self.FREE_VALUE_SLOTS, 'humid_start_coupling')
         if coupling is None:
             self._custom_detail('Start Coupling: no free value slot; the built-in coupling applies')
@@ -4232,7 +4237,8 @@ def run_patcher(args, detail_log=None):
     repo_dir = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
     build_identity = firmware_build_identity(repo_dir)
     patches = ASFirmwarePatches(asf, target_rh=args.target_rh, graph_width=args.graph_width,
-                                vauto_start_ps=args.vauto_start_ps)
+                                vauto_start_ps=args.vauto_start_ps,
+                                humid_start_coupling_row=args.humid_start_coupling_row)
 
     apply_patch_phases(patches, args, detail_log)
 
