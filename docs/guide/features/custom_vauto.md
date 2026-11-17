@@ -248,6 +248,8 @@ it starts at the Start PS value and rises to the set PS over the ramp.
 |---------|-------|---------|------|---------------|----------|
 | Start PS | 0.0 to 10.0 cmH2O, step 0.2 | `--vauto-start-ps`, 0.0 | Therapy, after the other VAuto rows | VAuto | PS at the start of the ramp; 0 turns the feature off |
 
+In AirBreaker, Start PS is an enable checkbox with a value field that is greyed out until the box is checked; it starts at 3.0 cmH2O when first enabled. Unchecked passes 0 (off).
+
 ```text
 progress = clamp01((F[2D] - F[05]) / (F[28] - F[05]))
 effective_ps = Start PS + (PS - Start PS) * progress

@@ -7,6 +7,7 @@ and the selected platform's Tcl commands; on Windows, Make and OpenOCD run in WS
 CAN, TCP bridge and BLE actions run the repository's Python tools with this window's
 interpreter.
 """
+import argparse
 import filecmp
 import json
 import os
@@ -368,6 +369,7 @@ class App(tk.Tk):
         self.configure_platform(platform_name)
         self.enabled = {}   # patch option -> BooleanVar: patch selected
         self.params = {}    # parameter option -> StringVar with its value as typed
+        self.param_toggles = {}   # optional parameter option -> BooleanVar of its enable checkbox
         self.param_widgets = {}   # parameter option -> its entry or combobox, disabled while the patch is off
         self.inherited_labels = {}   # inherited entries of repeatable parameters
         self.checks = {}    # patch option -> Checkbutton, bold when this preset sets it
@@ -673,6 +675,7 @@ class App(tk.Tk):
         self.enabled.clear()
         self.params.clear()
         self.param_widgets.clear()
+        self.param_toggles.clear()
         self.inherited_labels.clear()
         self.checks.clear()
         groups = self.platform.patch_groups()
@@ -730,6 +733,9 @@ class App(tk.Tk):
         for parameter in patch.parameters:
             sub = ttk.Frame(frame)
             sub.grid(row=frame.grid_size()[1], column=0, columnspan=2, sticky="w", padx=(22, 0), pady=(0, 2))
+            if parameter.off is not None:
+                toggle = self.param_toggles[parameter.option] = tk.BooleanVar()
+                ttk.Checkbutton(sub, variable=toggle, command=lambda p=parameter: self.param_toggled(p)).pack(side="left")
             ttk.Label(sub, text="--%s" % parameter.option, font=("Consolas", 9)).pack(side="left")
             var = self.params[parameter.option] = tk.StringVar()
             var.trace_add("write", self.refresh)
@@ -749,6 +755,21 @@ class App(tk.Tk):
                 inherited = ttk.Label(frame, foreground="#666666", wraplength=520)
                 inherited.grid(row=frame.grid_size()[1], column=0, sticky="w", padx=(22, 0))
                 self.inherited_labels[parameter.option] = inherited
+
+    def param_toggled(self, parameter):
+        """Enabling an optional parameter fills its default over an 'off' value."""
+        if self.param_toggles[parameter.option].get():
+            var = self.params[parameter.option]
+            if self.parse_param(parameter, var.get()) == parameter.off:
+                var.set(value_text(parameter.on_default, parameter.value))
+        self.refresh()
+
+    @staticmethod
+    def parse_param(parameter, text):
+        try:
+            return parameter.value.type(text) if parameter.value.type else text
+        except (ValueError, argparse.ArgumentTypeError):
+            return None
 
     def tooltip_text(self, patch):
         """The patch's declaration: description, default, parameters, dependencies, and what sets it now."""
@@ -811,6 +832,8 @@ class App(tk.Tk):
             tokens += ["--" + patch.option, "y" if self.enabled[patch.option].get() else "n"]
         for parameter, patch in self.parameters:
             text = self.params[parameter.option].get().strip()
+            if parameter.off is not None and not self.param_toggles[parameter.option].get():
+                text = patch_config.format_value(parameter.off, parameter.value)
             if parameter.value.repeat:
                 for item in self.underlying[parameter.option] or ():
                     tokens += ["--" + parameter.option, patch_config.format_value(item, parameter.value)]
@@ -856,6 +879,11 @@ class App(tk.Tk):
         for parameter, _ in self.parameters:
             inherited = self.underlying[parameter.option]
             value = own.get(parameter.option, None if parameter.value.repeat else inherited)
+            if parameter.off is not None:
+                on = value != parameter.off
+                self.param_toggles[parameter.option].set(on)
+                if not on:
+                    value = parameter.on_default
             self.params[parameter.option].set(value_text(value, parameter.value))
             if parameter.value.repeat:
                 self.inherited_labels[parameter.option].config(
@@ -891,8 +919,9 @@ class App(tk.Tk):
         if self.loading:
             return
         for parameter, patch in self.parameters:
-            self.param_widgets[parameter.option].state(
-                ["!disabled"] if self.enabled[patch.option].get() else ["disabled"])
+            active = self.enabled[patch.option].get() and (
+                parameter.off is None or self.param_toggles[parameter.option].get())
+            self.param_widgets[parameter.option].state(["!disabled"] if active else ["disabled"])
         values = self.shown()
         if values is None:
             self.cmdline.set("Invalid value: %s" % self.error)

@@ -42,8 +42,9 @@
 # Keep the screen awake for +Graph choices; requires --patch-therapy-screen.
 # --patch-graph-keep-screen-on n
 
-# VAuto Start PS: support at the start of the ramp, rising to the set PS.
-# 0..10 cmH2O in steps of 0.2; 0 disables. Needs --patch-fw-vauto-wrapper.
+# VAuto Start PS (cmH2O): PS at the start of the ramp, rising to the set PS by
+# the end of the ramp. 0..10 in steps of 0.2; 0 is off. Needs --patch-fw-vauto-wrapper.
+# AirBreaker shows it as a checkbox (on = the value, 3 when first enabled) and a field.
 # With custom settings, a menu row is added when a reclaimed variable is free.
 # --vauto-start-ps 0
 

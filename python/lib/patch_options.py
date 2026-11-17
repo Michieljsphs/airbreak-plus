@@ -45,6 +45,10 @@ class Parameter:
     description: str
     value: Value
     default: object = None
+    # An optional setting: this value turns it off. A window shows an enable
+    # checkbox, and the field takes on_default when it is checked.
+    off: object = None
+    on_default: object = None
 
 
 @dataclass(frozen=True)

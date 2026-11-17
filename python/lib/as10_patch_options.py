@@ -119,10 +119,11 @@ PLATFORM = Platform('air10', categories=(
               False, 'patch_wrapper_limit_max_pdiff', category='Therapy modifications',
               parameters=(
                   Parameter('vauto-start-ps',
-                            'Start PS, 0..10 cmH2O in steps of 0.2: support at the start of the '
-                            'ramp, rising to the set PS. 0 disables. Menu default; the menu row '
-                            'needs a free reclaimed variable. Default: 0.',
-                            Value(cmh2o_start_ps, 'CMH2O'), 0.0),
+                            'Start PS (cmH2O): PS at the start of the ramp, rising to the set PS '
+                            'by the end of the ramp. 0..10 in steps of 0.2; 0 is off. Also the '
+                            'menu default; the menu row needs a free reclaimed variable. '
+                            'Default: 0 (off).',
+                            Value(cmh2o_start_ps, 'CMH2O'), 0.0, off=0.0, on_default=3.0),
               )),
     )),
 
