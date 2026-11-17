@@ -179,10 +179,11 @@ class ASFirmwarePatches(CompiledPayloadMixin):
         'AFH': 11,
     }
         
-    def __init__(self, asf, target_rh=85.0, graph_width=60):
+    def __init__(self, asf, target_rh=85.0, graph_width=60, vauto_start_ps=0.0):
         self.asf = asf
         self.target_rh_percent = target_rh
         self.graph_width_minutes = graph_width  # --graph-width, climate chart width
+        self.vauto_start_ps = vauto_start_ps
         self.applied_payloads = set()
         self.enabled_custom_settings_features = set()
         self.mop_callback_handlers = {}
@@ -526,6 +527,22 @@ class ASFirmwarePatches(CompiledPayloadMixin):
                              (table_num, request, vid, claims[vid]))
         claims[vid] = owner
         return reclaimed[vid]
+
+    def _vauto_start_ps_raw(self):
+        """Start PS in 1/50 cmH2O (0 = off), validated."""
+        raw = int(round(self.vauto_start_ps * 50))
+        if not 0 <= raw <= 500 or raw % 10:
+            raise ValueError('--vauto-start-ps must be 0..10 cmH2O in steps of 0.2')
+        return raw
+
+    def custom_first_free_g4_var(self, candidates):
+        """Return the first reclaimed, still unclaimed g[4] name of an ordered
+        candidate list, or None. Does not claim or raise."""
+        for name in candidates:
+            vid = self.asf.resolve_var_id(name)
+            if vid in self.custom_g4_reclaimed and vid not in self.custom_g4_claims:
+                return name
+        return None
 
     def custom_claim_g8_var(self, request, owner=None):
         """Claim one exact reclaimed g[8] variable and return its UART name."""
@@ -1444,6 +1461,8 @@ class ASFirmwarePatches(CompiledPayloadMixin):
         for var in (vauto_var, max_var, sens_var, eps_var, shape_var, fl_var):
             previous = self.custom_menu_add(
                 'therapy', var, self.mop_bitmask('VAuto'), after=previous)
+        # Remembered for Start PS, which is registered after all other features.
+        self.custom_vauto_last_menu = previous
         self.custom_menu_add(
             'therapy', tc_var, self.mop_bitmask('S', 'ST', 'VAuto', 'PAC'),
             before=stock('VTS'))
@@ -1489,6 +1508,40 @@ class ASFirmwarePatches(CompiledPayloadMixin):
         self._custom_detail("FL Boost var_id=0x%04X at 0x%08X" % (fl_vid, fl_addr))
         self._custom_detail("FFL source var_id=0x%04X at 0x%08X" % (ffl_vid, ffl_addr))
         self._custom_detail("trigger/cycle toggle var_id=0x%04X at 0x%08X" % (tc_vid, tc_addr))
+
+    # Reclaimed g[4] variables Start PS may use, in order of preference. A slot
+    # is free when its owning feature is not part of the build.
+    PS_RAMP_G4_CANDIDATES = ('RDF', 'RDM', 'RCF', 'RCW', 'RCH')
+
+    def custom_patch_settings_vauto_ps_ramp(self):
+        """Expose Start PS in a free reclaimed g[4] slot, if there is one.
+
+        Runs after every other feature has claimed its variables, so the free
+        slot is decided by the actual build. Without a free slot the patched
+        --vauto-start-ps default is used and there is no menu row.
+        """
+        payload = 'wrapper_limit_max_pdiff'
+        raw = self._vauto_start_ps_raw()
+
+        slot = self.custom_first_free_g4_var(self.PS_RAMP_G4_CANDIDATES)
+        if slot is None:
+            self._custom_detail('Start PS: no free reclaimed g[4] slot, no menu row; '
+                                'using the patched default')
+            return
+        var = self.custom_claim_g4_var(slot, 'vauto_start_ps')
+        label = self.redefine_fw_string(-1, {0: 'Start PS'}, 'vauto_start_ps_label')
+        dep = self.asf.find_var_table_index(4, 'RGT')
+        cmh2o_units = self.asf.read_u16(self.asf.find_var('IPC') + self.asf.G4_UNITS_STR)
+        self.redefine_g4_var(var, 0x0007, 0, dep, label, raw,
+                             500, 0, 1, 50, 10, cmh2o_units)
+        self.custom_menu_add('therapy', var, self.mop_bitmask('VAuto'),
+                             after=self.custom_vauto_last_menu)
+        # No Custom VAuto condition: Start PS also applies to stock VAuto.
+        vid = self.asf.resolve_var_id(var)
+        addr = self._write_payload_u16(payload, 'wrapper_limit_max_pdiff_ps_ramp_var_id', vid)
+        self.variable_callback_add(var, payload, 'custom_breath_settings_changed')
+        self._custom_detail('VAuto Start PS: %s var_id=0x%04X label_str=0x%04X at 0x%08X' %
+                            (var, vid, label, addr))
 
     def custom_patch_settings_ivaps(self):
         """Restore firmware-backed iVAPS controls."""
@@ -2022,6 +2075,8 @@ class ASFirmwarePatches(CompiledPayloadMixin):
             ('humid_start', self.custom_patch_settings_humid_start),
             ('header_climate', self.custom_patch_settings_header_climate),
             ('learn_targets', self.custom_patch_settings_learn_targets),
+            # Last: picks a free g[4] slot after all other claims.
+            ('wrapper_limit_max_pdiff', self.custom_patch_settings_vauto_ps_ramp),
         )
         active = self.applied_payloads | self.enabled_custom_settings_features
         return [feature for source, feature in feature_patches if source in active]
@@ -3216,6 +3271,13 @@ class ASFirmwarePatches(CompiledPayloadMixin):
             replacement = self._encode_thumb_bl(site, target) + bytes.fromhex('af f3 00 80')
             self._replace_bytes_checked(site, expected, replacement, hook)
             details.append(self._hook_detail(hook, self.asf.FLASH_BASE + site, target))
+        # Start PS default, the single source of truth for both the menu
+        # descriptor default and the wrapper's no-menu fallback.
+        addr = self._write_payload_u16(
+            'wrapper_limit_max_pdiff', 'wrapper_limit_max_pdiff_ps_ramp_default',
+            self._vauto_start_ps_raw())
+        details.append('Start PS default: %.1f cmH2O at 0x%08X' %
+                       (self._vauto_start_ps_raw() / 50.0, addr))
         return PatchOutcome.ok(None, *details)
 
     def patch_lcd_ili9325(self):
@@ -4169,7 +4231,8 @@ def run_patcher(args, detail_log=None):
 
     repo_dir = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
     build_identity = firmware_build_identity(repo_dir)
-    patches = ASFirmwarePatches(asf, target_rh=args.target_rh, graph_width=args.graph_width)
+    patches = ASFirmwarePatches(asf, target_rh=args.target_rh, graph_width=args.graph_width,
+                                vauto_start_ps=args.vauto_start_ps)
 
     apply_patch_phases(patches, args, detail_log)
 

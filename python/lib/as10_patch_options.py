@@ -30,6 +30,14 @@ def graph_width(value):
 
 def graph_width_text(minutes):
     return '%d:%02d' % divmod(minutes, 60)
+def cmh2o_start_ps(value):
+    try:
+        cmh2o = float(value)
+    except ValueError:
+        cmh2o = None
+    if cmh2o is None or not 0 <= cmh2o <= 10 or abs(cmh2o * 5 - round(cmh2o * 5)) > 1e-6:
+        raise argparse.ArgumentTypeError('0 to 10 cmH2O in steps of 0.2 expected.')
+    return cmh2o
 
 
 # Patch order is part of the implementation. Payloads must be present before
@@ -144,7 +152,14 @@ PLATFORM = Platform('air10', categories=(
         Patch('patch-fw-asv-wrapper', 'Add ASV backup-rate runtime control.',
               False, 'patch_asv_task_wrapper', category='Therapy modifications'),
         Patch('patch-fw-vauto-wrapper', 'Add custom VAuto pressure shaping.',
-              False, 'patch_wrapper_limit_max_pdiff', category='Therapy modifications'),
+              False, 'patch_wrapper_limit_max_pdiff', category='Therapy modifications',
+              parameters=(
+                  Parameter('vauto-start-ps',
+                            'Start PS, 0..10 cmH2O in steps of 0.2: support at the start of the '
+                            'ramp, rising to the set PS. 0 disables. Menu default; the menu row '
+                            'needs a free reclaimed variable. Default: 0.',
+                            Value(cmh2o_start_ps, 'CMH2O'), 0.0),
+              )),
     )),
 
     Phase('Custom settings integration', (

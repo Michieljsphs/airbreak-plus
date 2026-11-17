@@ -43,6 +43,7 @@ pre-trigger assist, and Custom T/C are disabled.
 | EPS | `RDH` | 0.0 to 3.0 cmH2O, step 0.2 | 0.0 cmH2O | Therapy | VAuto | Maximum exhale relief below EPAP; zero disables relief | 1.0 cmH2O |
 | Exh. Shape | `RDW` | 0 to 7, step 1 | 0 | Therapy | VAuto | Higher values retain more support during the expiratory descent | 0 |
 | FL Boost | `RTI` | 0.0 to 5.0 cmH2O, step 0.2 | 0.0 cmH2O | Therapy | VAuto | Adds support during sustained flow limitation; zero disables it | Off |
+| Start PS | see [Start PS](#start-ps) | 0.0 to 10.0 cmH2O, step 0.2 | 0.0 | Therapy | VAuto | PS at the start of the ramp, rising to the set PS | `--vauto-start-ps` |
 | Custom T/C | `RPH` | Off, On | Off | Therapy | S, ST, VAuto, PAC | Uses custom multi-signal trigger and flow-shape cycle decisions | On where supported by the runtime path |
 
 Firmware variable assignments and persistence are listed in the
@@ -287,6 +288,32 @@ not by ASV Max.
 
 The stock final limiter uses the upper allowed bound of the Max IPAP setting,
 not the value selected in the menu.
+
+## Start PS
+
+Stock VAuto ramps only the pressure reference; the pressure support stays at
+the full PS from the first breath. Start PS makes the support ramp as well:
+it starts at the Start PS value and rises to the set PS over the ramp.
+
+| Setting | Range | Default | Menu | Visible modes | Function |
+|---------|-------|---------|------|---------------|----------|
+| Start PS | 0.0 to 10.0 cmH2O, step 0.2 | `--vauto-start-ps`, 0.0 | Therapy, after the other VAuto rows | VAuto | PS at the start of the ramp; 0 turns the feature off |
+
+```text
+progress = clamp01((F[2D] - F[05]) / (F[28] - F[05]))
+effective_ps = Start PS + (PS - Start PS) * progress
+```
+
+Only the support above EPAP is scaled, so EPAP follows the stock ramp and only
+IPAP is lower. Start PS above the set PS is limited to the set PS; support is
+never increased above the set PS. It is not applied outside the ramp (no ramp
+or a ramp start equal to the target) and applies with Custom VAuto on or off.
+The 4 cmH2O pressure floor of Custom VAuto still applies.
+
+The menu row needs a free reclaimed variable, chosen when the firmware is
+patched; see [dynamic slot choice](../../custom_settings.md#dynamic-slot-choice).
+If none is free (for example with every feature enabled), there is no row and
+the patched value of `--vauto-start-ps` is used.
 
 ## Backup rate
 

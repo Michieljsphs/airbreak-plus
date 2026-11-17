@@ -35,6 +35,9 @@ extern const unsigned short wrapper_limit_max_pdiff_eps_var_id;
 extern const unsigned short wrapper_limit_max_pdiff_exhale_shape_var_id;
 extern const unsigned short wrapper_limit_max_pdiff_fl_boost_var_id;
 extern const unsigned short wrapper_limit_max_pdiff_ffl_var_id;
+extern const unsigned short wrapper_limit_max_pdiff_ps_ramp_var_id;
+// Patch-time Start PS in 1/50 cmH2O, used while the var_id slot is 0xFFFF.
+extern const unsigned short wrapper_limit_max_pdiff_ps_ramp_default;
 
 STATIC bool custom_g8_toggle(unsigned short var_id, bool fallback) {
   return (var_id == 0xFFFFu) ? fallback : (variable_get_by_id((int)var_id) != 0);
@@ -73,6 +76,7 @@ typedef struct {
   float fl_boost_max; // FL Boost setting: support added at full flow limitation (cmH2O)
   float fl_level; // Per-breath smoothed flow-limitation index (0.0-1.0)
   float fl_ps; // FL Boost support for the current breath (cmH2O)
+  float start_ps; // Start PS (cmH2O) at the beginning of the ramp; 0 = off
   bool custom_enabled, custom_tc;
   volatile bool settings_dirty;
   bool reset;
@@ -101,6 +105,8 @@ STATIC void load_breath_settings(breath_controller_t *s) {
   s->exhale_shape = -0.75f + 0.25f * custom_var_raw(wrapper_limit_max_pdiff_exhale_shape_var_id, 0);
   s->fl_boost_max = wrapper_limit_max_pdiff_ffl_var_id == 0xFFFFu ? 0.0f :
                     custom_var_raw(wrapper_limit_max_pdiff_fl_boost_var_id, 0) / 50.0f;
+  s->start_ps = custom_var_raw(wrapper_limit_max_pdiff_ps_ramp_var_id,
+                               (int)wrapper_limit_max_pdiff_ps_ramp_default) / 50.0f;
 }
 
 STATIC void init_breath_controller(breath_controller_t *s) {
@@ -254,10 +260,40 @@ STATIC float reshape_vauto_ps(float ps1, float mult) {
 }
 
 
+// Start PS: while the ramp runs, support rises from Start PS to the set PS in
+// step with the ramped pressure reference (F[2D] going from F[05] to F[28]).
+// Only the support above EPAP is scaled, so EPAP follows the stock ramp and
+// only IPAP is lower. Returns `ps_cmd` unchanged when the feature is off, no
+// ramp is running, or the ramp reference span is too small to measure.
+STATIC float ps_ramp_apply(const breath_controller_t *s, float ps_cmd) {
+  if (!s || s->mode != MODE_VAUTO || !(vauto_ps > 0.0f) || !(s->start_ps > 0.0f)) {
+    return ps_cmd;
+  }
+  const float span = fvars[0x28] - fvars[0x05];
+  const float abs_span = span < 0.0f ? -span : span;
+  if (!__builtin_isfinite(span) || abs_span < 0.05f) { return ps_cmd; }
+  const float progress = clamp01((*cmd_epap_ramp - fvars[0x05]) / span);
+  if (!__builtin_isfinite(progress)) { return ps_cmd; }
+  const float start = min(s->start_ps, vauto_ps);
+  const float k = (start + (vauto_ps - start) * progress) / vauto_ps;
+  const float support = ps_cmd + vauto_ps / 2.0f; // support above EPAP
+  // Only reduce positive support; never exceed the set PS.
+  if (!(support > 0.0f) || !(k < 1.0f)) { return ps_cmd; }
+  return support * k - vauto_ps / 2.0f;
+}
+
+// Stock pressure limiter with the Start PS scaling applied to the PS command.
+STATIC void limit_pressure_stock(const breath_controller_t *s) {
+  const float orig_ps = *cmd_ps;
+  *cmd_ps = ps_ramp_apply(s, orig_ps);
+  pressure_limit_max_difference();
+  *cmd_ps = orig_ps;
+}
+
 void MAIN start() {
   breath_controller_t *s = find_breath_controller();
   if (!s || s->vauto_state != VAUTO_ACTIVE || !(vauto_ps > 0.0f)) {
-    pressure_limit_max_difference();
+    limit_pressure_stock(s);
     return;
   }
 
@@ -337,11 +373,12 @@ void MAIN start() {
   if (!__builtin_isfinite(new_ps)) {
     s->vauto_state = VAUTO_OFF;
     s->reset = true;
-    pressure_limit_max_difference();
+    limit_pressure_stock(s);
     return;
   }
 
   const float orig_ps = *cmd_ps;
+  new_ps = ps_ramp_apply(s, new_ps);
   // Keep pre-FOT pressure at least 4 cmH2O, or the stock value if lower.
   const float pressure_floor = min(4.0f, *cmd_epap_ramp + orig_ps);
   if (*cmd_epap_ramp + new_ps < pressure_floor) {

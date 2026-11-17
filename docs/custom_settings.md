@@ -28,6 +28,7 @@ Settings are assigned when their corresponding patch or payload is active.
 | [Custom VAuto](guide/features/custom_vauto.md) | Exh. Shape | RDW | g[4] | CSG |
 | [Custom VAuto](guide/features/custom_vauto.md) | FL Boost | RTI | g[4] | CSG |
 | [Custom VAuto](guide/features/custom_vauto.md) | Custom T/C | RPH | g[8] | CSG |
+| [Custom VAuto](guide/features/custom_vauto.md#start-ps) | Start PS | first free of RDF, RDM, RCF, RCW, RCH | g[4] | CSG |
 | [ASV backup-rate control](guide/features/asv_backup_rate.md) | Backup Rate | RPW | g[8] | CSG |
 | [Therapy screen](guide/features/general.md#therapy-screen) | Therapy scr. | RXH | g[8] | CSG |
 | [Climate graph](guide/features/climate_graph.md) | Graph Width (h) | RDT | g[4] | CSG |
@@ -50,6 +51,20 @@ Settings are assigned when their corresponding patch or payload is active.
 | [Humid Start](guide/features/humid_start.md) | Min Tube (C) | first free g[4] slot of RDT, RTI, RCW, RCH, RCF, RDW, RDH, RCM, RDM, RDF; omitted when none is free | g[4] | CSG |
 | [Humid Start](guide/features/humid_start.md) | Start Coupling | next free g[4] slot of the same list; omitted when none is free | g[4] | CSG |
 
+
+### Dynamic slot choice
+
+Start PS has no fixed variable. After every other active feature has claimed
+its variables, the patcher takes the first still unclaimed reclaimed g[4]
+variable from this ordered list: `RDF`, `RDM`, `RCF`, `RCW`, `RCH`. A slot is
+free when its feature is not part of the build (`RDF`/`RDM`: AutoEPAP, `RCF`:
+backlight adaptation, `RCW`: Fall Time, `RCH`: Target RH). The slots upstream
+never used (`RMM`, `ZRA`, `LET`, `LEF`) are not used. The chosen variable is
+shown in the verbose patch log (`VAuto Start PS: ...`). These variables are
+already CSG members, so no storage member is added. When no slot is free there
+is no menu row and the wrapper uses the `--vauto-start-ps` value. A slot stays
+the same for a given feature selection but changes when features are added or
+removed, so the stored Start PS value is not carried across such builds.
 
 ## Application sequence
 

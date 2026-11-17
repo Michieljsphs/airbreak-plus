@@ -56,6 +56,10 @@
 # --patch-graph-climate n
 # Time the climate chart covers, hours:minutes from 0:10 to 12:00.
 # --graph-width 1:00
+# VAuto Start PS: support at the start of the ramp, rising to the set PS.
+# 0..10 cmH2O in steps of 0.2; 0 disables. Needs --patch-fw-vauto-wrapper.
+# With custom settings, a menu row is added when a reclaimed variable is free.
+# --vauto-start-ps 0
 
 # Replacement ILI9325/ILI9328 LCD.
 # --patch-fw-lcd n
