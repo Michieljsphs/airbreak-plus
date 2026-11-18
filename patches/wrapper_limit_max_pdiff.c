@@ -233,6 +233,10 @@ STATIC float reshape_vauto_ps(float ps1, float mult) {
 
 // Start PS: while the ramp runs, support rises from Start PS to the set PS in
 // step with the ramped pressure reference (F[2D] going from F[05] to F[28]).
+// The stock ramp state decides whether a ramp is running: F[2E] is the remaining
+// ramp time in minutes, and scaling stops the moment it is zero, so a reference
+// that settles a little short of F[28] (VAuto moves it, Ramp=Auto) cannot leave
+// the support reduced for the rest of the night.
 // Only the support above EPAP is scaled, so EPAP follows the stock ramp and
 // only IPAP is lower. Returns `ps_cmd` unchanged when the feature is off, no
 // ramp is running, or the ramp reference span is too small to measure.
@@ -240,6 +244,8 @@ STATIC float ps_ramp_apply(const breath_controller_t *s, float ps_cmd) {
   if (!s || s->mode != MODE_VAUTO || !(vauto_ps > 0.0f) || !(s->start_ps >= 0.0f)) {
     return ps_cmd;
   }
+  const float remaining = fvars[0x2e];
+  if (!__builtin_isfinite(remaining) || !(remaining > 0.0f)) { return ps_cmd; }
   const float span = fvars[0x28] - fvars[0x05];
   const float abs_span = span < 0.0f ? -span : span;
   if (!__builtin_isfinite(span) || abs_span < 0.05f) { return ps_cmd; }

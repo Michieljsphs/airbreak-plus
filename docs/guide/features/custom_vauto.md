@@ -259,8 +259,10 @@ effective_ps = Start PS + (PS - Start PS) * progress
 
 Only the support above EPAP is scaled, so EPAP follows the stock ramp and only
 IPAP is lower. Start PS above the set PS is limited to the set PS; support is
-never increased above the set PS. It is not applied outside the ramp (no ramp
-or a ramp start equal to the target) and applies with Custom VAuto on or off.
+never increased above the set PS. It is only applied while the stock ramp is
+running (remaining ramp time F[2E] above zero), so it ends with the ramp even if
+the pressure reference stops slightly short of its target. It is not applied
+outside the ramp (no ramp or a ramp start equal to the target) and applies with Custom VAuto on or off.
 The 4 cmH2O pressure floor of Custom VAuto still applies.
 
 The scaling applies to the whole support above EPAP as Custom VAuto computed
