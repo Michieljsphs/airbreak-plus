@@ -42,7 +42,7 @@ pre-trigger assist, and Custom T/C are disabled.
 | ASV Sens | `RXM` | Very Low, Low, Med, High, Very High | Med | Therapy | VAuto | Scales the adaptive controller response | Med |
 | EPS | `RDH` | 0.0 to 3.0 cmH2O, step 0.2 | 0.0 cmH2O | Therapy | VAuto | Maximum exhale relief below EPAP; zero disables relief | 1.0 cmH2O |
 | Exh. Shape | `RDW` | 0 to 7, step 1 | 0 | Therapy | VAuto | Higher values retain more support during the expiratory descent | 0 |
-| Start PS | see [Start PS](#start-ps) | Off, 0.0 to 10.0 cmH2O, step 0.2 | Off | Therapy | VAuto | PS at the start of the ramp, rising to the set PS | `--vauto-start-ps` |
+| Start PS | see [Start PS](#start-ps) | Off, 0.0 to 10.0 cmH2O, step 0.2 | Off | Comfort, below VAuto Start EPAP | VAuto | PS at the start of the ramp, rising to the set PS | `--vauto-start-ps` |
 | Custom T/C | `RPH` | Off, On | Off | Therapy | S, ST, VAuto, PAC | Uses custom multi-signal trigger and flow-shape cycle decisions | On where supported by the runtime path |
 
 Firmware variable assignments and persistence are listed in the
@@ -246,7 +246,7 @@ it starts at the Start PS value and rises to the set PS over the ramp.
 
 | Setting | Range | Default | Menu | Visible modes | Function |
 |---------|-------|---------|------|---------------|----------|
-| Start PS | Off, 0.0 to 10.0 cmH2O, step 0.2 | `--vauto-start-ps`, off | Therapy, after the other VAuto rows | VAuto | PS at the start of the ramp; Off turns the feature off, 0.0 ramps support up from zero |
+| Start PS | Off, 0.0 to 10.0 cmH2O, step 0.2 | `--vauto-start-ps`, off | Comfort, directly below the VAuto Start EPAP row | VAuto | PS at the start of the ramp; Off turns the feature off, 0.0 ramps support up from zero |
 
 In AirBreaker, Start PS is an enable checkbox with a value field that is greyed out until the box is checked; it starts at 3.0 cmH2O when first enabled. Unchecked passes `off`; the field accepts 0 to 10.
 

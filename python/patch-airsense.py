@@ -1442,9 +1442,9 @@ class ASFirmwarePatches(CompiledPayloadMixin):
         # the Off, 0.0, 0.2, ... steps (max 510 = 10.0 cmH2O).
         self.redefine_g4_var(var, 0x0007, 0, dep, label, raw,
                              510, 0, 1, 50, 10, cmh2o_units)
-        self.custom_menu_add('therapy', var, self.mop_bitmask('VAuto'),
-                             off_below_zero=True,
-                             after=self.custom_vauto_last_menu)
+        # Directly below the stock Ramp "Start EPAP" row of VAuto (STV).
+        self.custom_menu_add('comfort', var, self.mop_bitmask('VAuto'),
+                             off_below_zero=True, after=stock('STV'))
         # No Custom VAuto condition: Start PS also applies to stock VAuto.
         vid = self.asf.resolve_var_id(var)
         addr = self._write_payload_u16(payload, 'wrapper_limit_max_pdiff_ps_ramp_var_id', vid)
