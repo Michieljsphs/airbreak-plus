@@ -43,10 +43,11 @@
 # --patch-graph-keep-screen-on n
 
 # VAuto Start PS (cmH2O): PS at the start of the ramp, rising to the set PS by
-# the end of the ramp. 0..10 in steps of 0.2; 0 is off. Needs --patch-fw-vauto-wrapper.
+# the end of the ramp. off, or 0..10 in steps of 0.2 (0 ramps from zero support).
+# Needs --patch-fw-vauto-wrapper.
 # AirBreaker shows it as a checkbox (on = the value, 3 when first enabled) and a field.
 # With custom settings, a menu row is added when a reclaimed variable is free.
-# --vauto-start-ps 0
+# --vauto-start-ps off
 
 # Replacement ILI9325/ILI9328 LCD.
 # --patch-fw-lcd n

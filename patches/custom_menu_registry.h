@@ -58,6 +58,9 @@ typedef struct {
 
 #define CUSTOM_MENU_MODE_BITS            0x00000fffu
 #define CUSTOM_MENU_MODE_KEEP_VISIBILITY 0x80000000u
+/* Numeric rows only: stored 0 is shown as Off, stored n > 0 as (n - 10) / 50
+ * with one decimal, so the editor steps Off, 0.0, 0.2, ... (Start PS). */
+#define CUSTOM_MENU_MODE_OFF_BELOW_ZERO  0x40000000u
 
 #define CUSTOM_MENU_PAGE_CONTAINER_BASE 0x80
 #define CUSTOM_MENU_REGISTRY_LIMIT      64

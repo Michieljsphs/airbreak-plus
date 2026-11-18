@@ -71,7 +71,7 @@ typedef struct {
   int mode;
   vauto_state_t vauto_state;
   float asv_max, asv_sens, eps, exhale_shape;
-  float start_ps; // Start PS (cmH2O) at the beginning of the ramp; 0 = off
+  float start_ps; // Start PS (cmH2O) at the beginning of the ramp; negative = off
   bool custom_enabled, custom_tc;
   volatile bool settings_dirty;
   bool reset;
@@ -98,8 +98,10 @@ STATIC void load_breath_settings(breath_controller_t *s) {
   s->asv_sens = custom_asv_sens_multiplier();
   s->eps = custom_var_raw(wrapper_limit_max_pdiff_eps_var_id, 50) / 50.0f;
   s->exhale_shape = -0.75f + 0.25f * custom_var_raw(wrapper_limit_max_pdiff_exhale_shape_var_id, 0);
-  s->start_ps = custom_var_raw(wrapper_limit_max_pdiff_ps_ramp_var_id,
-                               (int)wrapper_limit_max_pdiff_ps_ramp_default) / 50.0f;
+  // Stored 0 is off; n > 0 is (n - 10) / 50 cmH2O, so 0.0 is a real ramp start.
+  const int ps_raw = custom_var_raw(wrapper_limit_max_pdiff_ps_ramp_var_id,
+                                    (int)wrapper_limit_max_pdiff_ps_ramp_default);
+  s->start_ps = ps_raw > 0 ? (float)(ps_raw - 10) / 50.0f : -1.0f;
 }
 
 STATIC void init_breath_controller(breath_controller_t *s) {
@@ -235,7 +237,7 @@ STATIC float reshape_vauto_ps(float ps1, float mult) {
 // only IPAP is lower. Returns `ps_cmd` unchanged when the feature is off, no
 // ramp is running, or the ramp reference span is too small to measure.
 STATIC float ps_ramp_apply(const breath_controller_t *s, float ps_cmd) {
-  if (!s || s->mode != MODE_VAUTO || !(vauto_ps > 0.0f) || !(s->start_ps > 0.0f)) {
+  if (!s || s->mode != MODE_VAUTO || !(vauto_ps > 0.0f) || !(s->start_ps >= 0.0f)) {
     return ps_cmd;
   }
   const float span = fvars[0x28] - fvars[0x05];

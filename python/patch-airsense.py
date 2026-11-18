@@ -156,6 +156,7 @@ class ASFirmwarePatches(CompiledPayloadMixin):
     CUSTOM_MENU_FLAG_SHOW_UNITS = 8
     CUSTOM_MENU_MODE_BITS = 0x00000fff
     CUSTOM_MENU_MODE_KEEP_VISIBILITY = 0x80000000
+    CUSTOM_MENU_MODE_OFF_BELOW_ZERO = 0x40000000
     CUSTOM_MENU_PAGE_CONTAINER_BASE = 0x80
     CUSTOM_MENU_SECTIONS = {
         'therapy': 0,
@@ -179,7 +180,7 @@ class ASFirmwarePatches(CompiledPayloadMixin):
         'AFH': 11,
     }
         
-    def __init__(self, asf, target_rh=85.0, vauto_start_ps=0.0):
+    def __init__(self, asf, target_rh=85.0, vauto_start_ps=-1.0):
         self.asf = asf
         self.target_rh_percent = target_rh
         self.vauto_start_ps = vauto_start_ps
@@ -509,11 +510,18 @@ class ASFirmwarePatches(CompiledPayloadMixin):
         return reclaimed[vid]
 
     def _vauto_start_ps_raw(self):
-        """Start PS in 1/50 cmH2O (0 = off), validated."""
+        """Start PS as stored by the menu variable, validated.
+
+        0 is off. n > 0 is a start PS of (n - 10) / 50 cmH2O, one step above
+        zero, so a Start PS of 0.0 is distinct from off. --vauto-start-ps is
+        negative for off.
+        """
+        if self.vauto_start_ps < 0:
+            return 0
         raw = int(round(self.vauto_start_ps * 50))
         if not 0 <= raw <= 500 or raw % 10:
-            raise ValueError('--vauto-start-ps must be 0..10 cmH2O in steps of 0.2')
-        return raw
+            raise ValueError('--vauto-start-ps must be off or 0..10 cmH2O in steps of 0.2')
+        return raw + 10
 
     def custom_first_free_g4_var(self, candidates):
         """Return the first reclaimed, still unclaimed g[4] name of an ordered
@@ -618,8 +626,13 @@ class ASFirmwarePatches(CompiledPayloadMixin):
             before=before, after=after)
 
     def custom_menu_add(self, container_name, var, mode_mask=None, flags=0, *,
-                        view=False, packed_time=False, before=None, after=None):
-        """Register one variable in a clinical section or custom page."""
+                        view=False, packed_time=False, off_below_zero=False,
+                        before=None, after=None):
+        """Register one variable in a clinical section or custom page.
+
+        off_below_zero: numeric rows show stored 0 as Off and stored n > 0 as
+        (n - 10) / 50, so the editor steps Off, 0.0, 0.2, ...
+        """
         container = self._custom_menu_container_id(container_name)
 
         if mode_mask is None:
@@ -641,6 +654,10 @@ class ASFirmwarePatches(CompiledPayloadMixin):
             if table_num != 4:
                 raise ValueError('custom menu packed time requires a numeric variable')
             flags |= MenuBuilder.PACKED_TIME
+        if off_below_zero:
+            if table_num != 4 or packed_time:
+                raise ValueError('custom menu Off-below-zero format requires a plain numeric variable')
+            mode_mask |= self.CUSTOM_MENU_MODE_OFF_BELOW_ZERO
         if view:
             flags |= MenuBuilder.VIEW
             mode_mask |= self.CUSTOM_MENU_MODE_KEEP_VISIBILITY
@@ -1421,9 +1438,12 @@ class ASFirmwarePatches(CompiledPayloadMixin):
         label = self.redefine_fw_string(-1, {0: 'Start PS'}, 'vauto_start_ps_label')
         dep = self.asf.find_var_table_index(4, 'RGT')
         cmh2o_units = self.asf.read_u16(self.asf.find_var('IPC') + self.asf.G4_UNITS_STR)
+        # Stored 0 = Off, n > 0 = (n - 10) / 50 cmH2O; the menu formatter shows
+        # the Off, 0.0, 0.2, ... steps (max 510 = 10.0 cmH2O).
         self.redefine_g4_var(var, 0x0007, 0, dep, label, raw,
-                             500, 0, 1, 50, 10, cmh2o_units)
+                             510, 0, 1, 50, 10, cmh2o_units)
         self.custom_menu_add('therapy', var, self.mop_bitmask('VAuto'),
+                             off_below_zero=True,
                              after=self.custom_vauto_last_menu)
         # No Custom VAuto condition: Start PS also applies to stock VAuto.
         vid = self.asf.resolve_var_id(var)
@@ -3019,8 +3039,9 @@ class ASFirmwarePatches(CompiledPayloadMixin):
         addr = self._write_payload_u16(
             'wrapper_limit_max_pdiff', 'wrapper_limit_max_pdiff_ps_ramp_default',
             self._vauto_start_ps_raw())
-        details.append('Start PS default: %.1f cmH2O at 0x%08X' %
-                       (self._vauto_start_ps_raw() / 50.0, addr))
+        details.append('Start PS default: %s at 0x%08X' %
+                       ('off' if self.vauto_start_ps < 0 else '%.1f cmH2O' % self.vauto_start_ps,
+                        addr))
         return PatchOutcome.ok(None, *details)
 
     def patch_lcd_ili9325(self):

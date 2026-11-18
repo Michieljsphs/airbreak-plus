@@ -42,7 +42,7 @@ pre-trigger assist, and Custom T/C are disabled.
 | ASV Sens | `RXM` | Very Low, Low, Med, High, Very High | Med | Therapy | VAuto | Scales the adaptive controller response | Med |
 | EPS | `RDH` | 0.0 to 3.0 cmH2O, step 0.2 | 0.0 cmH2O | Therapy | VAuto | Maximum exhale relief below EPAP; zero disables relief | 1.0 cmH2O |
 | Exh. Shape | `RDW` | 0 to 7, step 1 | 0 | Therapy | VAuto | Higher values retain more support during the expiratory descent | 0 |
-| Start PS | see [Start PS](#start-ps) | 0.0 to 10.0 cmH2O, step 0.2 | 0.0 | Therapy | VAuto | PS at the start of the ramp, rising to the set PS | `--vauto-start-ps` |
+| Start PS | see [Start PS](#start-ps) | Off, 0.0 to 10.0 cmH2O, step 0.2 | Off | Therapy | VAuto | PS at the start of the ramp, rising to the set PS | `--vauto-start-ps` |
 | Custom T/C | `RPH` | Off, On | Off | Therapy | S, ST, VAuto, PAC | Uses custom multi-signal trigger and flow-shape cycle decisions | On where supported by the runtime path |
 
 Firmware variable assignments and persistence are listed in the
@@ -246,9 +246,11 @@ it starts at the Start PS value and rises to the set PS over the ramp.
 
 | Setting | Range | Default | Menu | Visible modes | Function |
 |---------|-------|---------|------|---------------|----------|
-| Start PS | 0.0 to 10.0 cmH2O, step 0.2 | `--vauto-start-ps`, 0.0 | Therapy, after the other VAuto rows | VAuto | PS at the start of the ramp; 0 turns the feature off |
+| Start PS | Off, 0.0 to 10.0 cmH2O, step 0.2 | `--vauto-start-ps`, off | Therapy, after the other VAuto rows | VAuto | PS at the start of the ramp; Off turns the feature off, 0.0 ramps support up from zero |
 
-In AirBreaker, Start PS is an enable checkbox with a value field that is greyed out until the box is checked; it starts at 3.0 cmH2O when first enabled. Unchecked passes 0 (off).
+In AirBreaker, Start PS is an enable checkbox with a value field that is greyed out until the box is checked; it starts at 3.0 cmH2O when first enabled. Unchecked passes `off`; the field accepts 0 to 10.
+
+On the device the row steps Off, 0.0, 0.2, ... 10.0. The stored value is 0 for Off and `(n - 10) / 50` cmH2O otherwise, so 0.0 is a real ramp start.
 
 ```text
 progress = clamp01((F[2D] - F[05]) / (F[28] - F[05]))

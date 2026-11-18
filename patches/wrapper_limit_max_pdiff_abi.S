@@ -91,8 +91,9 @@ wrapper_limit_max_pdiff_ps_ramp_var_id:
 	.short 0xffff
 	.short 0xffff
 
-/* Start PS used while the var_id slot above is 0xffff, in 1/50 cmH2O.
- * Zero disables the feature. Written by patch-airsense from --vauto-start-ps.
+/* Start PS used while the var_id slot above is 0xffff, in the menu variable's
+ * encoding: 0 is off, n > 0 is (n - 10) / 50 cmH2O. Written by patch-airsense
+ * from --vauto-start-ps.
  */
 .global wrapper_limit_max_pdiff_ps_ramp_default
 .type wrapper_limit_max_pdiff_ps_ramp_default, %object
