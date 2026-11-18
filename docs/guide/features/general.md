@@ -150,8 +150,10 @@ firmware).
 
 Off sets Climate Control to Manual with the humidifier off, because Auto
 ignores the Off setting. The blower keeps running, so the hose can dry in use.
-The humidity level itself is not changed. Switching on always returns to Auto
-Climate Control: if you use Manual, select it again afterwards.
+The humidity level itself is not changed. Switching on returns to the Climate
+Control that was set when the hold switched the humidifier off, Auto or Manual.
+That is remembered only until the device restarts: after a restart, or when the
+humidifier was switched off in the menu, switching on with the hold selects Auto.
 
 When another feature uses a longer Home hold, such as the climate graph's
 restart at five seconds, that hold is left to it.
