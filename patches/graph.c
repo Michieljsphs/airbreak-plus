@@ -173,7 +173,6 @@ extern const uint32 graph_width_minutes;
 extern const unsigned short graph_width_var_id;
 extern const unsigned short graph_humid_start_var_id;
 extern const unsigned short graph_min_tube_c;
-extern const unsigned short graph_coupling_var_id;
 
 STATIC void climate_noop(therapy_worker *node) { }
 
@@ -242,10 +241,9 @@ STATIC int half_degrees(int raw) {
 	return clamp((raw + 2) / 5, 1, 255);
 }
 
+/* The fixed plate coupling Humid Start uses too (humidity_model.h). */
 STATIC float coupling(void) {
-	if (graph_coupling_var_id == 0xffffu)
-		return HUMIDITY_PLATE_COUPLING;
-	return coupling_from_raw(variable_get_by_id(graph_coupling_var_id));
+	return HUMIDITY_PLATE_COUPLING;
 }
 
 /* The time the chart covers, in minutes. */

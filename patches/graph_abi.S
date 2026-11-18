@@ -47,7 +47,7 @@ graph_width_minutes:
 
 /* Custom settings shown on the climate chart; 0xffff when not installed:
  * Graph Width (raw = tenths of an hour; none: graph_width_minutes), Humid
- * Start (switch: on, coupling: HUMIDITY_PLATE_COUPLING). graph_min_tube_c is the
+ * Start (switch: on). graph_min_tube_c is the
  * patch-time Min Tube in whole degC (16: no line).
  */
 .balign 2
@@ -65,8 +65,3 @@ graph_humid_start_var_id:
 .type graph_min_tube_c, %object
 graph_min_tube_c:
 	.short 16
-
-.global graph_coupling_var_id
-.type graph_coupling_var_id, %object
-graph_coupling_var_id:
-	.short 0xffff
