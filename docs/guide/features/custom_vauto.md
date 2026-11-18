@@ -177,10 +177,11 @@ setting within a few breaths. The slow release fades the support over a
 few minutes after flow limitation clears (about 17 breaths to fall from full
 to half), so the boost does not switch off as soon as it starts working.
 
-The boost follows the stock pressure phase and is added to the base shape:
+The boost follows the stock pressure phase, but reaches full strength at half
+of it, so it arrives early in the inhale, and is added to the base shape:
 
 ```text
-base_fl(x) = base(x) + fl_ps * clamp(x, 0, 1)
+base_fl(x) = base(x) + fl_ps * clamp(x / 0.5, 0, 1)
 ```
 
 When ASV Max is above zero, the larger of the two boosts applies; they do not

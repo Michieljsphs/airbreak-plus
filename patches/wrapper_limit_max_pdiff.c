@@ -150,6 +150,7 @@ STATIC void reset_vauto_state(breath_controller_t *s) {
 #define FL_RELEASE 0.03f // per breath while FFL is below the average
 #define FL_START 0.05f // average where FL Boost starts
 #define FL_FULL 0.25f // average where FL Boost reaches the setting
+#define FL_RISE_AT 0.5f // stock pressure phase at which the boost is fully applied
 
 STATIC void update_fl_boost(breath_controller_t *s) {
   if (!(s->fl_boost_max > 0.0f)) {
@@ -284,9 +285,10 @@ void MAIN start() {
       feat->peak_ps = vauto_ps;
       update_fl_boost(s);
     }
-    // FL Boost rises with the stock pressure phase and adds to the base shape.
+    // FL Boost rises with the stock pressure phase, reaching full strength at
+    // FL_RISE_AT of it so the boost arrives early in the inhale, and adds to the base shape.
     const float shape_ps = remap(ps1, 0.0f, 1.0f, feat->eps, vauto_ps-INSTANT_PS) + INSTANT_PS;
-    float base_ps = shape_ps + s->fl_ps * clamp01(ps1);
+    float base_ps = shape_ps + s->fl_ps * clamp01(ps1 / FL_RISE_AT);
     new_ps = base_ps;
     if (asv_max > 0.0f) {
       float new_ps1 = reshape_vauto_ps(ps1, asv->asv_factor);
