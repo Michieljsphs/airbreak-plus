@@ -280,11 +280,16 @@ Exhale relief cannot lower the base pressure target below 4 cmH2O. If the stock
 target is already lower during a transition, Custom VAuto does not lower it
 further.
 
-Max IPAP limits the stock VAuto baseline. Adaptive support is added afterwards
-and can raise inspiratory pressure above the selected Max IPAP. ASV Max limits
-this addition relative to the custom base shape, not absolute IPAP. FL Boost
-is added the same way. It is limited by its own setting, at most 5 cmH2O, and
-not by ASV Max.
+Max IPAP limits the stock VAuto baseline. In VAuto it also sets how high EPAP
+can rise: the pressure midpoint stops at Max IPAP - PS/2, so EPAP stops at
+Max IPAP - PS. Adaptive support and FL Boost are added after that limit and are
+not capped by Max IPAP. When the midpoint is at its ceiling, inspiratory
+pressure can reach Max IPAP plus the boost (up to 5 cmH2O for FL Boost). Set Max
+IPAP with that headroom in mind. EPAP is not raised by either boost.
+
+ASV Max limits the adaptive addition relative to the custom base shape, not
+absolute IPAP. FL Boost is limited by its own setting, at most 5 cmH2O, and not
+by ASV Max.
 
 The stock final limiter uses the upper allowed bound of the Max IPAP setting,
 not the value selected in the menu.
