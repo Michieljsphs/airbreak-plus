@@ -38,9 +38,9 @@ the default hour. A small tick at the bottom marks every 10 minutes (see
 The RH is the same estimate as the header climate readout and Humid Start use.
 It is a guide to the trend, not a measurement.
 
-The Min Tube line appears only with the Humid Start Min Tube setting in the
-menu, Humid Start switched on, and Min Tube above 16 °C and below the tube
-setting. Without a heated tube there is no tube line, tube setting or Min Tube.
+The Min Tube line appears only with Humid Start installed and switched on, and
+Min Tube (`--humid-start-min-tube`, a patch-time value) above 16 °C and below the
+tube setting. Without a heated tube there is no tube line, tube setting or Min Tube.
 If you change a setting, the dashed lines move within a column.
 
 ## Chart width

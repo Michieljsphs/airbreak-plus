@@ -110,7 +110,7 @@ These optional payloads require `arm-none-eabi-gcc` and are off by default.
 | `--patch-st-ibr y` | Add [adaptive backup timing in ST](features/general.md#st-ibr) through custom settings |
 | `--patch-autoepap y` | Add [iVAPS AutoEPAP](features/general.md#ivaps-autoepap); requires font repacking and expanded heap |
 | `--patch-graph-climate y` | Show the [climate graph](features/climate_graph.md) instead of the flow and pressure trace, over `--graph-width H:MM` (default 1:00); requires the therapy screen |
-| `--patch-humid-start y` | Humid Start: hold the heated tube at the target RH temperature during [humidifier warm-up](features/humid_start.md); SX567 only, requires font repacking |
+| `--patch-humid-start y` | Humid Start: hold the heated tube at the target RH temperature during [humidifier warm-up](features/humid_start.md); SX567 only, requires font repacking; `--humid-start-min-tube DEGC` sets the [Min Tube](features/humid_start.md#min-tube) temperature (16-30, default 16) |
 
 Example with custom VAuto:
 ```
