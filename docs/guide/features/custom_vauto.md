@@ -263,6 +263,18 @@ never increased above the set PS. It is not applied outside the ramp (no ramp
 or a ramp start equal to the target) and applies with Custom VAuto on or off.
 The 4 cmH2O pressure floor of Custom VAuto still applies.
 
+The scaling applies to the whole support above EPAP as Custom VAuto computed
+it, so the boosts ramp with it: the adaptive boost limited by ASV Max and, when
+it is built in, FL Boost. While the ramp runs, the support is
+
+```text
+support_ramped = support * (Start PS + (PS - Start PS) * progress) / PS
+```
+
+where `support` is the shaped support including any boost. At the start of the
+ramp a boost is therefore scaled down by the same factor as the base support,
+and by the end of the ramp it is back at full strength.
+
 The menu row needs a free reclaimed variable, chosen when the firmware is
 patched; see [dynamic slot choice](../../custom_settings.md#dynamic-slot-choice).
 If none is free (for example with every feature enabled), there is no row and
