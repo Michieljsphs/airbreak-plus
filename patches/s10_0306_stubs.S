@@ -84,6 +84,7 @@ NSTUB(0x08065FD5, menu_create_static_string)
 NSTUB(0x08066AB5, variable_lookup_handler)
 NSTUB(0x08066AD1, variable_handler_release)
 NSTUB(0x08066D73, variable_set_visible_from_handler)
+NSTUB(0x08066D87, variable_set_editable_from_handler)
 NSTUB(0x08066BDE, variable_handler_get_uart_name)
 NSTUB(0x08066CB2, variable_handler_wire_width)
 NSTUB(0x08004100, ccx_get_globals)
@@ -260,3 +261,10 @@ NSTUB_VAR(0x0807750A, ivaps_calculate_vk_read_rate_saved)
 NSTUB_VAR(0x08077524, ivaps_calculate_vk_read_rate)
 NSTUB_VAR(0x08077512, ivaps_calculate_vk_read_deadspace)
 NSTUB_VAR(0x0807752C, ivaps_calculate_vk_read_height)
+
+// Climate control: inputs/sensors interfaces used by the tube and plate controllers
+NSTUB_VAR(0x080F414C, climate_inputs_vtable)
+NSTUB(0x080D291B, climate_tube_setpoint_get)
+NSTUB(0x080D2933, climate_reference_temperature_get)
+// Stock humidity model calibration k0..k4
+NSTUB(0x080D2611, humidity_model_coefficients_get)

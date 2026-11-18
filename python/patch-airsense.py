@@ -179,9 +179,10 @@ class ASFirmwarePatches(CompiledPayloadMixin):
         'AFH': 11,
     }
         
-    def __init__(self, asf, target_rh=85.0):
+    def __init__(self, asf, target_rh=85.0, humid_start_min_tube=16):
         self.asf = asf
         self.target_rh_percent = target_rh
+        self.humid_start_min_tube = humid_start_min_tube  # --humid-start-min-tube, whole degC
         self.applied_payloads = set()
         self.enabled_custom_settings_features = set()
         self.mop_callback_handlers = {}
@@ -720,8 +721,14 @@ class ASFirmwarePatches(CompiledPayloadMixin):
                                   for name, container in self.custom_menu_pages.items()}
         self.custom_menu_plan = plan
 
-    def custom_menu_add_condition(self, var, source, mode_mask=None, *, nonzero=True):
-        """Require source to be zero/nonzero for var to appear in the selected modes."""
+    def custom_menu_add_condition(self, var, source, mode_mask=None, *, nonzero=True, grey=False):
+        """Require source to be zero/nonzero for var to appear in the selected modes.
+
+        With grey=True the row stays visible and is greyed out (not editable)
+        while the condition fails, instead of being hidden. SX567 only.
+        """
+        if grey and not self.asf.cdx_ver.startswith('SX567-'):
+            raise ValueError("custom_menu_add_condition: grey-out is supported on SX567 only")
         if mode_mask is None:
             mode_mask = self.CUSTOM_MENU_MODE_BITS
         mode_mask = int(mode_mask)
@@ -731,7 +738,8 @@ class ASFirmwarePatches(CompiledPayloadMixin):
         source_id = self.asf.resolve_var_id(source)
         if self.asf.find_var_table_number(source_id) not in (4, 8):
             raise ValueError("custom_menu_add_condition: %s must be a g[4]/g[8] source" % source)
-        self.custom_menu_conditions.append((vid, source_id, mode_mask, int(bool(nonzero))))
+        self.custom_menu_conditions.append(
+            (vid, source_id, mode_mask, int(bool(nonzero)) | (2 if grey else 0)))
 
     def custom_menu_add_preview(self, source, target, payload, symbol):
         """Write a calculated target variable when a numeric editor's value changes."""
@@ -1855,6 +1863,30 @@ class ASFirmwarePatches(CompiledPayloadMixin):
         addr = self._write_payload_u16('target_rh', 'target_rh_var_id', vid)
         self._custom_detail('Target RH: %s var_id=0x%04X at 0x%08X' % (var, vid, addr))
 
+    def custom_patch_settings_humid_start(self):
+        """Expose the Humid Start switch in Accessories."""
+        # The switch takes the first free slot, and is left out when there is
+        # none. Label strings are never short; once the reclaimed pool is
+        # empty, new string IDs are allocated. Min Tube is a patch-time value
+        # (--humid-start-min-tube); the plate coupling is a constant in
+        # humidity_model.h.
+        dep = self.asf.find_var_table_index(4, 'RGT')
+        enable = self.custom_claim_free_g8_var(
+            self.FREE_SWITCH_SLOTS, 'humid_start_enable')
+        if enable is None:
+            self._custom_detail('Humid Start switch: no free on/off slot')
+        else:
+            label = self.redefine_fw_string(-1, {0: 'Humid Start'}, 'humid_start_enable_label')
+            self.redefine_g8_var(enable, 0x0007, 0, dep, label, 1,
+                                 2, 0, 0x00000003, self.asf.str_id_off_on_base, 0)
+            self.custom_storage_add_unless_member(enable)
+            self.custom_menu_add('accessories', enable, self.CUSTOM_MENU_MODE_BITS)
+            # Greyed out, and without effect, while no humidifier is attached.
+            self.custom_menu_add_condition(enable, 'HUM', grey=True)
+            vid = self.asf.resolve_var_id(enable)
+            addr = self._write_payload_u16('humid_start', 'humid_start_enable_var_id', vid)
+            self._custom_detail('Humid Start: %s var_id=0x%04X at 0x%08X' % (enable, vid, addr))
+
     def custom_patch_settings_collect_features(self):
         """Return active custom-settings feature functions."""
         feature_patches = (
@@ -1872,6 +1904,7 @@ class ASFirmwarePatches(CompiledPayloadMixin):
             ('header_clock', self.custom_patch_settings_header_clock),
             ('learn_targets', self.custom_patch_settings_learn_targets),
             # Last: its switch claims a g[8] slot left free by the features above.
+            ('humid_start', self.custom_patch_settings_humid_start),
             ('header_climate', self.custom_patch_settings_header_climate),
         )
         active = self.applied_payloads | self.enabled_custom_settings_features
@@ -2676,6 +2709,44 @@ class ASFirmwarePatches(CompiledPayloadMixin):
         self.applied_payloads.add('target_rh')
         return PatchOutcome.ok('Climate model target RH: %g%% (Auto and Manual)' % percent,
                                self._payload_detail('target_rh', len(data), flash))
+
+    def patch_humid_start(self):
+        """Hold the heated tube at the target RH's temperature while the plate warms."""
+        # Climate inputs vtable slot +0x3c (HTS getter) and sensors slot +0x1c
+        # (humidity-model reference temperature).
+        sites = {
+            'SX567-0302': (0xf3a70, 0xf5834),
+            'SX567-0305': (0xf4184, 0xf5f48),
+            'SX567-0306': (0xf4188, 0xf5f4c),
+            'SX567-0401': (0xf43e8, 0xf61ac),
+            'SX567-0402': (0xf4660, 0xf6424),
+        }.get(self.asf.cdx_ver)
+        if sites is None:
+            return PatchOutcome.skip("unsupported CDX version %s" % self.asf.cdx_ver)
+
+        data, _, elf_path = self._load_versioned_payload('humid_start')
+        hooks = []
+        for offset, stock, wrapper in zip(sites, (
+                'climate_tube_setpoint_get', 'climate_reference_temperature_get'),
+                ('start', 'humid_start_reference')):
+            original = self._elf_symbol_addr(elf_path, stock) | 1
+            target = self._elf_symbol_addr(elf_path, wrapper) | 1
+            if self.asf.read_u32(offset) not in (original, target):
+                raise ValueError('patch_humid_start: unexpected %s pointer at 0x%X' % (stock, offset))
+            hooks.append((offset, original, target, stock))
+
+        flash, _ = self._inject_payload('humid_start', data)
+        details = [self._payload_detail('humid_start', len(data), flash)]
+        for offset, original, target, stock in hooks:
+            self._replace_bytes_checked(
+                offset, struct.pack('<I', original), struct.pack('<I', target),
+                'humid start ' + stock, accept_existing=True)
+            details.append(self._hook_detail(stock, self.asf.FLASH_BASE + offset, target))
+        self.applied_payloads.add('humid_start')
+        addr = self._write_payload_u16('humid_start', 'humid_start_min_tube_c',
+                                       self.humid_start_min_tube)
+        details.append('Min Tube: %d C at 0x%08X' % (self.humid_start_min_tube, addr))
+        return PatchOutcome.ok(None, *details)
 
     def patch_defaults(self):
         defaults = (
@@ -3954,7 +4025,8 @@ def run_patcher(args, detail_log=None):
 
     repo_dir = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
     build_identity = firmware_build_identity(repo_dir)
-    patches = ASFirmwarePatches(asf, target_rh=args.target_rh)
+    patches = ASFirmwarePatches(asf, target_rh=args.target_rh,
+                                humid_start_min_tube=args.humid_start_min_tube)
 
     apply_patch_phases(patches, args, detail_log)
 

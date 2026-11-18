@@ -36,7 +36,6 @@ extern const u8 header_climate_enabled;
 extern const u8 header_climate_always;
 extern const u8 header_climate_decimal;
 extern const u16 header_climate_var_id;
-extern const u16 header_climate_coupling_var_id;
 extern int variable_get_by_id(int var_id);
 extern struct root_screen *gui_root_screen_get(void);
 extern struct root_screen *gui_root_screen_init(struct root_screen *root);
@@ -87,9 +86,6 @@ static u16 current_climate(char *text)
     int plate_raw = variable_get_by_id(VAR_ID_HPT);
     int tube_raw = tube_present ? variable_get_by_id(VAR_ID_HTT) : ambient_raw;
 
-    float coupling = header_climate_coupling_var_id == 0xffffu ?
-        HUMIDITY_PLATE_COUPLING :
-        coupling_from_raw(variable_get_by_id(header_climate_coupling_var_id));
     struct humidity_coeffs coeffs;
     humidity_coeffs_read(&coeffs);
     float outlet = humidity_outlet(&coeffs,
@@ -97,7 +93,7 @@ static u16 current_climate(char *text)
                                    variable_get_by_id(VAR_ID_HAH) * 0.001f,
                                    variable_get_by_id(VAR_ID_HPM) * 0.01f,
                                    variable_get_by_id(VAR_ID_AFL) * 0.01f,
-                                   coupling);
+                                   HUMIDITY_PLATE_COUPLING);
     int rh = (int)(100.0f * outlet / ah_sat(tube_raw * 0.1f) + 0.5f);
     if (rh > 100)
         rh = 100;

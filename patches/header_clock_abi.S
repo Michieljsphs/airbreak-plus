@@ -37,11 +37,3 @@ header_climate_always:
 header_climate_var_id:
     .short 0xffff
 .size header_climate_var_id, . - header_climate_var_id
-
-// Custom-settings plate coupling (raw = coupling * 100), shared with
-// humid_start; 0xffff uses HUMIDITY_PLATE_COUPLING (humidity_model.h).
-.global header_climate_coupling_var_id
-.type header_climate_coupling_var_id, %object
-header_climate_coupling_var_id:
-    .short 0xffff
-.size header_climate_coupling_var_id, . - header_climate_coupling_var_id
