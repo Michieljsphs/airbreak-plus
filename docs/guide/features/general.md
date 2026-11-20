@@ -130,6 +130,9 @@ Choose a round pressure indicator (**Simple**) or a pressure bar (**Bar**) under
 to the therapy mode.
 
 The **+Graph** variants add live flow and pressure traces. Bar is the default.
+**Graph** is the bar screen with the [climate chart](climate_graph.md) over the
+mode and pressure readouts and the bar; without the climate chart it is the
+same as **Bar+Graph**.
 
 ## Humid Start
 

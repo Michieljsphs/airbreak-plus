@@ -1720,13 +1720,14 @@ class ASFirmwarePatches(CompiledPayloadMixin):
         var = self.custom_claim_g8_var('RXH', 'therapy_screen')
         dep = self.asf.find_var_table_index(4, 'RGT')
         label = self.redefine_fw_string(-1, {0: 'Therapy scr.'}, 'therapy_screen_label')
-        options = ('Auto', 'Simple', 'Bar', 'Auto+Graph', 'Simple+Graph', 'Bar+Graph')
+        options = ('Auto', 'Simple', 'Bar', 'Auto+Graph', 'Simple+Graph', 'Bar+Graph',
+                   'Graph')
         base = self.asf.add_fw_strings(len(options))
         for i, text in enumerate(options):
             self.custom_new_string_ids[base + i] = 'therapy_screen_option_%d' % i
             self.redefine_fw_string(base + i, {0: text}, 'therapy_screen_option_%d' % i)
         self.redefine_g8_var(var, 0x0007, 0, dep, label, options.index('Bar'),
-                             len(options), 0, 0x3f, base, 0)
+                             len(options), 0, (1 << len(options)) - 1, base, 0)
         self.custom_menu_add('options', var, self.CUSTOM_MENU_MODE_BITS)
         vid = self.asf.resolve_var_id(var)
         addr = self._write_payload_u16('therapy_screen', 'therapy_screen_var_id', vid)

@@ -168,7 +168,8 @@ void therapy_screen_update(void *menu, int changed, int active, int dialog)
     unsigned choice = therapy_screen_get_choice();
     int selected = *(u8 *)menu == 9;
     int graph_changed = therapy_screen_has_graph(choice) !=
-                        therapy_screen_has_graph(page->choice);
+                        therapy_screen_has_graph(page->choice) ||
+                        (choice == THERAPY_GRAPH) != (page->choice == THERAPY_GRAPH);
     int refresh = 0;
     if (use_bar(choice) != page->bar) {
         void *parent = page->parent;

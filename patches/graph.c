@@ -572,8 +572,30 @@ STATIC int graph_draw_column(int *last_pos_x, bool only_if_new, int top, int bot
 	return 1;
 }
 
+/* The Graph therapy screen: the climate chart from below the title bar to the
+ * bottom divider, over the mode and pressure readouts and the pressure bar,
+ * which are not drawn while it is shown. Without the climate chart it is the
+ * Bar+Graph screen.
+ */
+#define TALL_TOP 74
+#define TALL_BOTTOM 278
+
+STATIC bool graph_tall(void) {
+	return graph_climate && *therapy_mode != MODE_OFF &&
+	       therapy_screen_get_choice() == THERAPY_GRAPH;
+}
+
 // Keep the pressure bar visible alongside the graph below it.
 int MAIN graph_widget_draw(graph_widget_t *obj) {
+	if (graph_tall()) {
+		/* A repaint: redraw the chart on the next update, after the
+		 * readouts and icons it covers have painted in this repaint.
+		 */
+		climate_state_t *s = climate_state();
+		if (s)
+			s->drawn = s->generation - 1;
+		return 1;
+	}
 	int result = ((graph_draw_t)graph_draw_original)(obj);
 	if (!graph_enabled()) {
 		obj->last_pos_x = -1;
@@ -587,6 +609,12 @@ int MAIN graph_widget_draw(graph_widget_t *obj) {
 // The stock update method only redraws when the quantized bar position changes.
 // Keep that invalidation and advance the graph independently on each new column.
 int MAIN graph_widget_update(graph_widget_t *obj, int new_position) {
+	if (graph_tall()) {
+		/* Keep the bar's position without invalidating it. */
+		obj->position = new_position;
+		climate_column(&obj->last_pos_x, true, TALL_TOP, TALL_BOTTOM);
+		return 0;
+	}
 	int result = ((graph_update_t)graph_update_original)(obj, new_position);
 	if (!graph_enabled()) {
 		obj->last_pos_x = -1;
@@ -637,6 +665,10 @@ void MAIN graph_header_update(void *obj) {
 	((graph_header_update_t)graph_header_update_original)(obj);
 	*hwin = saved_hwin;
 
+	// the Graph screen's chart covers the mode and pressure support text
+	if (graph_tall())
+		return;
+
 	if (fixed_string_changed(old_left, base + 0x90, sizeof(old_left)) ||
 	    fixed_string_changed(old_right, base + 0xa5, sizeof(old_right)) ||
 	    bytes_changed(old_status, base + 0x8c, sizeof(old_status)))
@@ -660,6 +692,10 @@ void MAIN graph_numbers_update(void *obj, int left_var, int right_var) {
 	((graph_numbers_update_t)graph_numbers_update_original)(
 		obj, left_var, right_var);
 	*hwin = saved_hwin;
+
+	// the Graph screen's chart covers the pressure readouts
+	if (graph_tall())
+		return;
 
 	if (fixed_string_changed(old_left, base + 0x10, sizeof(old_left)) ||
 	    fixed_string_changed(old_right, base + 0x15, sizeof(old_right)))

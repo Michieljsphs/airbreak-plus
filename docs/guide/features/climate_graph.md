@@ -13,7 +13,10 @@ shows the climate chart, and the other choices show no graph, as before.
 ## What it shows
 
 The chart fills the strip below the gauge where the trace is drawn, on both the
-bar and the simple therapy screen. Time runs from left to right: 240 pixel
+bar and the simple therapy screen. The **Graph** choice of **Therapy scr.**
+gives it most of the screen instead: from below the title bar down to the
+bottom divider, over the mode and pressure readouts and the pressure bar,
+which are not drawn while it is shown. Time runs from left to right: 240 pixel
 columns, each covering the chart width divided by 240, which is 15 seconds for
 the default hour. A small tick at the bottom marks every 10 minutes (see
 [Chart width](#chart-width)).
