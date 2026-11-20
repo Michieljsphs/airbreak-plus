@@ -25,6 +25,9 @@ This is a convenience wrapper that runs `openocd -f interface/stlink.cfg -f tcl/
 ./run-ocd.sh airsense     # default, same as no argument
 ```
 
+`-c COMMAND` (repeatable) runs OpenOCD commands after the config instead of
+waiting for telnet, for example `./run-ocd.sh -c dump -c shutdown`.
+
 Or run OpenOCD directly:
 
 ```
@@ -51,11 +54,13 @@ You should see the OpenOCD prompt.
 
 > **This step is mandatory.** The dump is your only way to restore the device. Keep it safe.
 
+Dump in one command, without an interactive prompt:
+
 ```
-dump
+./run-ocd.sh -c dump -c shutdown
 ```
 
-This creates `stm32.bin` in the working directory (exactly 1,048,576 bytes). Verify the size:
+Or type `dump` at the [OpenOCD prompt](#connect-to-openocd). Either way this creates `stm32.bin` in the working directory (exactly 1,048,576 bytes). Verify the size:
 ```
 ls -la stm32.bin
 ```

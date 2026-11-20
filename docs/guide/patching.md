@@ -64,7 +64,7 @@ All patches below are **enabled by default** unless noted.
 | iVAPS settings | Restores height controls and calculated MV, Vt, and Vt/kg IBW values | `--patch-ivaps-settings` |
 | Unlock pressure range | Expands standard pressure settings to 1.0-30.0 cmH2O | `--patch-unlock-uilimits` |
 | Unlock ASV PS range | Expands ASV/ASVAuto pressure support to 0-25 cmH2O, allows Max PS below Min PS + 5, and raises fixed ASV EPAP to the device pressure limit | `--patch-asv-ps-range` |
-| Adjustable ASV pressure limit | Allows setting the limit from 10 cmH2O to the factory maximum. Off by default. | `--patch-adjustable-mcp` |
+| Lower ASV pressure cap | Lets the ASV pressure cap be lowered from the factory maximum down to 10 cmH2O. Off by default. | `--patch-adjustable-mcp` |
 | Unlock iVAPS PS range | Clears ZLL, removing the additional 8 cmH2O Max PS minimum with AutoEPAP; skipped when ZLL is absent | `--patch-ivaps-ps-range` |
 
 ### Therapy data and reporting
@@ -84,9 +84,8 @@ All patches below are **enabled by default** unless noted.
 | Language fonts | Selects the correct font for each language, including the language selection list | `--patch-language-fonts` |
 | Ukrainian font (opt-in) | Adds missing Ukrainian letters to the standard font; does not add translations or change the language list | `--patch-font-ua Y` |
 | [Therapy screen](features/general.md#therapy-screen) | Adds selectable therapy screen styles and live graphs | `--patch-therapy-screen` |
+| Keep graph screen on | Keeps the screen awake during therapy while the graph is enabled. Requires the therapy-screen patch. Off by default. | `--patch-graph-keep-screen-on` |
 | Defaults | Sets firmware defaults (English, cmH2O, pillows mask, slim tube) | `--patch-defaults` |
-| Bypass integrity check | Disables firmware integrity checks that prevent boot on CRC mismatch | `--patch-integrity-check` |
-| Bypass PSU check | Disables power supply ID check at startup | `--patch-bypass-psuid` |
 | Color palette | Applies custom color scheme | `--patch-custom-palette` |
 | [Backlight adaptation](features/backlight.md) | Continuously adjusts LCD and button brightness to ambient light | `--patch-fw-backlight` |
 | [Keep backlight](features/general.md#keep-backlight) | Hold the dial to toggle screen keep-awake | `--patch-keep-backlight` |
@@ -97,7 +96,7 @@ All patches below are **enabled by default** unless noted.
 
 ### Therapy modifications
 
-These optional payloads require `arm-none-eabi-gcc` and are off by default.
+These payloads require `arm-none-eabi-gcc` and are off by default unless noted.
 
 | Switch | What it does |
 |--------|-------------|
@@ -106,6 +105,7 @@ These optional payloads require `arm-none-eabi-gcc` and are off by default.
 | `--patch-fw-vauto-wrapper y` | Add [Custom VAuto](features/custom_vauto.md) pressure shaping and trigger/cycle assist |
 | `--patch-fall-time y` | Add [Fall Time](features/general.md#fall-time) in S/ST/T/PAC/iVAPS through custom settings |
 | `--patch-st-ibr y` | Add [adaptive backup timing in ST](features/general.md#st-ibr) through custom settings |
+| `--patch-learn-targets` | Add [Learn Targets](features/general.md#learn-targets), which calculates iVAPS therapy targets from breathing; requires custom settings. Enabled by default. |
 | `--patch-autoepap y` | Add [iVAPS AutoEPAP](features/general.md#ivaps-autoepap); requires font repacking and expanded heap |
 | `--patch-humid-start y` | Humid Start: hold the heated tube at the target RH temperature during [humidifier warm-up](features/humid_start.md); SX567 only, requires font repacking |
 
@@ -120,7 +120,9 @@ Example with custom VAuto:
 |-------|-------------|--------|
 | Expand heap | Adds about 13.5 KiB of runtime allocation space on SX567 firmware | `--patch-expand-heap` |
 | Repack fonts | Frees over 36 KiB of flash for patches without changing the available characters or their appearance | `--patch-font-repack` |
-| UART firmware dump | Adds the SX577-0200 / SX585-0200 bootloader command used by `resmed_flash.py --dump` | `--patch-blx-dump` |
+| Bypass integrity check | Disables firmware integrity checks that prevent boot on CRC mismatch | `--patch-integrity-check` |
+| Bypass PSU check | Disables power supply ID check at startup | `--patch-bypass-psuid` |
+| UART dump/restore | Adds flash dump and EEPROM dump/restore over UART | `--patch-blx-dump` |
 | UART metadata | Reports live-stream layouts and custom-settings menu metadata through `G C` | `--patch-uart-stream-schema` |
 | Replacement LCD | Adds the ILI9325/ILI9328 LCD driver | `--patch-fw-lcd` |
 

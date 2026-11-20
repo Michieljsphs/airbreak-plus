@@ -2,13 +2,14 @@
 
 The patched image can be installed over SWD or CAN. Bluetooth (BLE) is useful
 for later updates after its pairing and OTA-key requirements have been prepared.
+[AirBreaker](../airbreaker.md#flashing) runs all three from a window.
 
 ## SWD
 
-Start OpenOCD as described in [OpenOCD](openocd.md#start-openocd), then run:
+With the programmer attached, from the repository root:
 
-```tcl
-flash_new build/as11-patched.bin
+```bash
+./run-ocd.sh as11 -c "flash_new build/as11-patched.bin" -c shutdown
 ```
 
 The helper programs and verifies the complete image, then resets the device.
@@ -87,11 +88,10 @@ Use the unchanged image dumped from the device before its first patch. That
 image is the preferred rollback source even when a different image
 was used for patching.
 
-To restore it over SWD, start OpenOCD as described in
-[OpenOCD](openocd.md#start-openocd), then run:
+To restore it over SWD, with the programmer attached:
 
-```tcl
-flash_new /path/to/as11-original.bin
+```bash
+./run-ocd.sh as11 -c "flash_new /path/to/as11-original.bin" -c shutdown
 ```
 
 If the application still runs and CAN is available, the same backup can be

@@ -13,7 +13,6 @@
 
 import argparse
 from contextlib import redirect_stdout
-from dataclasses import dataclass
 import datetime
 import heapq
 import io
@@ -24,10 +23,12 @@ import re
 import sys
 
 from lib.as10_firmware import ASFirmware
-from lib.compiled_payload import CompiledPayloadMixin
+from lib.compiled_payload import CompiledPayloadMixin, elf_binary_data
 from lib.custom_menu import MenuBuilder, stock, custom
 from lib.custom_menu_stock import StockMenu
-from lib.patch_config import parse_patch_args
+from lib.patch_runner import (
+    PatchOutcome, apply_patch_phases, apply_reported_patch, exit_with, run_main,
+    run_unreported_step)
 from lib import patch_options
 
 
@@ -100,6 +101,7 @@ def firmware_build_identity(repo_dir):
 class ASFirmwarePatches(CompiledPayloadMixin):
     """This class contains the actual patching scripts for specific items"""
 
+    PAYLOAD_CAVES_FILE = "patches/s10_code_caves.tsv"
     PAYLOAD_VERSIONS = frozenset(('0302', '0305', '0306', '0401', '0402'))
     # Table offset and stock entry count, including the unused callback ID zero.
     VARIABLE_CALLBACK_TABLES = {
@@ -129,6 +131,14 @@ class ASFirmwarePatches(CompiledPayloadMixin):
         'SX567-0306': (0x8282c, 0xea7c8),
         'SX567-0401': (0x8282c, 0xeaa28),
         'SX567-0402': (0x8282c, 0xeaca0),
+    }
+    # Page getter, default-page load, and the two inactivity-filter calls.
+    LEARN_TARGETS_HOOK_SITES = {
+        'SX567-0302': (0x6dbc6, 0x63534, (0x6d8d2, 0x6d8dc)),
+        'SX567-0305': (0x6e2f6, 0x63c58, (0x6e002, 0x6e00c)),
+        'SX567-0306': (0x6e2f6, 0x63c58, (0x6e002, 0x6e00c)),
+        'SX567-0401': (0x6e2f6, 0x63c58, (0x6e002, 0x6e00c)),
+        'SX567-0402': (0x6e2f6, 0x63c58, (0x6e002, 0x6e00c)),
     }
     BUTTON_EVENTS = {
         'start_stop': 1,
@@ -173,9 +183,10 @@ class ASFirmwarePatches(CompiledPayloadMixin):
     def __init__(self, asf, target_rh=85.0):
         self.asf = asf
         self.target_rh_percent = target_rh
-        self.applied_payloads = set()
         self.enabled_custom_settings_features = set()
         self.mop_callback_handlers = {}
+        self.mop_callback_dispatcher_context = None
+        self.mop_callback_dispatcher_outcome = None
         self.variable_callbacks = {}
         self.variable_callback_handlers = {}
         self.button_handlers = {}
@@ -218,15 +229,6 @@ class ASFirmwarePatches(CompiledPayloadMixin):
     def _mop_handler_detail(name, handler):
         return "Registered MOP callback handler: %s at 0x%08X" % (name, handler)
 
-    def _write_payload_u16(self, payload, symbol, value):
-        """Write one u16 ABI value at a named symbol in a built payload."""
-        if payload not in self.applied_payloads:
-            raise ValueError("payload %s was not applied" % payload)
-        elf_path = self._require_versioned_artifact(payload, 'elf')
-        address = self._elf_symbol_addr(elf_path, symbol)
-        self.asf.write_u16(address - self.asf.FLASH_BASE, value)
-        return address
-
     def _inject_function_pointer_payload(self, name, pointer_off, hook_name,
                                          original_symbol=None,
                                          expected_original=None):
@@ -251,7 +253,6 @@ class ASFirmwarePatches(CompiledPayloadMixin):
         if original_slot is not None:
             self.asf.write_u32(original_slot - self.asf.FLASH_BASE, original)
         self.asf.write_u32(pointer_off, target)
-        self.applied_payloads.add(name)
         return (
             self._payload_detail(name, len(data), flash),
             self._hook_detail(hook_name, self.asf.FLASH_BASE + pointer_off, target),
@@ -275,6 +276,8 @@ class ASFirmwarePatches(CompiledPayloadMixin):
         self.custom_menu_registered = set()
         self.custom_menu_conditions = []
         self.custom_menu_conditions_addr = None
+        self.custom_menu_actions = []
+        self.custom_menu_previews = []
         self.custom_menu_pages = {}
         self.custom_menu_page_count = 0
         self.custom_menu_clinical_page_id = None
@@ -581,7 +584,33 @@ class ASFirmwarePatches(CompiledPayloadMixin):
         self.custom_menu_page_count += 1
         return handle
 
-    def custom_menu_add(self, container_name, var, mode_mask=None, flags=0, *, before=None, after=None):
+    def custom_menu_declare_page(self, name, parent_name, title_str_id, *, back=True):
+        """Register a page without adding a navigation row."""
+        key = name.lower()
+        if key in self.CUSTOM_MENU_SECTIONS or key in self.custom_menu_pages:
+            raise ValueError('custom menu: duplicate container %s' % name)
+        parent = self._custom_menu_container_id(parent_name)
+        flags = MenuBuilder.PAGE | MenuBuilder.DECLARATION | (0 if back else MenuBuilder.PAGE_NO_BACK)
+        self._custom_menu_register((parent, flags, int(title_str_id), 0xffffffff))
+        self.custom_menu_pages[key] = self.CUSTOM_MENU_PAGE_CONTAINER_BASE + self.custom_menu_page_count
+        self.custom_menu_page_count += 1
+
+    def custom_menu_add_action(self, container_name, label, *, write=None, value=0,
+                               binding=None, page=None, item=0, before=None, after=None):
+        """Add a button that writes a variable, changes page, or both."""
+        if write is None and page is None:
+            raise ValueError('custom menu action requires a write or navigation')
+        if not 0 <= item <= 255:
+            raise ValueError('custom menu action: item must fit a byte')
+        resolve = lambda var: 0xffff if var is None else self.asf.resolve_var_id(var)
+        index = len(self.custom_menu_actions)
+        self.custom_menu_actions.append((resolve(write), int(label), resolve(binding), page, item, int(value)))
+        return self._custom_menu_register(
+            (self._custom_menu_container_id(container_name), MenuBuilder.ACTION, index, 0),
+            before=before, after=after)
+
+    def custom_menu_add(self, container_name, var, mode_mask=None, flags=0, *,
+                        view=False, packed_time=False, before=None, after=None):
         """Register one variable in a clinical section or custom page."""
         container = self._custom_menu_container_id(container_name)
 
@@ -600,11 +629,19 @@ class ASFirmwarePatches(CompiledPayloadMixin):
             raise ValueError(
                 "custom_menu_add: %s is globals[%d], only g[4]/g[8] menu settings are supported" %
                 (var, table_num))
-        if vid in self.custom_menu_registered:
+        if packed_time:
+            if table_num != 4:
+                raise ValueError('custom menu packed time requires a numeric variable')
+            flags |= MenuBuilder.PACKED_TIME
+        if view:
+            flags |= MenuBuilder.VIEW
+            mode_mask |= self.CUSTOM_MENU_MODE_KEEP_VISIBILITY
+        if not view and vid in self.custom_menu_registered:
             raise ValueError("custom_menu_add: duplicate variable %s (var_id 0x%04X)" % (var, vid))
         handle = self._custom_menu_register(
             (container, flags, vid, int(mode_mask)), before=before, after=after)
-        self.custom_menu_registered.add(vid)
+        if not view:
+            self.custom_menu_registered.add(vid)
         return handle
 
     def custom_menu_add_heading(self, container_name, str_id, *, before=None, after=None):
@@ -651,6 +688,22 @@ class ASFirmwarePatches(CompiledPayloadMixin):
             raise ValueError("custom_menu_add_condition: %s must be a g[4]/g[8] source" % source)
         self.custom_menu_conditions.append((vid, source_id, mode_mask, int(bool(nonzero))))
 
+    def custom_menu_add_preview(self, source, target, payload, symbol):
+        """Write a calculated target variable when a numeric editor's value changes."""
+        if self.custom_menu_plan is not None:
+            raise ValueError('custom menu: cannot register previews after compilation')
+        source_id, target_id = (self.asf.resolve_var_id(var) for var in (source, target))
+        if source_id == target_id or any(
+                self.asf.find_var_table_number(var) != 4 for var in (source_id, target_id)):
+            raise ValueError('custom menu preview requires two distinct numeric variables')
+        if any(entry[:2] == (source_id, target_id) for entry in self.custom_menu_previews):
+            raise ValueError('custom menu preview: duplicate binding %s -> %s' % (source, target))
+        if payload not in self.applied_payloads:
+            raise ValueError('custom menu preview: payload %s was not applied' % payload)
+        elf = self._require_versioned_artifact(payload, 'elf')
+        calculate = self._elf_symbol_addr(elf, symbol) | 1
+        self.custom_menu_previews.append((source_id, target_id, calculate))
+
     def mop_bitmask(self, *modes):
         """Build a g[24]/MOP visibility mask from MOP names or numeric indexes."""
         mask = 0
@@ -688,7 +741,7 @@ class ASFirmwarePatches(CompiledPayloadMixin):
         if not self.custom_menu_conditions:
             return
         entries = {vid: mask for _, flags, vid, mask in self.custom_menu_entries
-                   if not flags & (self.CUSTOM_MENU_FLAG_HEADING | self.CUSTOM_MENU_FLAG_PAGE)}
+                   if not flags & (MenuBuilder.HEADING | MenuBuilder.PAGE | MenuBuilder.ACTION | MenuBuilder.VIEW)}
         for vid, _, _, _ in self.custom_menu_conditions:
             if vid not in entries or entries[vid] & self.CUSTOM_MENU_MODE_KEEP_VISIBILITY:
                 raise ValueError(
@@ -756,7 +809,6 @@ class ASFirmwarePatches(CompiledPayloadMixin):
             name = 'variable_callback_dispatcher'
             payload, _, elf_path = self._load_versioned_payload(name)
             flash, _ = self._inject_payload(name, payload)
-            self.applied_payloads.add(name)
             details.append(self._payload_detail(name, len(payload), flash))
             thunk_addr = self._elf_symbol_addr(elf_path, 'variable_callback_thunk')
             thunk_size = self._elf_symbol_size(elf_path, 'variable_callback_thunk')
@@ -850,15 +902,51 @@ class ASFirmwarePatches(CompiledPayloadMixin):
         take_detail = self._patch_thumb_bl_checked(
             take_site, bytes.fromhex('92699047'), take,
             'button hooks: GUI event read')
-        self.applied_payloads.add(name)
         return PatchOutcome.ok(
             None, self._payload_detail(name, len(data), flash),
             "Button hooks: %d handlers at 0x%08X" %
             (len(self.button_handlers), self.asf.FLASH_BASE + off),
             init_detail, take_detail)
 
+    def _prepare_mop_callback_dispatcher(self):
+        """Resolve and validate the dispatcher without modifying the image."""
+        if self.mop_callback_dispatcher_outcome is not None:
+            return self.mop_callback_dispatcher_outcome
+
+        layout = self.VARIABLE_CALLBACK_TABLES.get(self.asf.cdx_ver)
+        if layout is None or not self._supports_compiled_payloads():
+            self.mop_callback_dispatcher_outcome = PatchOutcome.skip(
+                "unsupported CDX version %s" % self.asf.cdx_ver)
+            return self.mop_callback_dispatcher_outcome
+
+        data, _, elf_path = self._load_versioned_payload('mop_callback_dispatcher')
+        self.mop_callback_dispatcher_context = {
+            'callback_table': layout[0],
+            'data': data,
+            'start': self._elf_symbol_addr(elf_path, 'start'),
+            'handler_table': self._elf_symbol_addr(elf_path, 'mop_callback_handler_table'),
+        }
+        self.mop_callback_dispatcher_outcome = PatchOutcome.ok()
+        return self.mop_callback_dispatcher_outcome
+
+    def mop_callback_dispatcher_available(self):
+        """OK, or SKIP with the reason the MOP callback dispatcher cannot be installed."""
+        outcome = self._prepare_mop_callback_dispatcher()
+        if outcome.status == 'OK':
+            return outcome
+        summary = "MOP callback dispatcher unavailable"
+        if outcome.summary:
+            summary += ": " + outcome.summary
+        return PatchOutcome.skip(summary)
+
     def mop_callback_register_handler(self, handler, name):
-        """Register one feature handler to run after the stock MOP callback."""
+        """Register one feature handler to run after the stock MOP callback.
+
+        Raises when the dispatcher is unavailable. A patch that can be skipped
+        checks mop_callback_dispatcher_available() before modifying the image.
+        """
+        if self._prepare_mop_callback_dispatcher().status != 'OK':
+            raise ValueError("%s: MOP callback dispatcher unavailable" % name)
         handler = int(handler) | 1
         self.mop_callback_handlers.setdefault(handler, name)
         return handler
@@ -870,20 +958,20 @@ class ASFirmwarePatches(CompiledPayloadMixin):
         preserves the displaced stock callback, followed by feature handlers and
         an all-ones sentinel.
         """
+        if (self.mop_callback_dispatcher_outcome is not None and
+                self.mop_callback_dispatcher_outcome.status != 'OK'):
+            return self.mop_callback_dispatcher_outcome
         if not self.mop_callback_handlers:
             return PatchOutcome.skip("no MOP callback handlers registered")
         if len(self.mop_callback_handlers) > 4:
             raise ValueError("mop_callback_dispatcher: too many handlers (%d)" %
                              len(self.mop_callback_handlers))
 
-        layout = self.VARIABLE_CALLBACK_TABLES.get(self.asf.cdx_ver)
-        if layout is None:
-            raise ValueError("mop_callback_dispatcher: unsupported CDX version %s" % self.asf.cdx_ver)
-        callback_table, _ = layout
-
-        data, _, elf_path = self._load_versioned_payload('mop_callback_dispatcher')
-        start = self._elf_symbol_addr(elf_path, 'start')
-        handler_table = self._elf_symbol_addr(elf_path, 'mop_callback_handler_table')
+        context = self.mop_callback_dispatcher_context
+        callback_table = context['callback_table']
+        data = context['data']
+        start = context['start']
+        handler_table = context['handler_table']
 
         mop_rec = self.asf.find_var('MOP')
         callback_id = self.asf.read_u8(mop_rec + self.asf.G8_CALLBACK)
@@ -923,8 +1011,8 @@ class ASFirmwarePatches(CompiledPayloadMixin):
     def _patch_clinical_menu_capacity(self, imm_off, stock_capacity):
         """Grow the clinical settings scrollbar capacity for generated entries."""
         custom_count = sum(
-            1 for container, _, _, _ in self.custom_menu_entries
-            if container < self.CUSTOM_MENU_PAGE_CONTAINER_BASE)
+            1 for container, flags, _, _ in self.custom_menu_entries
+            if container < self.CUSTOM_MENU_PAGE_CONTAINER_BASE and not flags & MenuBuilder.DECLARATION)
         new_capacity = stock_capacity + custom_count
         if (self.asf.read_u8(imm_off) != stock_capacity or
                 self.asf.read_u8(imm_off + 1) != 0x22):
@@ -1044,9 +1132,39 @@ class ASFirmwarePatches(CompiledPayloadMixin):
                 "custom_patch_menu_hooks: unsupported CDX version %s" %
                 self.asf.cdx_ver)
 
+        abi = {}
+        if self.custom_menu_previews:
+            previews = b''.join(struct.pack('<HHI', *entry) for entry in self.custom_menu_previews)
+            previews += b'\xff' * 8
+            off = self.asf.find_ccx_ff_range_backwards(len(previews), alignment=4)
+            self.asf.patch(previews, off, checkempty=True)
+            abi['custom_menu_previews_addr'] = struct.pack('<I', self.asf.FLASH_BASE + off)
+        if self.custom_menu_actions:
+            actions = bytearray()
+            for write, label, binding, page, item, value in self.custom_menu_actions:
+                destination = (0 if page is None else 0xff if page == 'default'
+                               else self._custom_menu_container_id(page))
+                if page not in (None, 'default') and destination < self.CUSTOM_MENU_PAGE_CONTAINER_BASE:
+                    raise ValueError('custom menu action destination must be a generated page')
+                actions.extend(struct.pack('<3H2Bi', write, label, binding, destination, item, value))
+            off = self.asf.find_ccx_ff_range_backwards(len(actions), alignment=4)
+            self.asf.patch(actions, off, checkempty=True)
+            abi['custom_menu_actions_addr'] = struct.pack('<I', self.asf.FLASH_BASE + off)
+
+        shared, _, _ = self._load_versioned_payload('gui_objects')
+        self._inject_payload('gui_objects', shared)
         data, _, elf_path = self._load_versioned_payload('custom_menu_hooks')
-        flash, _ = self._inject_payload('custom_menu_hooks', data)
+        flash, _ = self._inject_payload('custom_menu_hooks', data, abi=abi)
         self._custom_detail(self._payload_detail('custom_menu_hooks', len(data), flash))
+        self._custom_menu_lazy_editors(elf_path)
+        if self.custom_menu_previews:
+            sym = lambda name: self._elf_symbol_addr(elf_path, name)
+            for method in ('changed', 'leave'):
+                self._replace_bytes_checked(
+                    sym('gui_numeric_row_' + method + '_slot') - self.asf.FLASH_BASE,
+                    struct.pack('<I', sym('gui_numeric_row_' + method) | 1),
+                    struct.pack('<I', sym('custom_menu_preview_' + method) | 1),
+                    'numeric preview ' + method, accept_existing=True)
         registry_flash = self.asf.FLASH_BASE + self.custom_settings_registry_addr
 
         append_hook = self._elf_symbol_addr(elf_path, 'custom_menu_hook_append')
@@ -1196,6 +1314,29 @@ class ASFirmwarePatches(CompiledPayloadMixin):
 
         self._custom_detail("CSG recovery: group index %d, invalid files reset without system fault" % group_index)
 
+    def _custom_menu_lazy_editors(self, elf):
+        sym = lambda name: self._elf_symbol_addr(elf, name)
+        base = self.asf.FLASH_BASE
+        constructor = sym('gui_enum_row_init') & ~1
+        branch = bytearray(self._encode_thumb_bl(constructor - base, sym('custom_menu_enum_init')))
+        branch[3] &= ~0x40
+        self._replace_bytes_checked(constructor - base, b'\xf8\xb5\x04\x46', bytes(branch),
+                                    'enum row constructor', accept_existing=True)
+        for slot, original, replacement in (
+                (3, 'gui_enum_row_show', 'custom_menu_enum_show'),
+                (18, 'gui_enum_row_open', 'custom_menu_enum_open'),
+                (19, 'gui_enum_row_close', 'custom_menu_enum_close')):
+            self._replace_bytes_checked(
+                sym('gui_enum_row_methods') - base + 4 * slot,
+                struct.pack('<I', sym(original) | 1),
+                struct.pack('<I', sym(replacement) | 1),
+                'enum row ' + original, accept_existing=True)
+        site = sym('gui_editor_update_call') - base
+        self._replace_bytes_checked(
+            site, self._encode_thumb_bl(site, sym('gui_screen_update')),
+            self._encode_thumb_bl(site, sym('custom_menu_editor_update')),
+            'enum editor cleanup', accept_existing=True)
+
     def custom_patch_settings_vauto(self):
         """Expose reclaimed custom VAuto settings and pass their var_ids to the wrapper."""
         # Claim stable storage-backed variables and allocate localized
@@ -1306,11 +1447,16 @@ class ASFirmwarePatches(CompiledPayloadMixin):
             'therapy', 'PHI',
             ivaps_mask | self.CUSTOM_MENU_MODE_KEEP_VISIBILITY,
             self.CUSTOM_MENU_FLAG_SHOW_UNITS, after=stock('PHT'))
+        self._custom_patch_ivaps_preview()
         previous = stock('WMV')
-        for var in ('ZMV', 'ZTV', 'ZVK'):
+        for var, calculation in (('ZMV', 'mv'), ('ZTV', 'vt'), ('ZVK', 'vk')):
             previous = self.custom_menu_add(
                 'therapy', var, ivaps_mask,
                 self.CUSTOM_MENU_FLAG_SHOW_UNITS, after=previous)
+            for source, suffix in (('WMV', ''), ('IBR', '_rate'),
+                                   ('PHT', '_height'), ('PHI', '_inches')):
+                self.custom_menu_add_preview(
+                    source, var, 'ivaps_preview', 'ivaps_preview_' + calculation + suffix)
         self.custom_menu_add(
             'configuration', 'IHU', self.CUSTOM_MENU_MODE_BITS,
             after=stock('TMU'))
@@ -1319,6 +1465,128 @@ class ASFirmwarePatches(CompiledPayloadMixin):
             "iVAPS height: PHT/PHI active, PHI added with firmware-managed visibility")
         self._custom_detail("iVAPS height units: IHU active in Configuration")
         self._custom_detail("iVAPS calculated values: ZMV/ZTV/ZVK active and read-only")
+
+    def _custom_patch_ivaps_preview(self):
+        data, _, elf = self._load_versioned_payload('ivaps_preview')
+        sym = lambda name: self._elf_symbol_addr(elf, name)
+        base = self.asf.FLASH_BASE
+        scales = [self.asf.read_u16(self.asf.find_var(var) + self.asf.G4_SCALE)
+                  for var in ('PHT', 'PHI', 'ZDS')]
+        flash, _ = self._inject_payload('ivaps_preview', data, abi={
+            'ivaps_height_inputs': struct.pack('<4H', *scales, self.asf.resolve_var_id('PHI'))})
+        for name, push, frame in (('mv', b'\x2d\xe9\xf0\x47', 0xe0),
+                                  ('vt', b'\x2d\xe9\xf0\x47', 0xe0),
+                                  ('vk', b'\x2d\xe9\xf0\x4f', 0x12c)):
+            entry = (sym('ivaps_calculate_' + name) & ~1) - base
+            branch = bytearray(self._encode_thumb_bl(entry, sym('ivaps_stock_' + name)))
+            branch[3] &= ~0x40
+            subtract = struct.pack('<H', 0xb080 | (frame // 4))
+            self._replace_bytes_checked(entry, push + subtract, bytes(branch) + subtract,
+                                        'iVAPS ' + name + ' entry', accept_existing=True)
+            reads = [('va', 'g4_numeric_get_value')]
+            if name == 'vk':
+                reads += [('rate_saved', 'ivaps_get_rate_saved_vk'),
+                          ('rate', 'ivaps_get_rate_vk'), ('deadspace', 'g4_numeric_get_value'),
+                          ('height', 'g4_numeric_get_value')]
+            else:
+                reads += [('rate', 'g4_numeric_get_value'), ('deadspace', 'ivaps_get_deadspace_mv')]
+            for field, original in reads:
+                read = sym('ivaps_calculate_' + name + '_read_' + field) - base
+                self._replace_bytes_checked(
+                    read, self._encode_thumb_bl(read, sym(original)),
+                    self._encode_thumb_bl(read, sym('ivaps_read_' + name + '_' + field)),
+                    'iVAPS ' + name + ' ' + field + ' read', accept_existing=True)
+            self._replace_bytes_checked(
+                sym('ivaps_calculate_' + name + '_return') - base,
+                struct.pack('<H', 0xb000 | (frame // 4)),
+                struct.pack('<H', 0xb000 | ((frame + 8) // 4)),
+                'iVAPS ' + name + ' stack release', accept_existing=True)
+        self._custom_detail(self._payload_detail('ivaps_preview', len(data), flash))
+
+    def enable_learn_targets(self):
+        if self.asf.cdx_ver.startswith('SX584-'):
+            return PatchOutcome.skip('Learn Targets is already present in the stock Lumis menu')
+        if self.asf.cdx_ver not in self.LEARN_TARGETS_HOOK_SITES:
+            raise ValueError('Learn Targets is unsupported on %s' % self.asf.cdx_ver)
+        mop = self.asf.find_var('MOP')
+        if not self.asf.read_u32(mop + self.asf.G8_BITMASK) & self.mop_bitmask('iVAPS'):
+            raise ValueError('Learn Targets requires iVAPS in the target mode permissions')
+        self.enabled_custom_settings_features.add('learn_targets')
+        return PatchOutcome.ok('native iVAPS learning interface')
+
+    def custom_patch_settings_learn_targets(self):
+        """Activate Learn Targets variables and register its menu pages."""
+        # QXK/ZTT are updated through dependencies and do not need ACT.
+        # IVP supplies a fixed bound; reading it does not require ACT.
+        required = {
+            4: 'ZIT ZIC ZLR ZLV ZLP ZDS ZLN ZSU PHT PHI EPI WPM WPA IBR WMV IVS AAV ITX ITN',
+            6: 'ZPK',
+            8: 'ILE ZLS ZLC ZRM ROP ZUI ZUM SPM IHU VTS VCS MSK MOP',
+        }
+        for table, names in required.items():
+            for name in names.split():
+                if self.asf.find_var_table_number(name) != table:
+                    raise ValueError('Learn Targets: unexpected descriptor table for %s' % name)
+                rec = self.asf.find_var(name)
+                self.asf.write_u16(rec, self.asf.read_u16(rec) | 1)
+        rec = self.asf.find_var('ZRM')
+        self.asf.write_u32(rec + self.asf.G8_BITMASK,
+                           self.asf.read_u32(rec + self.asf.G8_BITMASK) | (1 << 9))
+
+        stop = self.redefine_fw_string(-1, {0: 'Stop Learning'}, 'learn_targets_stop')
+        results = self.redefine_fw_string(-1, {0: 'Targets Learnt'}, 'learn_targets_results')
+        # Stock string IDs: page title 6, Learn Targets 37, Cancel 95, Accept 102.
+        self.custom_menu_declare_page('learn_targets', 'therapy', 6)
+        self.custom_menu_declare_page('learnt_targets', 'therapy', 6, back=False)
+        self.custom_menu_add_action('therapy', 37, write='ILE', value=1, binding='ILE',
+                                    page='learn_targets', item=1, after=stock('MSK'))
+        units = self.CUSTOM_MENU_FLAG_SHOW_UNITS
+        for name in ('ZIT', 'ZIC'):
+            self.custom_menu_add('learn_targets', name, view=True, packed_time=True)
+        for name in ('PHT', 'PHI', 'EPI', 'ZLP'):
+            self.custom_menu_add('learn_targets', name, view=True,
+                                 flags=units if name in ('PHT', 'PHI') else 0)
+        self.custom_menu_add_action('learn_targets', stop, write='ZUI', value=4)
+        for name in ('WPM', 'WPA', 'ITX', 'ITN', 'VTS', 'VCS', 'MSK'):
+            self.custom_menu_add('learn_targets', name, view=True,
+                                 flags=units if name in ('ITX', 'ITN') else 0)
+        self.custom_menu_add_heading('learnt_targets', results)
+        self.custom_menu_add_action('learnt_targets', 102, write='ZLC', value=1, page='default')
+        for name in ('PHT', 'PHI', 'ZLR', 'ZLV'):
+            self.custom_menu_add('learnt_targets', name, view=True,
+                                 flags=units if name != 'ZLR' else 0)
+        self.custom_menu_add_action('learnt_targets', 95, write='ZUI', value=4)
+        if 'autoepap' in self.applied_payloads:
+            self.variable_callback_add('ILE', 'autoepap', 'autoepap_apply_mode_visibility')
+
+    def custom_patch_learn_targets_hooks(self):
+        data, _, elf = self._load_versioned_payload('learn_targets')
+        menu_elf = self._require_versioned_artifact('custom_menu_hooks', 'elf')
+        slot = self._elf_symbol_addr(menu_elf, 'custom_menu_stock_page_count')
+        stock_count = self.asf.read_u8(slot - self.asf.FLASH_BASE)
+        abi = {}
+        for name, symbol in (('learn_targets', 'learn_targets_page'),
+                             ('learnt_targets', 'learn_targets_results_page')):
+            page = stock_count + self.custom_menu_pages[name] - self.CUSTOM_MENU_PAGE_CONTAINER_BASE
+            abi[symbol] = struct.pack('<B', page)
+        abi['learn_targets_prompt_index'] = struct.pack('<H', self.asf.find_var_table_index(6, 'ZPK'))
+        flash, _ = self._inject_payload('learn_targets', data, abi=abi)
+        self._custom_detail(self._payload_detail('learn_targets', len(data), flash))
+        self.button_hook_add('start_stop', 'learn_targets', 'learn_targets_stop_button', consume=True)
+        page_site, default_site, timer_sites = self.LEARN_TARGETS_HOOK_SITES[self.asf.cdx_ver]
+        getter = self._elf_symbol_addr(elf, 'variable_get_by_id') & ~1
+        inactivity = self._elf_symbol_addr(elf, 'gui_inactivity_filter') & ~1
+        self._custom_detail(self._patch_thumb_bl_checked(
+            page_site, self._encode_thumb_bl(page_site, getter),
+            self._elf_symbol_addr(elf, 'learn_targets_page_hook'), 'learning page selection'))
+        self._custom_detail(self._patch_thumb_bl_checked(
+            default_site, bytes.fromhex('90f82010'),
+            self._elf_symbol_addr(elf, 'learn_targets_default_hook'), 'learning default page'))
+        for site in timer_sites:
+            self._custom_detail(self._patch_thumb_bl_checked(
+                site, self._encode_thumb_bl(site, inactivity),
+                self._elf_symbol_addr(elf, 'learn_targets_inactivity'),
+                'learning inactivity filter'))
 
     def custom_patch_settings_squarewave(self):
         """Expose the squarewave runtime switch and pass its var_id to the payload."""
@@ -1623,6 +1891,7 @@ class ASFirmwarePatches(CompiledPayloadMixin):
             ('backlight_adapt', self.custom_patch_settings_backlight),
             ('target_rh', self.custom_patch_settings_target_rh),
             ('header_clock', self.custom_patch_settings_header_clock),
+            ('learn_targets', self.custom_patch_settings_learn_targets),
             # Last: its switch claims a g[8] slot left free by the features above.
             ('humid_start', self.custom_patch_settings_humid_start),
         )
@@ -1634,6 +1903,10 @@ class ASFirmwarePatches(CompiledPayloadMixin):
         features = self.custom_patch_settings_collect_features()
         if not features:
             return PatchOutcome.skip("no active custom-setting features")
+        # The menu hooks always register the mode-visibility handler.
+        outcome = self.mop_callback_dispatcher_available()
+        if outcome.status != 'OK':
+            return outcome
 
         self.custom_patch_settings_init()
         if not self.custom_patch_settings_reclaim_reminders():
@@ -1650,6 +1923,8 @@ class ASFirmwarePatches(CompiledPayloadMixin):
         self.custom_emit_visibility_conditions()
         self.custom_emit_registry()
         self.custom_patch_menu_hooks()
+        if 'learn_targets' in self.enabled_custom_settings_features:
+            self.custom_patch_learn_targets_hooks()
         return PatchOutcome.ok(None, *self.custom_settings_details)
 
     @staticmethod
@@ -1975,7 +2250,7 @@ class ASFirmwarePatches(CompiledPayloadMixin):
         return PatchOutcome.ok()
 
     def patch_blx_dump(self):
-        """Add the bootloader command used by resmed_flash.py --dump."""
+        """Add flash dump and the checked RAM loader for EEPROM transfers."""
         hooks = {
             'SX577-0200': (0x300e, b'\xfd\xf7\x56\xfa'),
             'SX585-0200': (0x306e, b'\xfd\xf7\x26\xfa'),
@@ -1985,6 +2260,16 @@ class ASFirmwarePatches(CompiledPayloadMixin):
 
         # Load the payload and its flash/SRAM allocation.
         data, _, elf_path = self._load_versioned_payload('blx_dump', region='BLX')
+        tail, _, _ = self._load_versioned_payload('blx_dump_tail', region='BLX')
+        module, _, module_elf = self._load_versioned_payload('blx_eeprom', region='BLX')
+        if elf_binary_data(module_elf) != module:
+            raise ValueError('blx_eeprom: binary does not match its ELF (run make binaries)')
+        for symbol in ('blx_eeprom_start', 'blx_eeprom_size', 'eeprom_service'):
+            if self._elf_symbol_addr(elf_path, symbol) != self._elf_symbol_addr(module_elf, symbol):
+                raise ValueError('blx_dump: module symbols differ from its ELF (run make binaries)')
+        if self._elf_symbol_addr(module_elf, 'blx_eeprom_size') != len(module):
+            raise ValueError('blx_eeprom: unexpected module size')
+        abi = {'blx_eeprom_crc': struct.pack('<H', self.asf.crcfunc(module))}
         _, layout = self._load_payload_layout(region='BLX')
         allocation = layout['blx_dump']
         entry_point = self._elf_symbol_addr(elf_path, 'start')
@@ -1995,16 +2280,18 @@ class ASFirmwarePatches(CompiledPayloadMixin):
         hook_runtime = self.asf.FLASH_BASE + hook_offset + flash_to_ram
         patched_call = self._encode_thumb_bl_addr(hook_runtime, entry_point)
 
-        # Check the hook before injection; install it only after payload validation.
-        current_call = self.asf.read_bytes(hook_offset, len(original_call))
-        if current_call not in (original_call, patched_call):
-            raise ValueError("patch_blx_dump: unexpected dispatcher call bytes at 0x%04X" % hook_offset)
-        storage, _ = self._inject_payload('blx_dump', data, region='BLX', empty_byte=0)
-        self.asf.patch(patched_call, hook_offset, clobber=True)
+        # Validate both payloads before changing the hook or either code cave.
+        self._validate_payload('blx_dump', data, region='BLX', empty_byte=0, abi=abi)
+        self._validate_payload('blx_dump_tail', tail, region='BLX')
+        self._replace_bytes_checked(hook_offset, original_call, patched_call,
+                                    'BLX dispatcher call', accept_existing=True)
+        storage, _ = self._inject_payload('blx_dump', data, region='BLX', empty_byte=0, abi=abi)
+        tail_storage, _ = self._inject_payload('blx_dump_tail', tail, region='BLX')
 
         return PatchOutcome.ok(
             None,
             self._payload_detail('blx_dump', len(data), storage),
+            self._payload_detail('blx_dump_tail', len(tail), tail_storage),
             self._hook_detail('bootloader command dispatcher call', hook_runtime, entry_point))
 
     def bypass_psucheck(self):
@@ -2178,12 +2465,13 @@ class ASFirmwarePatches(CompiledPayloadMixin):
         for at, old, new in replacements:
             if self.asf.read_bytes(at, len(old)) not in (old, new):
                 raise ValueError('therapy screen: unexpected bytes at 0x%X' % at)
+        shared, _, _ = self._load_versioned_payload('gui_objects')
+        self._inject_payload('gui_objects', shared)
         flash, _ = self._inject_payload('therapy_screen', data)
         for at, old, new in replacements:
             self._replace_bytes_checked(at, old, new, 'therapy screen', accept_existing=True)
         for slot, original in graph_originals:
             self.asf.write_u32(slot - self.asf.FLASH_BASE, original)
-        self.applied_payloads.add('therapy_screen')
         self._write_payload_u16('therapy_screen', 'therapy_screen_simple_modes',
                                 self.mop_bitmask('CPAP', 'AutoSet', 'APAP', 'AFH'))
         return PatchOutcome.ok('Selectable therapy screen',
@@ -2409,7 +2697,6 @@ class ASFirmwarePatches(CompiledPayloadMixin):
         branch[3] &= ~0x40  # BL -> B.W, same displacement.
         self._replace_bytes_checked(getter, bytes.fromhex('9f ed 7f 0a'),
                                     bytes(branch), 'target RH getter')
-        self.applied_payloads.add('target_rh')
         return PatchOutcome.ok('Climate model target RH: %g%% (Auto and Manual)' % percent,
                                self._payload_detail('target_rh', len(data), flash))
 
@@ -2567,7 +2854,6 @@ class ASFirmwarePatches(CompiledPayloadMixin):
         details = [self._payload_detail('fall_time', len(data), flash)]
         for site, instruction, target in hooks:
             details.append(self._patch_thumb_bl_checked(site, instruction, target, 'fall time'))
-        self.applied_payloads.add('fall_time')
         return PatchOutcome.ok(None, *details)
 
     def patch_st_ibr(self):
@@ -2601,11 +2887,12 @@ class ASFirmwarePatches(CompiledPayloadMixin):
         # strh r0,[r4,#0x24] -> str r0,[r4,#0x24]: also clear padding +0x26/27.
         self._replace_bytes_checked(init_site, b'\xa0\x84', b'\x60\x62',
                                     'ST iBR initialization', accept_existing=True)
-        self.applied_payloads.add('st_ibr')
         return PatchOutcome.ok(None, *details)
 
     def patch_autoepap(self):
         """Add the iVAPS pressure controller and adapt shared flow workers."""
+        if self.asf.cdx_ver.startswith('SX584-'):
+            return PatchOutcome.skip('AutoEPAP is already present in the stock Lumis firmware')
         # Offsets follow the call, interior-branch and vtable hooks below.
         sites = {
             'SX567-0302': (
@@ -2698,7 +2985,6 @@ class ASFirmwarePatches(CompiledPayloadMixin):
                 replacement = bytes(replacement)
             self._replace_bytes_checked(site, expected, replacement, symbol)
             details.append(self._hook_detail(symbol, self.asf.FLASH_BASE + site, target))
-        self.applied_payloads.add('autoepap')
         return PatchOutcome.ok(None, *details)
 
     def connect_autoepap_fall_time(self):
@@ -2753,7 +3039,6 @@ class ASFirmwarePatches(CompiledPayloadMixin):
             target = self._elf_symbol_addr(elf_path, hook)
             details.append(self._patch_thumb_bl_checked(
                 site, self._encode_thumb_bl(site, original), target, hook))
-        self.applied_payloads.add('breath_tracking')
         return PatchOutcome.ok(None, *details)
 
     def connect_breath_controller(self):
@@ -2902,7 +3187,6 @@ class ASFirmwarePatches(CompiledPayloadMixin):
             target = self._elf_symbol_addr(elf_path, replacement)
             details.append(self._patch_thumb_bl_checked(
                 site, self._encode_thumb_bl(site, original), target, 'keep backlight'))
-        self.applied_payloads.add(name)
         self.button_hook_add('encoder_hold', name, 'keep_backlight_toggle',
                              consume=True, on_release=False)
         return PatchOutcome.ok(None, *details)
@@ -3266,7 +3550,6 @@ class ASFirmwarePatches(CompiledPayloadMixin):
             self._replace_bytes_checked(site, expected, replacement, label)
             details.append(self._hook_detail(label, self.asf.FLASH_BASE + site, address))
 
-        self.applied_payloads.add('language_fonts')
         return PatchOutcome.ok("Fonts follow the active language", *details)
 
     def patch_header_clock(self):
@@ -3305,7 +3588,6 @@ class ASFirmwarePatches(CompiledPayloadMixin):
         flash, _ = self._inject_payload('header_clock', data)
         for site, expected, replacement, name in replacements:
             self._replace_bytes_checked(site, expected, replacement, 'patch_header_clock: ' + name)
-        self.applied_payloads.add('header_clock')
         return PatchOutcome.ok(None, self._payload_detail('header_clock', len(data), flash))
 
     def patch_backlight_adapt(self):
@@ -3353,7 +3635,6 @@ class ASFirmwarePatches(CompiledPayloadMixin):
         self.asf.write_u32(self.asf.find_var('LBH') + self.asf.G4_DEFAULT, 80)  # buttons high
         self.asf.write_u32(self.asf.find_var('ATH') + self.asf.G4_DEFAULT, 590)  # ambient low threshold
 
-        self.applied_payloads.add('backlight_adapt')
         return PatchOutcome.ok(
             None,
             self._payload_detail('backlight_adapt', len(data), flash),
@@ -3364,10 +3645,13 @@ class ASFirmwarePatches(CompiledPayloadMixin):
         """Set VID from therapy mode, using a regional variant where known."""
         if not self._supports_compiled_payloads():
             return PatchOutcome.skip("unsupported CDX version %s" % self.asf.cdx_ver)
+        outcome = self.mop_callback_dispatcher_available()
+        if outcome.status != 'OK':
+            return outcome
         data, _, elf_path = self._load_versioned_payload('vid_spoof')
-        flash, _ = self._inject_payload('vid_spoof', data)
         handler = self._elf_symbol_addr(elf_path, 'start')
         handler = self.mop_callback_register_handler(handler, 'vid_spoof')
+        flash, _ = self._inject_payload('vid_spoof', data)
         return PatchOutcome.ok(
             None,
             self._payload_detail('vid_spoof', len(data), flash),
@@ -3555,39 +3839,6 @@ class ASFirmwarePatches(CompiledPayloadMixin):
         return PatchOutcome.ok(summary or None)
 
 
-@dataclass(frozen=True)
-class PatchOutcome:
-    status: str = 'OK'
-    summary: str = None
-    details: tuple = ()
-
-    @classmethod
-    def ok(cls, summary=None, *details):
-        return cls('OK', summary, details)
-
-    @classmethod
-    def warn(cls, summary, *details):
-        return cls('WARN', summary, details)
-
-    @classmethod
-    def skip(cls, summary):
-        return cls('SKIP', summary)
-
-
-class TeeStream:
-    def __init__(self, *streams):
-        self.streams = streams
-
-    def write(self, data):
-        for stream in self.streams:
-            stream.write(data)
-        return len(data)
-
-    def flush(self):
-        for stream in self.streams:
-            stream.flush()
-
-
 PATCH_OPTIONS = patch_options.load('air10')
 
 
@@ -3604,75 +3855,6 @@ def build_argument_parser():
     return parser
 
 
-def print_patch_output(text, stream=None):
-    for line in text.rstrip('\n').splitlines():
-        # Existing patch messages already use the standard two-space indent.
-        if line.startswith('  '):
-            line = line[2:]
-        print(('  ' + line) if line else '', file=stream)
-
-
-def print_patch_details(output, outcome, stream=None, include_summary=True):
-    print_patch_output(output, stream)
-    for detail in outcome.details:
-        print('  ' + detail, file=stream)
-    if include_summary and outcome.summary:
-        print('  ' + outcome.summary, file=stream)
-
-
-def apply_reported_patch(option, method, args, detail_log=None, deprecated=None):
-    if deprecated and not args.force_deprecated:
-        print('PATCH: %s [SKIP]' % option)
-        print('  ' + deprecated)
-        return PatchOutcome.skip(deprecated)
-
-    output = io.StringIO()
-    try:
-        with redirect_stdout(output):
-            outcome = method()
-        if not isinstance(outcome, PatchOutcome):
-            raise TypeError("%s returned %s instead of PatchOutcome" %
-                            (option, type(outcome).__name__))
-    except Exception as exc:
-        print('PATCH: %s [ERROR]' % option)
-        if args.verbose or detail_log is None:
-            print_patch_output(output.getvalue())
-        else:
-            print_patch_output(output.getvalue(), detail_log)
-        print('  ' + str(exc))
-        raise
-
-    status = outcome.status
-    if deprecated and status == 'OK':
-        status = 'WARN'
-
-    print('PATCH: %s [%s]' % (option, status))
-    if deprecated:
-        print('  deprecated: ' + deprecated)
-    if args.verbose:
-        print_patch_details(output.getvalue(), outcome)
-    else:
-        show_summary = outcome.status in ('WARN', 'SKIP')
-        if detail_log is not None:
-            print_patch_details(output.getvalue(), outcome, detail_log, include_summary=not show_summary)
-        if show_summary and outcome.summary:
-            print('  ' + outcome.summary)
-    return outcome
-
-
-def apply_patch_phases(patches, args, detail_log=None):
-
-    for phase in PATCH_OPTIONS.phases:
-        selected = [patch for patch in phase.patches if PATCH_OPTIONS.selected(args, patch)]
-        if not selected:
-            continue
-
-        print('\n=== ' + phase.name)
-        for patch in selected:
-            apply_reported_patch(patch.option, getattr(patches, patch.method), args,
-                                 detail_log, patch.deprecated)
-
-
 def run_patcher(args, detail_log=None):
     with open(args.INFILE, 'rb') as firmware_file:
         asf = ASFirmware(firmware_file)
@@ -3683,7 +3865,7 @@ def run_patcher(args, detail_log=None):
     build_identity = firmware_build_identity(repo_dir)
     patches = ASFirmwarePatches(asf, target_rh=args.target_rh)
 
-    apply_patch_phases(patches, args, detail_log)
+    apply_patch_phases(PATCH_OPTIONS, patches, args, detail_log)
 
     print('\n=== Finalization')
     if {'squarewave', 'wrapper_limit_max_pdiff'} & patches.applied_payloads:
@@ -3715,40 +3897,18 @@ def run_patcher(args, detail_log=None):
 
     asf.patch_firmware_sid(build_identity)
 
-    output = io.StringIO()
-    try:
-        with redirect_stdout(output):
-            asf.fix_crcs()
-            asf.write_output(args.OUTFILE, args.overwrite)
-            patches.print_custom_resource_summary()
-    except Exception:
-        stream = detail_log if detail_log is not None and not args.verbose else None
-        print(output.getvalue(), end='', file=stream)
-        raise
+    def write_image():
+        asf.fix_crcs()
+        asf.write_output(args.OUTFILE, args.overwrite)
+        patches.print_custom_resource_summary()
 
-    if args.verbose:
-        print(output.getvalue(), end='')
-    elif detail_log is not None:
-        print(output.getvalue(), end='', file=detail_log)
+    run_unreported_step(write_image, args, detail_log)
     return 0
 
 
 def main(argv=None):
-    parser = build_argument_parser()
-    args = parse_patch_args(parser, argv, PATCH_OPTIONS)
-
-    if args.OPERATION == 'PATCH':
-        errors = PATCH_OPTIONS.dependency_errors(args)
-        if errors:
-            parser.error('; '.join(errors))
-
-    if args.log_file is None:
-        return run_patcher(args)
-
-    with open(args.log_file, 'a', encoding='utf-8') as detail_log:
-        with redirect_stdout(TeeStream(sys.stdout, detail_log)):
-            return run_patcher(args, detail_log)
+    return run_main(build_argument_parser(), PATCH_OPTIONS, run_patcher, argv)
 
 
 if __name__ == '__main__':
-    sys.exit(main())
+    exit_with(main)
