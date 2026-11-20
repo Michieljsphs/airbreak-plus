@@ -40,6 +40,19 @@
 #define PENDING_LCD 0x01
 #define PENDING_BTN 0x02
 
+// SD warning flash. The "No SD card detected" message (SPM=1) raised in
+// therapy flashes the LCD between full and low brightness. sd_flash is
+// uninitialised padding, so it only counts as running or done when tagged;
+// any other value is idle and gets cleared on every tick without the message.
+#define FLASH_RUNNING 0xC0        // 0xC0 | tick count while flashing
+#define FLASH_DONE    0x80        // shown for this message, wait for it to clear
+#define FLASH_MASK    0xC0
+#define FLASH_HALF_TICKS 8        // ticks per bright or dim half-cycle
+#define FLASH_COUNT   3           // number of bright flashes
+#define FLASH_TICKS   (2 * FLASH_HALF_TICKS * FLASH_COUNT)
+#define ZRM_THERAPY   4
+#define SPM_NO_SD     1
+
 extern int variable_get_by_id(int var_id);
 extern void backlight_state_machine(void *ctx);
 extern const unsigned short backlight_adapt_full_asf_var_id;
@@ -55,7 +68,7 @@ struct bl_ctx {
     unsigned char dark_latch;    // 0x34: stock low/high selector
     unsigned char gate35;        // 0x35: stock steady-state gate
     unsigned char reassert_ticks; // 0x36: unused stock padding claimed by this patch
-    unsigned char _pad1;
+    unsigned char sd_flash;      // 0x37: unused stock padding; SD warning flash state
     void *ch_lcd;                // 0x38
     void *ch_btn0;               // 0x3C
     void *ch_btn1;               // 0x40
@@ -218,6 +231,26 @@ static void __attribute__((noinline, section(".text.x.apply_step"))) apply_lcd_s
     apply_step(channel, adjusted, LCD_STEP);
 }
 
+// True while the flash should drive the LCD. Starts when the message appears
+// during therapy, runs once, and re-arms when the message goes away.
+static int __attribute__((noinline, section(".text.x.apply_step"))) flash_active(struct bl_ctx *ctx)
+{
+    unsigned char state = ctx->sd_flash;
+
+    if (variable_get_by_id(VAR_ID_ZRM) != ZRM_THERAPY ||
+        variable_get_by_id(VAR_ID_SPM) != SPM_NO_SD) {
+        ctx->sd_flash = 0;
+        return 0;
+    }
+    if ((state & FLASH_MASK) == FLASH_DONE)
+        return 0;
+    if ((state & FLASH_MASK) != FLASH_RUNNING || (state & ~FLASH_MASK) == 0) {
+        ctx->sd_flash = FLASH_RUNNING | 1;
+        return 1;
+    }
+    return 1;
+}
+
 void start(struct bl_ctx *ctx)
 {
     // Let stock own nonzero transition states. The stock constructor does not
@@ -283,6 +316,19 @@ void start(struct bl_ctx *ctx)
         apply_value(ctx->ch_btn2, btn_target);
         apply_value(ctx->ch_btn3, btn_target);
         ctx->reassert_ticks = (unsigned char)(reassert_ticks - 1);
+        return;
+    }
+
+    if (flash_active(ctx)) {
+        int tick = (ctx->sd_flash & ~FLASH_MASK) - 1;
+        ctx->sd_flash++;
+        if (tick + 1 >= FLASH_TICKS)
+            ctx->sd_flash = FLASH_DONE;
+        apply_value(ctx->ch_lcd, (tick / FLASH_HALF_TICKS) & 1 ? lcd_low : 100);
+        apply_step(ctx->ch_btn0, btn_target, BTN_STEP);
+        apply_step(ctx->ch_btn1, btn_target, BTN_STEP);
+        apply_step(ctx->ch_btn2, btn_target, BTN_STEP);
+        apply_step(ctx->ch_btn3, btn_target, BTN_STEP);
         return;
     }
 
