@@ -1739,10 +1739,23 @@ class ASFirmwarePatches(CompiledPayloadMixin):
 
     def custom_patch_settings_header_clock(self):
         var = self.custom_claim_g8_var('RXF', 'header_clock')
-        label = self.redefine_fw_string(-1, {0: 'Clock'}, 'header_clock_label')
         dep = self.asf.find_var_table_index(4, 'RGT')
-        self.redefine_g8_var(var, 0x0007, 0, dep, label, 0,
-                             2, 0, 0x00000003, self.asf.str_id_off_on_base, 0)
+        if 'header_climate' in self.enabled_custom_settings_features:
+            # One Header row instead of a second switch: Off, Clock, Climate.
+            # The values 0 and 1 keep their meaning from the Clock switch.
+            label = self.redefine_fw_string(-1, {0: 'Header'}, 'header_clock_label')
+            options = ('Off', 'Clock', 'Climate')
+            base = self.asf.add_fw_strings(len(options))
+            for i, text in enumerate(options):
+                owner = 'header_clock_option_%d' % i
+                self.custom_new_string_ids[base + i] = owner
+                self.redefine_fw_string(base + i, {0: text}, owner)
+            self.redefine_g8_var(var, 0x0007, 0, dep, label, options.index('Climate'),
+                                 len(options), 0, 0x00000007, base, 0)
+        else:
+            label = self.redefine_fw_string(-1, {0: 'Clock'}, 'header_clock_label')
+            self.redefine_g8_var(var, 0x0007, 0, dep, label, 0,
+                                 2, 0, 0x00000003, self.asf.str_id_off_on_base, 0)
         monitoring_vid = self.asf.resolve_var_id('RXH')
         after = custom('RXH') if monitoring_vid in self.custom_menu_registered else None
         self.custom_menu_add('options', var, self.CUSTOM_MENU_MODE_BITS, after=after)
@@ -3577,6 +3590,7 @@ class ASFirmwarePatches(CompiledPayloadMixin):
         if profile is None:
             return PatchOutcome.skip("unsupported CDX version %s" % self.asf.cdx_ver)
         draw, width, ctor, update = profile
+        self.header_title_draw_site = draw
         data, _, elf_path = self._load_versioned_payload('header_clock')
         replacements = []
         for site, original, wrapper in (
@@ -3598,6 +3612,47 @@ class ASFirmwarePatches(CompiledPayloadMixin):
         for site, expected, replacement, name in replacements:
             self._replace_bytes_checked(site, expected, replacement, 'patch_header_clock: ' + name)
         return PatchOutcome.ok(None, self._payload_detail('header_clock', len(data), flash))
+
+    def patch_header_climate(self):
+        """Show tube and plate temperatures and estimated RH in the therapy headers."""
+        if 'header_clock' not in self.applied_payloads:
+            return PatchOutcome.skip("header clock payload not installed")
+        if not self.asf.cdx_ver.startswith('SX567-'):
+            return PatchOutcome.skip("unsupported CDX version %s" % self.asf.cdx_ver)
+
+        elf_path = self._require_versioned_artifact('header_clock', 'elf')
+        address = self._write_payload_u8('header_clock', 'header_climate_enabled', 1)
+        self.enabled_custom_settings_features.add('header_climate')
+        details = ["Climate readout enabled at 0x%08X" % address]
+
+        # The page counter is drawn by the call 0x4e bytes after the title draw
+        # in the same function. Leave it alone if this version differs.
+        site = self.header_title_draw_site + 0x4e
+        expected = self._encode_thumb_bl(
+            site, self._elf_symbol_addr(elf_path, 'gui_disp_string_at_utf8') & ~1)
+        if self.asf.read_bytes(site, len(expected)) == expected:
+            target = self._elf_symbol_addr(elf_path, 'header_climate_page_draw')
+            self._replace_bytes_checked(site, expected, self._encode_thumb_bl(site, target),
+                                        'patch_header_climate: page counter')
+            details.append(self._hook_detail('page counter', self.asf.FLASH_BASE + site, target))
+        else:
+            details.append("Page counter call not found at 0x%08X; left unchanged" %
+                           (self.asf.FLASH_BASE + site))
+        return PatchOutcome.ok(None, *details)
+
+    def patch_header_climate_decimal(self):
+        """Show the climate readout temperatures with one decimal."""
+        if 'header_climate' not in self.enabled_custom_settings_features:
+            return PatchOutcome.skip("header climate not installed")
+        address = self._write_payload_u8('header_clock', 'header_climate_decimal', 1)
+        return PatchOutcome.ok("Climate temperatures with a decimal at 0x%08X" % address)
+
+    def patch_header_climate_always(self):
+        """Show the climate readout in every screen title, not only Home and therapy."""
+        if 'header_climate' not in self.enabled_custom_settings_features:
+            return PatchOutcome.skip("header climate not installed")
+        address = self._write_payload_u8('header_clock', 'header_climate_always', 1)
+        return PatchOutcome.ok("Climate readout in every title at 0x%08X" % address)
 
     def patch_backlight_adapt(self):
         """improved backlight response to ambient light"""

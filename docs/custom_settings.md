@@ -30,7 +30,7 @@ Settings are assigned when their corresponding patch or payload is active.
 | [ASV backup-rate control](guide/features/asv_backup_rate.md) | Backup Rate | RPW | g[8] | CSG |
 | [Therapy screen](guide/features/general.md#therapy-screen) | Therapy scr. | RXH | g[8] | CSG |
 | [Climate graph](guide/features/climate_graph.md) | Graph Width (h) | RDT | g[4] | CSG |
-| [Header clock](guide/features/general.md#header-clock) | Clock | RXF | g[8] | CSG |
+| [Header clock](guide/features/general.md#header-clock), [header climate](guide/features/general.md#header-climate) | Clock (Off, On); Header (Off, Clock, Climate) when built with header climate | RXF | g[8] | CSG |
 | [Square Wave](guide/features/squarewave.md) | Square Wave | RPF | g[8] | CSG |
 | [Fall Time](guide/features/general.md#fall-time) | Fall Time | RCW | g[4] | CSG |
 | [ST iBR](guide/features/general.md#st-ibr) | iBR | RXW | g[8] | CSG |
