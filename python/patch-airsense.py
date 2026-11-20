@@ -4024,6 +4024,44 @@ class ASFirmwarePatches(CompiledPayloadMixin):
             except ValueError:
                 return PatchOutcome.warn("no known motor-nag patch location found")
 
+    # Periodic SD card check: offset of the code before the call that applies
+    # the "no SD card" GUI condition (ZPK bit 0), the stock function it calls,
+    # and the stock set-bitfield-member function. Verified on SX567-0401 only.
+    SD_WARNING_HOOKS = {
+        'SX567-0401': (0xde9f0, 0x080de85e, 0x080670de),
+    }
+    # ldr r2,[sp,#12]; ldrb.w r1,[sp,#4]; strb.w r0,[sp,#1]; uxtb r2,r2; mov r0,r4
+    SD_WARNING_CALL_PREFIX = bytes.fromhex('039a 9df80410 8df80100 d2b2 2046')
+
+    def patch_sd_warning(self):
+        """Show the stock "No SD card detected" message when therapy starts without a card."""
+        hook = self.SD_WARNING_HOOKS.get(self.asf.cdx_ver)
+        if hook is None or not self._supports_compiled_payloads():
+            return PatchOutcome.skip("unsupported CDX version %s" % self.asf.cdx_ver)
+        prefix_off, original, member_set = hook
+        prefix = self.SD_WARNING_CALL_PREFIX
+        site = prefix_off + len(prefix)
+        if self.asf.read_bytes(prefix_off, len(prefix)) != prefix:
+            return PatchOutcome.warn("SD card check call not found at 0x%08X" %
+                                     (self.asf.FLASH_BASE + prefix_off))
+        expected_bl = self._encode_thumb_bl(site, original)
+
+        data, _, elf_path = self._load_versioned_payload('sd_warning')
+        abi = {
+            'sd_warning_original': struct.pack('<I', original | 1),
+            'sd_warning_member_set': struct.pack('<I', member_set | 1),
+            'sd_warning_zpk_index': struct.pack('<H', self.asf.find_var_table_index(6, 'ZPK')),
+        }
+        flash, _ = self._inject_payload('sd_warning', data, abi=abi)
+        check = self._elf_symbol_addr(elf_path, 'sd_warning_check') & ~1
+        hook_detail = self._patch_thumb_bl_checked(site, expected_bl, check, 'SD card check call')
+        callback_id = self.variable_callback_add('ZRM', 'sd_warning', 'sd_warning_mode_changed')
+        return PatchOutcome.ok(
+            None,
+            self._payload_detail('sd_warning', len(data), flash),
+            hook_detail,
+            "Chained run-mode (ZRM) callback %d" % callback_id)
+
     def patch_edf_merge(self):
         """Merge universal EDF signal superset into CCX"""
         if not self.asf.cdx_ver.startswith(('SX567-', 'SX584-')):

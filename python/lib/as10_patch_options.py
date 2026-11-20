@@ -203,6 +203,9 @@ PLATFORM = Platform('air10', categories=(
               True, 'patch_past_date', category='Quality of life'),
         Patch('patch-motor-nagscreen', 'Remove the "Motor life exceeded" nag screen',
               True, 'motor_nagscreen', category='Quality of life'),
+        Patch('patch-sd-warning',
+              'Show the "No SD card detected" message when therapy starts without a card',
+              True, 'patch_sd_warning', category='Quality of life'),
     )),
 
     Phase('Therapy modifications', (

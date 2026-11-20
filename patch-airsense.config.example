@@ -30,6 +30,7 @@
 # --patch-fw-vidspoof y
 # --patch-therapy-screen y
 # --patch-motor-nagscreen y
+# --patch-sd-warning y
 # --patch-blx-dump y
 
 # Optional payloads: built-in defaults shown below.
