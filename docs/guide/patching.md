@@ -86,7 +86,7 @@ All patches below are **enabled by default** unless noted.
 | [Therapy screen](features/general.md#therapy-screen) | Adds selectable therapy screen styles and live graphs | `--patch-therapy-screen` |
 | Keep graph screen on | Keeps the screen awake during therapy while the graph is enabled. Requires the therapy-screen patch. Off by default. | `--patch-graph-keep-screen-on` |
 | Defaults | Sets firmware defaults (English, cmH2O, pillows mask, slim tube) | `--patch-defaults` |
-| Color palette | Applies custom color scheme | `--patch-custom-palette` |
+| Color palette | Applies custom color scheme; `--palette-colors ROLE=RRGGBB,...` changes single colors (roles: text, secondary, dim, frame, background, accent, accent_dark, grey, light) | `--patch-custom-palette` |
 | [Backlight adaptation](features/backlight.md) | Continuously adjusts LCD and button brightness to ambient light | `--patch-fw-backlight` |
 | [Keep backlight](features/general.md#keep-backlight) | Hold the dial to toggle screen keep-awake | `--patch-keep-backlight` |
 | [Humidifier hold](features/general.md#humidifier-hold) | Hold Home to switch the humidifier off and on; off by default | `--patch-humidifier-hold` |

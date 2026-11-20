@@ -116,6 +116,11 @@ bottom. You can drag the divider between them.
   reporting and quality of life. Each patch has a checkbox with its description
   and a field below it for each parameter, such as `--target-rh` of
   `--patch-target-rh`.
+- **Palette colors**: under *Patch the custom color palette*, `--palette-colors`
+  has a field and one color swatch per palette role (text, background, accent, ...).
+  Click a swatch to pick a color; the field shows the `ROLE=RRGGBB` list, which
+  holds only the colors that differ from the custom palette. *Custom palette colors*
+  clears it, *Stock ResMed colors* sets the original white, grey and blue.
 - **Hover** a patch for its option name, default, parameters, what it requires
   and what requires it, and which file sets it now.
 - Ticking a patch also ticks the patches it needs; unticking one unticks the

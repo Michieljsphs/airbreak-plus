@@ -57,6 +57,44 @@ def cmh2o_start_ps(value):
 def start_ps_text(value):
     return 'off' if value < 0 else str(value)
 
+# Air10 GUI palette roles (SX567): groups of palette entries that share one
+# stock color, named after how the stock colors are used (white text on
+# black, ResMed blue accent).
+# (role, label, --patch-custom-palette color or None, stock color, entry
+# offsets in the palette table). Roles without a custom color are left as
+# they are unless --palette-colors names them.
+PALETTE_ROLES = (
+    ('text', 'Text', 'FFBB44', 'FFFFFF', (0x00, 0x1C, 0x28, 0x40, 0x44, 0x48)),
+    ('secondary', 'Secondary text', '964848', '969696', (0x04, 0x0C)),
+    ('dim', 'Dimmed text', '643232', '646464', (0x08,)),
+    ('frame', 'Frames and bars', '402020', '404040', (0x10, 0x14, 0x30, 0x4C)),
+    ('background', 'Background', '080008', '000000', (0x18, 0x34, 0x50)),
+    ('accent', 'Accent (selection)', 'CC3300', '0099CC', (0x24,)),
+    ('accent_dark', 'Dark accent', None, '003953', (0x2C, 0x38)),
+    ('grey', 'Grey', None, '969696', (0x20,)),
+    ('light', 'Light grey', None, 'D0D0D0', (0x3C,)),
+)
+PALETTE_KEYS = tuple(role[0] for role in PALETTE_ROLES)
+
+
+def palette_colors(value):
+    """ROLE=RRGGBB[,ROLE=RRGGBB...] as a dict in role order."""
+    colors = {}
+    for item in filter(None, (part.strip() for part in value.split(','))):
+        key, sep, color = item.partition('=')
+        key, color = key.strip().lower(), color.strip().lstrip('#').upper()
+        if not sep or key not in PALETTE_KEYS:
+            raise argparse.ArgumentTypeError(
+                'expected ROLE=RRGGBB with ROLE one of: %s' % ', '.join(PALETTE_KEYS))
+        if len(color) != 6 or any(c not in '0123456789ABCDEF' for c in color):
+            raise argparse.ArgumentTypeError('%s: expected a hex color like FFBB44' % key)
+        colors[key] = color
+    return {key: colors[key] for key in PALETTE_KEYS if key in colors}
+
+
+def format_palette_colors(colors):
+    return ','.join('%s=%s' % item for item in colors.items())
+
 
 # Patch order is part of the implementation. Payloads must be present before
 # custom settings patch their ABI slots; all MOP handlers must be registered
@@ -138,7 +176,13 @@ PLATFORM = Platform('air10', categories=(
         Patch('patch-humidifier-hold', 'Switch the humidifier off and on by holding Home for 2 s.',
               False, 'patch_humidifier_hold', category='Quality of life'),
         Patch('patch-custom-palette', 'Patch the custom color palette',
-              True, 'custom_palette', category='Quality of life'),
+              True, 'custom_palette', category='Quality of life', parameters=(
+                  Parameter('palette-colors',
+                            'Single palette colors, given once; roles left out keep the custom palette. '
+                            'Roles: %s.' % ', '.join(PALETTE_KEYS),
+                            Value(palette_colors, 'ROLE=RRGGBB,...',
+                                  format=format_palette_colors)),
+              )),
         Patch('patch-target-rh',
               'Set the Climate Control target humidity; custom-settings adds menu control',
               True, 'patch_target_rh', category='Quality of life', parameters=(
