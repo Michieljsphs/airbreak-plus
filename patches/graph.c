@@ -155,6 +155,12 @@ typedef struct {
 	unsigned short width;
 	unsigned short columns_per_tick;
 	uint8 active;
+	/* Counts every sampled column or restart; the screen redraws when it
+	 * differs from the count it last drew.
+	 */
+	unsigned generation, drawn;
+	/* Counts worker ticks; the screen samples itself only while it stands still. */
+	unsigned alive, alive_seen;
 	/* A Home hold asked for a new chart starting now. */
 	uint8 reset;
 	/* Setpoint lines, 0 when not shown. */
@@ -175,10 +181,14 @@ extern const unsigned short graph_humid_start_var_id;
 extern const unsigned short graph_min_tube_c;
 
 STATIC void climate_noop(therapy_worker *node) { }
+STATIC void climate_tick(therapy_worker *node);
 
+/* Slot 6 is the worker pass the therapy task runs at 100 Hz, so the chart is
+ * sampled whether or not the screen is on.
+ */
 static const therapy_worker_method climate_methods[7] = {
 	climate_noop, climate_noop, climate_noop, climate_noop,
-	climate_noop, climate_noop, climate_noop
+	climate_noop, climate_noop, climate_tick
 };
 
 STATIC unsigned irq_save(void) {
@@ -210,7 +220,7 @@ STATIC climate_state_t *climate_state(void) {
 	unsigned saved = irq_save();
 	therapy_worker_append(&s->node, 2);
 	s->node.methods = climate_methods;
-	s->node.enabled = 0;
+	s->node.enabled = 1;
 	irq_restore(saved);
 	millisecond_timer_init(s->seen, 0);
 	s->columns_per_tick = 40;
@@ -353,17 +363,12 @@ STATIC void climate_draw_column(const climate_state_t *s, int x) {
  * where it stopped. A Home hold or a new width starts the chart over from
  * now.
  */
-STATIC int climate_column(int *last_pos_x, bool only_if_new, int top, int bottom) {
-	climate_state_t *s = climate_state();
-	if (!s)
-		return 0;
+STATIC void climate_advance(climate_state_t *s) {
 	if (*therapy_mode == MODE_OFF) {
 		s->active = 0;
-		*last_pos_x = -1;
-		return 0;
+		return;
 	}
 	unsigned therapy = *pap_timer;
-	bool all = !only_if_new;
 	bool manual = s->reset;
 	s->reset = 0;
 	/* A new width changes what every column means: start the chart over. */
@@ -373,11 +378,6 @@ STATIC int climate_column(int *last_pos_x, bool only_if_new, int top, int bottom
 	s->width = width;
 	unsigned tick_minutes = width <= 120 ? 10 : width <= 360 ? 30 : 60;
 	s->columns_per_tick = max(1u, tick_minutes * CLIMATE_COLUMNS / width);
-	if (top != s->top || bottom != s->bottom) {
-		s->top = top;
-		s->bottom = bottom;
-		all = true;
-	}
 
 	bool gap = millisecond_timer_expired(s->seen, SESSION_GAP_MS);
 	millisecond_timer_init(s->seen, 0);
@@ -394,7 +394,7 @@ STATIC int climate_column(int *last_pos_x, bool only_if_new, int top, int bottom
 			p[i] = 0;
 		s->active = 1;
 		s->column = ~0u;
-		all = true;
+		s->generation++;
 	}
 	s->last_therapy = therapy;
 
@@ -406,8 +406,41 @@ STATIC int climate_column(int *last_pos_x, bool only_if_new, int top, int bottom
 		climate_setpoints(s);
 		if (column < CLIMATE_COLUMNS)
 			climate_sample(s, column);
+		s->generation++;
+	}
+}
+
+/* The therapy task's worker pass: samples the chart with the screen off too. */
+STATIC void climate_tick(therapy_worker *node) {
+	climate_state_t *s = (climate_state_t *)node;
+	s->alive++;
+	climate_advance(s);
+}
+
+STATIC int climate_column(int *last_pos_x, bool only_if_new, int top, int bottom) {
+	climate_state_t *s = climate_state();
+	if (!s)
+		return 0;
+	if (*therapy_mode == MODE_OFF) {
+		s->active = 0;
+		*last_pos_x = -1;
+		return 0;
+	}
+	/* Sample here only if the worker pass is not running. */
+	if (s->alive == s->alive_seen)
+		climate_advance(s);
+	s->alive_seen = s->alive;
+	bool all = !only_if_new;
+	if (top != s->top || bottom != s->bottom) {
+		s->top = top;
+		s->bottom = bottom;
 		all = true;
 	}
+	if (s->generation != s->drawn) {
+		s->drawn = s->generation;
+		all = true;
+	}
+	unsigned column = s->column;
 	if (!all)
 		return 0;
 	*last_pos_x = column;
