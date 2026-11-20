@@ -29,8 +29,7 @@ Settings are assigned when their corresponding patch or payload is active.
 | [Custom VAuto](guide/features/custom_vauto.md) | Custom T/C | RPH | g[8] | CSG |
 | [ASV backup-rate control](guide/features/asv_backup_rate.md) | Backup Rate | RPW | g[8] | CSG |
 | [Therapy screen](guide/features/general.md#therapy-screen) | Therapy scr. | RXH | g[8] | CSG |
-| [Header clock](guide/features/general.md#header-clock) | Clock | RXF | g[8] | CSG |
-| [Header climate](guide/features/general.md#header-climate) | Climate | first free g[8] slot of RXH, RXW, RSA, RPF, RPW, RPO, RPH, RXM; omitted when none is free | g[8] | CSG |
+| [Header clock](guide/features/general.md#header-clock), [header climate](guide/features/general.md#header-climate) | Clock (Off, On); Header (Off, Clock, Climate) when built with header climate | RXF | g[8] | CSG |
 | [Square Wave](guide/features/squarewave.md) | Square Wave | RPF | g[8] | CSG |
 | [Fall Time](guide/features/general.md#fall-time) | Fall Time | RCW | g[4] | CSG |
 | [ST iBR](guide/features/general.md#st-ibr) | iBR | RXW | g[8] | CSG |

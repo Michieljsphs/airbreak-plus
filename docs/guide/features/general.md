@@ -145,7 +145,9 @@ See [Humid Start](humid_start.md) for how it works, the settings and tuning.
 ## Header Clock
 
 Enable **Clock** in clinical **Options** to replace the Home and active
-therapy-screen titles with the device time in 24-hour `HH:MM` format.
+therapy-screen titles with the device time in 24-hour `HH:MM` format. In a
+build with [Header Climate](#header-climate) the row is called **Header** and
+has the choices Off, Clock and Climate.
 
 ## Header Climate
 
@@ -175,21 +177,21 @@ Treat the value as a guide to the trend, not a measurement. It is probably too
 high in the first minutes, can read 100% when the estimate is above saturation,
 and has not been checked against a hygrometer.
 
-With custom settings, clinical **Configuration** gets a **Climate** switch
-(Off, On; default On) next to **Clock**. Off shows the clock, or the stock
-title, again. The switch takes the first free on/off slot, and is left out
-when there is none (the plus preset uses them all); the readout then stays
-on. Without custom settings the readout stays on.
+With custom settings, the **Clock** row in clinical **Options** becomes
+**Header**, with the choices Off, Clock and Climate (default Climate). Climate
+shows the readout, and the clock while no humidifier is attached. Clock shows
+only the time, and Off keeps the stock titles. A Clock setting saved by an
+earlier build keeps its meaning (Off or Clock). Without custom settings the
+readout is on, with the clock as fallback.
 
-Enable it with `--patch-header-climate y`. It is off
-by default, needs the header clock patch (on by default), and is independent
-of the **Clock** setting.
+Enable it with `--patch-header-climate y`. It is off by default and needs the
+header clock patch (on by default).
 
 ### Always show
 
 `--patch-header-climate-always y` shows the readout in every screen title, so
 menus such as Settings and My Options show it instead of their names. It needs
-`--patch-header-climate` and follows the **Climate** switch. Screens without a
+`--patch-header-climate` and follows the **Header** setting. Screens without a
 humidifier keep their stock titles.
 
 ### Decimals

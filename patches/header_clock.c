@@ -32,10 +32,10 @@ struct root_screen {
 };
 
 extern const u16 header_clock_var_id;
+#define HEADER_CHOICE_CLIMATE 2
 extern const u8 header_climate_enabled;
 extern const u8 header_climate_always;
 extern const u8 header_climate_decimal;
-extern const u16 header_climate_var_id;
 extern int variable_get_by_id(int var_id);
 extern struct root_screen *gui_root_screen_get(void);
 extern struct root_screen *gui_root_screen_init(struct root_screen *root);
@@ -123,9 +123,11 @@ static u16 current_title(const struct root_screen *root, char *text)
     int therapy = page >= THERAPY_PAGE_FIRST && page < THERAPY_PAGE_FIRST + 4 &&
                   (root->title == 7 || root->title == 8);
 #ifdef HEADER_CLIMATE
+    /* Header setting: 0 Off, 1 Clock, 2 Climate (falls back to the clock
+     * without a humidifier). No setting: climate, else clock. */
     if ((home || therapy || header_climate_always) && header_climate_enabled &&
-            (header_climate_var_id == 0xffffu ||
-             variable_get_by_id(header_climate_var_id))) {
+            (header_clock_var_id == 0xffffu ||
+             variable_get_by_id(header_clock_var_id) == HEADER_CHOICE_CLIMATE)) {
         u16 climate = current_climate(text);
         if (climate != CLOCK_HIDDEN)
             return climate;
