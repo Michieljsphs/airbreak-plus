@@ -100,3 +100,15 @@ wrapper_limit_max_pdiff_ps_ramp_var_id:
 wrapper_limit_max_pdiff_ps_ramp_default:
 	.short 0
 	.short 0
+
+.global wrapper_limit_max_pdiff_fl_boost_var_id
+.type wrapper_limit_max_pdiff_fl_boost_var_id, %object
+wrapper_limit_max_pdiff_fl_boost_var_id:
+	.short 0xffff
+	.short 0xffff
+
+.global wrapper_limit_max_pdiff_ffl_var_id
+.type wrapper_limit_max_pdiff_ffl_var_id, %object
+wrapper_limit_max_pdiff_ffl_var_id:
+	.short 0xffff
+	.short 0xffff
