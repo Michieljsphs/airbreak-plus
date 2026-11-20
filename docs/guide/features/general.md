@@ -211,6 +211,24 @@ Hold the dial for three seconds to toggle screen keep-awake.
 Home and dial illumination blink once when enabled and twice when disabled.
 The switch works during therapy and in standby, and starts Off after reboot.
 
+## Humidifier Hold
+
+Hold Home for two seconds and release it to switch the humidifier off. Hold it
+again to switch it back on. It works during therapy and in standby (SX567
+firmware).
+
+Off sets Climate Control to Manual with the humidifier off, because Auto
+ignores the Off setting. The blower keeps running, so the hose can dry in use.
+The humidity level itself is not changed. Switching on returns to the Climate
+Control that was set when the hold switched the humidifier off, Auto or Manual.
+That is remembered only until the device restarts: after a restart, or when the
+humidifier was switched off in the menu, switching on with the hold selects Auto.
+
+When another feature uses a longer Home hold, such as the climate graph's
+restart at five seconds, that hold is left to it.
+
+Enable it with `--patch-humidifier-hold y`. It is off by default.
+
 ## Motor Runtime Warning
 
 The patch removes the "Motor life exceeded" nag screen that stock firmware can

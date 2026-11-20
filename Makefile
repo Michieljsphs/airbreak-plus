@@ -31,7 +31,7 @@ PAYLOAD_LAYOUT_VERSIONS := 0204 0205 0302 0305 0306 0401 0402 $(BLX_PAYLOAD_VERS
 $(foreach v,$(BLX_PAYLOAD_VERSIONS),$(eval PAYLOADS_$(v) := blx_dump blx_dump_tail blx_eeprom))
 PAYLOADS_0204 := target_rh mop_callback_dispatcher variable_callback_dispatcher button_hooks keep_backlight gui_objects custom_menu_hooks uart_stream_schema backlight_adapt header_clock s10_lcd_ili9325 asv_task_wrapper fall_time
 PAYLOADS_0205 := $(PAYLOADS_0204)
-PAYLOADS_0302 := mop_callback_dispatcher variable_callback_dispatcher button_hooks keep_backlight vid_spoof squarewave asv_task_wrapper \
+PAYLOADS_0302 := mop_callback_dispatcher variable_callback_dispatcher button_hooks keep_backlight humidifier_hold vid_spoof squarewave asv_task_wrapper \
 	breath_tracking backlight_adapt wrapper_limit_max_pdiff s10_lcd_ili9325 gui_objects custom_menu_hooks \
 	uart_stream_schema language_fonts target_rh header_clock fall_time st_ibr autoepap therapy_screen learn_targets ivaps_preview humid_start
 PAYLOADS_0305 := $(PAYLOADS_0302)
@@ -175,6 +175,7 @@ $(foreach v,$(PAYLOAD_LAYOUT_VERSIONS),$(eval $(call S10_VERSIONED_OBJECTS_templ
 
 S10_PAYLOAD_ENTRY_breath_tracking := 0
 S10_PAYLOAD_ENTRY_custom_menu_hooks := custom_menu_hook_append
+S10_PAYLOAD_ENTRY_humidifier_hold := humidifier_hold_toggle
 S10_PAYLOAD_ENTRY_gui_objects := gui_destroy
 S10_PAYLOAD_ENTRY_learn_targets := learn_targets_page_hook
 S10_PAYLOAD_ENTRY_ivaps_preview := ivaps_preview_mv

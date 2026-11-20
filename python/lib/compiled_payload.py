@@ -291,3 +291,15 @@ class CompiledPayloadMixin(object):
         address = self._elf_symbol_addr(elf_path, symbol)
         self.asf.write_u16(address - self.asf.FLASH_BASE, value)
         return address
+
+    def _write_payload_u32(self, payload, symbol, value):
+        """Write one u32 ABI value at a named symbol of an applied payload; return its address."""
+        if payload not in self.applied_payloads:
+            raise ValueError("payload %s was not applied" % payload)
+        if (payload, symbol) in self.written_payload_slots:
+            raise ValueError("payload slot %s:%s written twice" % (payload, symbol))
+        self.written_payload_slots.add((payload, symbol))
+        elf_path = self._require_versioned_artifact(payload, "elf")
+        address = self._elf_symbol_addr(elf_path, symbol)
+        self.asf.write_u32(address - self.asf.FLASH_BASE, value)
+        return address

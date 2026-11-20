@@ -135,6 +135,8 @@ PLATFORM = Platform('air10', categories=(
               True, 'patch_backlight_adapt', category='Quality of life'),
         Patch('patch-keep-backlight', 'Toggle screen keep-awake by holding the encoder',
               True, 'enable_keep_backlight', category='Quality of life'),
+        Patch('patch-humidifier-hold', 'Switch the humidifier off and on by holding Home for 2 s.',
+              False, 'patch_humidifier_hold', category='Quality of life'),
         Patch('patch-custom-palette', 'Patch the custom color palette',
               True, 'custom_palette', category='Quality of life'),
         Patch('patch-target-rh',
