@@ -36,7 +36,7 @@ PAYLOADS_0302 := mop_callback_dispatcher variable_callback_dispatcher button_hoo
 	uart_stream_schema language_fonts target_rh header_clock fall_time st_ibr autoepap therapy_screen learn_targets ivaps_preview
 PAYLOADS_0305 := $(PAYLOADS_0302)
 PAYLOADS_0306 := $(PAYLOADS_0302)
-PAYLOADS_0401 := $(PAYLOADS_0302)
+PAYLOADS_0401 := $(PAYLOADS_0302) sd_warning
 PAYLOADS_0402 := $(PAYLOADS_0401)
 
 payload_versions = $(foreach v,$(PAYLOAD_LAYOUT_VERSIONS),$(if $(filter $(1),$(PAYLOADS_$(v))),$(v)))
@@ -177,6 +177,7 @@ S10_PAYLOAD_ENTRY_breath_tracking := 0
 S10_PAYLOAD_ENTRY_custom_menu_hooks := custom_menu_hook_append
 S10_PAYLOAD_ENTRY_gui_objects := gui_destroy
 S10_PAYLOAD_ENTRY_learn_targets := learn_targets_page_hook
+S10_PAYLOAD_ENTRY_sd_warning := sd_warning_check
 S10_PAYLOAD_ENTRY_ivaps_preview := ivaps_preview_mv
 S10_PAYLOAD_ENTRY_s10_lcd_ili9325 := lcd_board_init
 S10_PAYLOAD_OBJECTS_custom_menu_hooks := custom_menu_hooks_entry custom_menu_hooks custom_menu_editors custom_menu_previews

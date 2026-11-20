@@ -151,6 +151,18 @@ Only the warning screen is removed. The device still tracks and reports its
 actual runtime hours,
 and no therapy records, service information, or usage data are erased.
 
+## Missing SD Card Warning
+
+Stock firmware shows "No SD card detected, press OK to continue" only when the
+device powers up without a card. With this patch the same message also appears
+when therapy starts without a card, from the Start button or from SmartStart.
+Therapy keeps running; press OK to dismiss the message. Inserting a card
+removes it.
+
+The message follows the stock setting that enables the power-up warning, so a
+device with that warning turned off stays silent. There is no menu setting.
+Supported on SX567-0401.
+
 ## EDF Recording
 
 Stock Air10 variants and therapy modes record different subsets of the
