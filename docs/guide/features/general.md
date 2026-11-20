@@ -94,7 +94,7 @@ If Fall Time is installed, flow-shape analysis uses its selected duration.
 
 ## Learn Targets
 
-This optional patch calculates **Target Pt Rate** and **Target Va** for iVAPS
+This patch calculates **Target Pt Rate** and **Target Va** for iVAPS
 from breathing during a 20-minute learning session.
 
 With custom settings, **Learn Targets** appears in clinical **Therapy**.
@@ -140,8 +140,8 @@ At the start of therapy, the heated tube normally reaches its temperature
 within minutes, while the humidifier plate takes much longer to heat the water.
 Until then the air is warm but dry. This optional patch (SX567 only) holds
 the tube back while the humidifier warms up, so the air reaches the target
-humidity sooner. It adds a Humid Start switch to the Accessories menu. Min Tube is chosen
-when patching (`--humid-start-min-tube`).
+humidity sooner. It has no menu setting: the patch is the switch. Min Tube is
+chosen when patching (`--humid-start-min-tube`).
 
 See [Humid Start](humid_start.md) for how it works, the settings and tuning.
 The [climate graph](climate_graph.md) shows the first 60 minutes of therapy, so you

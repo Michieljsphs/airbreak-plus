@@ -177,7 +177,6 @@ extern float climate_target_rh_get(void);
 extern const uint8 graph_climate;
 extern const uint32 graph_width_minutes;
 extern const unsigned short graph_width_var_id;
-extern const unsigned short graph_humid_start_var_id;
 extern const unsigned short graph_min_tube_c;
 
 STATIC void climate_noop(therapy_worker *node) { }
@@ -269,9 +268,7 @@ STATIC void climate_setpoints(climate_state_t *s) {
 	int hts = 0, floor = 0;
 	if (variable_get_by_id(VAR_ID_HTB)) {
 		hts = half_degrees(variable_get_by_id(VAR_ID_HTS));
-		if (graph_humid_start_var_id == 0xffffu ||
-		    variable_get_by_id(graph_humid_start_var_id))
-			floor = graph_min_tube_c * 2;
+		floor = graph_min_tube_c * 2;
 		if (floor <= 32 || floor >= hts)
 			floor = 0;
 	}

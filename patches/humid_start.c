@@ -57,6 +57,11 @@ enum {
  * for a long time, and is still heating then.
  */
 #define PLATE_STALL_RATE 0.05f
+/* The plate must be this far above ambient before a stalled plate ends
+ * warm-up, degC: a plate that has hardly started heating (cold water, a
+ * slow first minutes) also barely rises, and is not yet warm.
+ */
+#define PLATE_WARM_MARGIN 8.0f
 /* Setpoint lead over the cap, as a multiple of the tube's gap below it. The
  * setpoint is never above HTS, so the tube never heats faster than stock.
  */
@@ -68,7 +73,14 @@ enum {
 
 /* Cloning the inputs vtable lets both hooks find this state from their own
  * object without reserving a writable global.
- */
+ *
+ * The block is allocated once and never freed on purpose. In the 0401 image the
+ * climate controller (constructor at 0x080EBD24, sensors at +0x14, inputs at
+ * +0x28) has one caller, the wrapper constructor at 0x080EBE6C, whose only
+ * caller is a static initializer that registers the destructor with
+ * __cxa_atexit. It is a boot-time singleton that is never rebuilt per therapy
+ * session, so this is one allocation per power-up, not one per session. A new
+ * session is told apart by the timers in the state (see start()). */
 struct state {
     void *methods[INPUT_SLOTS];
     unsigned magic;
@@ -90,19 +102,11 @@ extern int millisecond_timer_expired(void *timer, unsigned ms);
 extern float climate_tube_setpoint_get(struct obj *inputs);
 extern float climate_reference_temperature_get(struct obj *sensors);
 extern void *const climate_inputs_vtable[];
-extern const unsigned short humid_start_enable_var_id;
 extern const unsigned short humid_start_min_tube_c;
 extern int variable_get_by_id(int var_id);
 
 static float call_f(struct obj *o, int slot) { return ((getf_t)o->vptr[slot])(o); }
 static int call_i(struct obj *o, int slot) { return ((geti_t)o->vptr[slot])(o); }
-
-/* Custom settings, when installed, supply the switch. */
-static int enabled(void)
-{
-    return humid_start_enable_var_id == 0xffffu ||
-           variable_get_by_id(humid_start_enable_var_id);
-}
 
 /* Plate bound coupling: the constant in humidity_model.h. A fixed value, not
  * a setting; a programmer can change HUMIDITY_PLATE_COUPLING there.
@@ -191,7 +195,7 @@ float start(struct obj *inputs)
     s->capping = s->done &&
                  variable_get_by_id(VAR_ID_HTT) < set * 10.0f - 10.0f * HANDOFF_MARGIN &&
                  !millisecond_timer_expired(s->sample, HANDOFF_MS);
-    if (s->done || !enabled() || !call_i(inputs, INPUT_HUMIDIFIER_ACTIVE) ||
+    if (s->done || !call_i(inputs, INPUT_HUMIDIFIER_ACTIVE) ||
             !auto_with_tube(inputs))
         return set;
 
@@ -205,7 +209,7 @@ float start(struct obj *inputs)
         int check = !(++s->minutes & (WINDOW_MINUTES - 1));
         if (s->minutes >= MAX_MINUTES ||
                 (check && plate - s->last_plate < PLATE_STALL_RATE * WINDOW_MINUTES &&
-                 plate > ambient + 8.0f)) {
+                 plate > ambient + PLATE_WARM_MARGIN)) {
             finish(s);
             return set;
         }

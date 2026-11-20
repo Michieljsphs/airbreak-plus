@@ -45,20 +45,15 @@ graph_climate:
 graph_width_minutes:
 	.word 60
 
-/* Custom settings shown on the climate chart; 0xffff when not installed:
- * Graph Width (raw = tenths of an hour; none: graph_width_minutes), Humid
- * Start (switch: on). graph_min_tube_c is the
- * patch-time Min Tube in whole degC (16: no line).
+/* Graph Width setting shown on the climate chart; 0xffff when not installed
+ * (raw = tenths of an hour; none: graph_width_minutes). graph_min_tube_c is
+ * Humid Start's patch-time Min Tube in whole degC (16: no line, also when
+ * Humid Start is not installed).
  */
 .balign 2
 .global graph_width_var_id
 .type graph_width_var_id, %object
 graph_width_var_id:
-	.short 0xffff
-
-.global graph_humid_start_var_id
-.type graph_humid_start_var_id, %object
-graph_humid_start_var_id:
 	.short 0xffff
 
 .global graph_min_tube_c
