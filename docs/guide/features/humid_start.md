@@ -5,6 +5,22 @@ within minutes, while the humidifier plate takes much longer to heat the water.
 Until then the air is warm but dry. This optional patch (SX567 only) holds
 the tube back while the humidifier warms up.
 
+## Enabling
+
+Build with `--patch-humid-start y`, or tick Humid Start in AirBreaker. It is off
+by default and requires font repacking (on by default). Humid Start has no menu
+setting: the patch is the switch. To turn it off, build and flash without it.
+
+- It only acts while a humidifier is attached and climate control is Auto with
+  a heated tube. In any other case the tube behaves as stock.
+- [Min Tube](#min-tube) is chosen when patching. The
+  [plate coupling](#plate-coupling) is fixed at 0.25.
+- It supports the SX567 firmware versions 0302, 0305, 0306, 0401 and 0402. It
+  has been tested on a device with 0401 only.
+- Humid Start does not use the fonts: the requirement is for flash space. Its
+  payload (about 1 KB) is placed in the code caves that repacking frees in the
+  font storage (see `patches/s10_code_caves.tsv`).
+
 ## How it works
 
 During warm-up, the tube setpoint is capped at the temperature where the
@@ -117,45 +133,20 @@ It has not been checked against a hygrometer.
 
 ## Plate coupling
 
-The coupling is a fixed value, not a setting: it is hard to choose without a
-hygrometer. It is `HUMIDITY_PLATE_COUPLING` in `patches/humidity_model.h`, where
-a programmer can change it; this section explains what it does. The coupling is the fraction of the plate's rise above room temperature over
-which the air leaving the chamber is assumed to pick up moisture. It scales the
-plate bound, so it only matters while the plate bound is the smaller one: during
-the first minutes. It has no effect once the heater-power bound takes over. The
-default is **0.25**, which has not been calibrated.
+The coupling is a fixed value, not a setting. It is the fraction of the plate's
+rise above room temperature over which the air leaving the chamber is assumed
+to pick up moisture. It scales the plate bound, so it only matters while the
+plate bound is the smaller one: during the first minutes. It has no effect once
+the heater-power bound takes over.
+
+The value is **0.25**. Several values were tried in tests, and 0.25 seemed the
+most accurate, but it has not been measured with a hygrometer.
 
 - **Lower values** estimate less moisture while the plate warms, so the cap is
   lower, the tube is held colder for longer, and the air in the first minutes is
   more humid. There is more risk of condensation in the tube.
 - **Higher values** estimate more moisture, so the tube warms sooner. The early
   air is warmer and drier, and condensation is less likely.
-
-In tests the power bound took over after about 2 to 3 minutes with a coupling of
-0.30, about 4 to 5 minutes with 0.25, and about 7 minutes with 0.20. With 0.30 the
-estimated moisture was therefore flat after the first few minutes while the plate
-was still heating, which suggests 0.30 is too generous. The differences between
-neighbouring values are small and only show in the first minutes. The measured
-tube temperature over the first 15 minutes shows them better than condensation
-does.
-
-**Calibrating it from steady state.** Once the plate sits at its limit, the
-power bound is the stock model's own prediction. Choose the coupling so the plate
-bound reaches that value at that point:
-
-```
-ah_sat(T) = ah_sat(ambient) + power bound     solve for T
-coupling  = (T − ambient) / (plate − ambient)
-```
-
-where `ah_sat(T) = 4.61 + 0.436 T + 0.00122 T² + 0.000427 T³` g/m³. For a plate at
-68 °C, ambient 32 °C and a power bound of 13.7 g/m³ this gives about 0.18. This
-assumes the stock calibration is right in steady state.
-
-A practical procedure is to start at the default 0.25 and step down by 0.05 on
-successive nights, keeping the tube setting, target RH and water level the same,
-until you see condensation near the mask, then keep the previous value. If 0.25
-already condenses, raise it.
 
 ## Min Tube
 
@@ -176,28 +167,3 @@ even if the water is still cold.
 - A minimum at or above the tube temperature setting ends Humid Start at once,
   so the tube behaves as stock.
 - The value is whole °C. It is not converted when the device shows °F.
-
-## Settings
-
-With custom settings, clinical **Accessories** contains the settings below.
-While no humidifier is attached they are greyed out and cannot be changed, and
-Humid Start has no effect.
-
-| Setting | Values | Default |
-|---------|--------|---------|
-| Humid Start | Off, On | On |
-
-The switch takes the first free variable of the custom settings pool and is
-left out when there is none. A build with many other custom settings (the plus
-preset, for example, uses every on/off slot) has no Humid Start switch, and
-Humid Start is on. Without custom settings Humid Start is on. Min Tube is not a
-menu setting (see above), and the coupling is fixed at 0.25.
-
-The variables RMM, ZRA, LET and LEF are never used: stock code still reads
-RMM and ZRA, and LET and LEF belong to a stock placeholder service. A
-settings variable that another build gave to a different feature keeps its
-stored value, so after moving between builds with different features check
-the Accessories settings and the therapy switches in the menus.
-
-Enable it with `--patch-humid-start y`. It is off by
-default and requires font repacking (on by default).
