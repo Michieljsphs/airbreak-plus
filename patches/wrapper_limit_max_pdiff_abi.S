@@ -84,3 +84,19 @@ wrapper_limit_max_pdiff_eps_var_id:
 wrapper_limit_max_pdiff_exhale_shape_var_id:
 	.short 0xffff
 	.short 0xffff
+
+.global wrapper_limit_max_pdiff_ps_ramp_var_id
+.type wrapper_limit_max_pdiff_ps_ramp_var_id, %object
+wrapper_limit_max_pdiff_ps_ramp_var_id:
+	.short 0xffff
+	.short 0xffff
+
+/* Start PS used while the var_id slot above is 0xffff, in the menu variable's
+ * encoding: 0 is off, n > 0 is (n - 10) / 50 cmH2O. Written by patch-airsense
+ * from --vauto-start-ps.
+ */
+.global wrapper_limit_max_pdiff_ps_ramp_default
+.type wrapper_limit_max_pdiff_ps_ramp_default, %object
+wrapper_limit_max_pdiff_ps_ramp_default:
+	.short 0
+	.short 0

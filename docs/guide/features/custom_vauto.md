@@ -42,6 +42,7 @@ pre-trigger assist, and Custom T/C are disabled.
 | ASV Sens | `RXM` | Very Low, Low, Med, High, Very High | Med | Therapy | VAuto | Scales the adaptive controller response | Med |
 | EPS | `RDH` | 0.0 to 3.0 cmH2O, step 0.2 | 0.0 cmH2O | Therapy | VAuto | Maximum exhale relief below EPAP; zero disables relief | 1.0 cmH2O |
 | Exh. Shape | `RDW` | 0 to 7, step 1 | 0 | Therapy | VAuto | Higher values retain more support during the expiratory descent | 0 |
+| Start PS | see [Start PS](#start-ps) | Off, 0.0 to 10.0 cmH2O, step 0.2 | Off | Comfort, below VAuto Start EPAP | VAuto | PS at the start of the ramp, rising to the set PS | `--vauto-start-ps` |
 | Custom T/C | `RPH` | Off, On | Off | Therapy | S, ST, VAuto, PAC | Uses custom multi-signal trigger and flow-shape cycle decisions | On where supported by the runtime path |
 
 Firmware variable assignments and persistence are listed in the
@@ -236,6 +237,50 @@ this addition relative to the custom base shape, not absolute IPAP.
 
 The stock final limiter uses the upper allowed bound of the Max IPAP setting,
 not the value selected in the menu.
+
+## Start PS
+
+Stock VAuto ramps only the pressure reference; the pressure support stays at
+the full PS from the first breath. Start PS makes the support ramp as well:
+it starts at the Start PS value and rises to the set PS over the ramp.
+
+| Setting | Range | Default | Menu | Visible modes | Function |
+|---------|-------|---------|------|---------------|----------|
+| Start PS | Off, 0.0 to 10.0 cmH2O, step 0.2 | `--vauto-start-ps`, off | Comfort, directly below the VAuto Start EPAP row | VAuto | PS at the start of the ramp; Off turns the feature off, 0.0 ramps support up from zero |
+
+In AirBreaker, Start PS is an enable checkbox with a value field that is greyed out until the box is checked; it starts at 3.0 cmH2O when first enabled. Unchecked passes `off`; the field accepts 0 to 10.
+
+On the device the row steps Off, 0.0, 0.2, ... 10.0. The stored value is 0 for Off and `(n - 10) / 50` cmH2O otherwise, so 0.0 is a real ramp start.
+
+```text
+progress = clamp01((F[2D] - F[05]) / (F[28] - F[05]))
+effective_ps = Start PS + (PS - Start PS) * progress
+```
+
+Only the support above EPAP is scaled, so EPAP follows the stock ramp and only
+IPAP is lower. Start PS above the set PS is limited to the set PS; support is
+never increased above the set PS. It is only applied while the stock ramp is
+running (remaining ramp time F[2E] above zero), so it ends with the ramp even if
+the pressure reference stops slightly short of its target. It is not applied
+outside the ramp (no ramp or a ramp start equal to the target) and applies with Custom VAuto on or off.
+The 4 cmH2O pressure floor of Custom VAuto still applies.
+
+The scaling applies to the whole support above EPAP as Custom VAuto computed
+it, so the boosts ramp with it: the adaptive boost limited by ASV Max and, when
+it is built in, FL Boost. While the ramp runs, the support is
+
+```text
+support_ramped = support * (Start PS + (PS - Start PS) * progress) / PS
+```
+
+where `support` is the shaped support including any boost. At the start of the
+ramp a boost is therefore scaled down by the same factor as the base support,
+and by the end of the ramp it is back at full strength.
+
+The menu row needs a free reclaimed variable, chosen when the firmware is
+patched; see [dynamic slot choice](../../custom_settings.md#dynamic-slot-choice).
+If none is free (for example with every feature enabled), there is no row and
+the patched value of `--vauto-start-ps` is used.
 
 ## Backup rate
 

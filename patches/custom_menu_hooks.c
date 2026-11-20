@@ -151,6 +151,20 @@ static void custom_menu_format_time(void *item, char *buffer, unsigned size)
 	if (size) snprintf(buffer, size, "%02u:%02u", (packed >> 8) & 255, packed & 255);
 }
 
+static void custom_menu_format_off_below_zero(void *item, char *buffer, unsigned size)
+{
+	unsigned stored = *(u32 *)((u8 *)item + 0x18);
+	if (!size) return;
+	if (!stored) {
+		snprintf(buffer, size, "Off");
+		return;
+	}
+	/* One step (10 = 0.2 cmH2O) above zero is the value 0.0. */
+	unsigned value = stored > 10 ? stored - 10 : 0;
+	unsigned tenths = value / 5;
+	snprintf(buffer, size, "%u.%u", tenths / 10, tenths % 10);
+}
+
 static void *custom_menu_create_item(const custom_menu_entry_t *entry)
 {
 	if (entry->flags & CUSTOM_MENU_FLAG_DECLARATION)
@@ -173,12 +187,14 @@ static void *custom_menu_create_item(const custom_menu_entry_t *entry)
 		void *item = menu_create_numeric_var(
 			storage, entry->item_id,
 			(entry->flags & CUSTOM_MENU_FLAG_SHOW_UNITS) != 0);
-		if (entry->flags & CUSTOM_MENU_FLAG_PACKED_TIME) {
+		if ((entry->flags & CUSTOM_MENU_FLAG_PACKED_TIME) ||
+		    (entry->mode_mask & CUSTOM_MENU_MODE_OFF_BELOW_ZERO)) {
 			u32 *methods = malloc(CUSTOM_MENU_NUMERIC_METHODS * sizeof(u32));
 			if (methods) {
 				memcpy_unrolled(methods, *(void **)item,
 						CUSTOM_MENU_NUMERIC_METHODS * sizeof(u32));
-				methods[CUSTOM_MENU_NUMERIC_FORMAT] = (u32)custom_menu_format_time;
+				methods[CUSTOM_MENU_NUMERIC_FORMAT] = (entry->flags & CUSTOM_MENU_FLAG_PACKED_TIME) ?
+					(u32)custom_menu_format_time : (u32)custom_menu_format_off_below_zero;
 				*(u32 **)item = methods;
 			}
 		}

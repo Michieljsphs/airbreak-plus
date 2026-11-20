@@ -157,6 +157,7 @@ class ASFirmwarePatches(CompiledPayloadMixin):
     CUSTOM_MENU_FLAG_SHOW_UNITS = 8
     CUSTOM_MENU_MODE_BITS = 0x00000fff
     CUSTOM_MENU_MODE_KEEP_VISIBILITY = 0x80000000
+    CUSTOM_MENU_MODE_OFF_BELOW_ZERO = 0x40000000
     CUSTOM_MENU_PAGE_CONTAINER_BASE = 0x80
     CUSTOM_MENU_SECTIONS = {
         'therapy': 0,
@@ -180,11 +181,13 @@ class ASFirmwarePatches(CompiledPayloadMixin):
         'AFH': 11,
     }
         
-    def __init__(self, asf, target_rh=85.0, graph_width=60, humid_start_min_tube=16):
+    def __init__(self, asf, target_rh=85.0, graph_width=60, humid_start_min_tube=16,
+                 vauto_start_ps=-1.0):
         self.asf = asf
         self.target_rh_percent = target_rh
         self.graph_width_minutes = graph_width  # --graph-width, climate chart width
         self.humid_start_min_tube = humid_start_min_tube  # --humid-start-min-tube, whole degC
+        self.vauto_start_ps = vauto_start_ps
         self.enabled_custom_settings_features = set()
         self.mop_callback_handlers = {}
         self.mop_callback_dispatcher_context = None
@@ -519,6 +522,29 @@ class ASFirmwarePatches(CompiledPayloadMixin):
         claims[vid] = owner
         return reclaimed[vid]
 
+    def _vauto_start_ps_raw(self):
+        """Start PS as stored by the menu variable, validated.
+
+        0 is off. n > 0 is a start PS of (n - 10) / 50 cmH2O, one step above
+        zero, so a Start PS of 0.0 is distinct from off. --vauto-start-ps is
+        negative for off.
+        """
+        if self.vauto_start_ps < 0:
+            return 0
+        raw = int(round(self.vauto_start_ps * 50))
+        if not 0 <= raw <= 500 or raw % 10:
+            raise ValueError('--vauto-start-ps must be off or 0..10 cmH2O in steps of 0.2')
+        return raw + 10
+
+    def custom_first_free_g4_var(self, candidates):
+        """Return the first reclaimed, still unclaimed g[4] name of an ordered
+        candidate list, or None. Does not claim or raise."""
+        for name in candidates:
+            vid = self.asf.resolve_var_id(name)
+            if vid in self.custom_g4_reclaimed and vid not in self.custom_g4_claims:
+                return name
+        return None
+
     def custom_claim_g8_var(self, request, owner=None):
         """Claim one exact reclaimed g[8] variable and return its UART name."""
         return self._custom_claim_var(
@@ -613,8 +639,13 @@ class ASFirmwarePatches(CompiledPayloadMixin):
             before=before, after=after)
 
     def custom_menu_add(self, container_name, var, mode_mask=None, flags=0, *,
-                        view=False, packed_time=False, before=None, after=None):
-        """Register one variable in a clinical section or custom page."""
+                        view=False, packed_time=False, off_below_zero=False,
+                        before=None, after=None):
+        """Register one variable in a clinical section or custom page.
+
+        off_below_zero: numeric rows show stored 0 as Off and stored n > 0 as
+        (n - 10) / 50, so the editor steps Off, 0.0, 0.2, ...
+        """
         container = self._custom_menu_container_id(container_name)
 
         if mode_mask is None:
@@ -636,6 +667,10 @@ class ASFirmwarePatches(CompiledPayloadMixin):
             if table_num != 4:
                 raise ValueError('custom menu packed time requires a numeric variable')
             flags |= MenuBuilder.PACKED_TIME
+        if off_below_zero:
+            if table_num != 4 or packed_time:
+                raise ValueError('custom menu Off-below-zero format requires a plain numeric variable')
+            mode_mask |= self.CUSTOM_MENU_MODE_OFF_BELOW_ZERO
         if view:
             flags |= MenuBuilder.VIEW
             mode_mask |= self.CUSTOM_MENU_MODE_KEEP_VISIBILITY
@@ -1388,6 +1423,8 @@ class ASFirmwarePatches(CompiledPayloadMixin):
         for var in (vauto_var, max_var, sens_var, eps_var, shape_var):
             previous = self.custom_menu_add(
                 'therapy', var, self.mop_bitmask('VAuto'), after=previous)
+        # Remembered for Start PS, which is registered after all other features.
+        self.custom_vauto_last_menu = previous
         self.custom_menu_add(
             'therapy', tc_var, self.mop_bitmask('S', 'ST', 'VAuto', 'PAC'),
             before=stock('VTS'))
@@ -1425,6 +1462,43 @@ class ASFirmwarePatches(CompiledPayloadMixin):
         self._custom_detail("EPS var_id=0x%04X at 0x%08X" % (eps_vid, eps_addr))
         self._custom_detail("Exhale Shape var_id=0x%04X at 0x%08X" % (shape_vid, shape_addr))
         self._custom_detail("trigger/cycle toggle var_id=0x%04X at 0x%08X" % (tc_vid, tc_addr))
+
+    # Reclaimed g[4] variables Start PS may use, in order of preference. A slot
+    # is free when its owning feature is not part of the build.
+    PS_RAMP_G4_CANDIDATES = ('RDF', 'RDM', 'RCF', 'RCW', 'RCH')
+
+    def custom_patch_settings_vauto_ps_ramp(self):
+        """Expose Start PS in a free reclaimed g[4] slot, if there is one.
+
+        Runs after every other feature has claimed its variables, so the free
+        slot is decided by the actual build. Without a free slot the patched
+        --vauto-start-ps default is used and there is no menu row.
+        """
+        payload = 'wrapper_limit_max_pdiff'
+        raw = self._vauto_start_ps_raw()
+
+        slot = self.custom_first_free_g4_var(self.PS_RAMP_G4_CANDIDATES)
+        if slot is None:
+            self._custom_detail('Start PS: no free reclaimed g[4] slot, no menu row; '
+                                'using the patched default')
+            return
+        var = self.custom_claim_g4_var(slot, 'vauto_start_ps')
+        label = self.redefine_fw_string(-1, {0: 'Start PS'}, 'vauto_start_ps_label')
+        dep = self.asf.find_var_table_index(4, 'RGT')
+        cmh2o_units = self.asf.read_u16(self.asf.find_var('IPC') + self.asf.G4_UNITS_STR)
+        # Stored 0 = Off, n > 0 = (n - 10) / 50 cmH2O; the menu formatter shows
+        # the Off, 0.0, 0.2, ... steps (max 510 = 10.0 cmH2O).
+        self.redefine_g4_var(var, 0x0007, 0, dep, label, raw,
+                             510, 0, 1, 50, 10, cmh2o_units)
+        # Directly below the stock Ramp "Start EPAP" row of VAuto (STV).
+        self.custom_menu_add('comfort', var, self.mop_bitmask('VAuto'),
+                             off_below_zero=True, after=stock('STV'))
+        # No Custom VAuto condition: Start PS also applies to stock VAuto.
+        vid = self.asf.resolve_var_id(var)
+        addr = self._write_payload_u16(payload, 'wrapper_limit_max_pdiff_ps_ramp_var_id', vid)
+        self.variable_callback_add(var, payload, 'custom_breath_settings_changed')
+        self._custom_detail('VAuto Start PS: %s var_id=0x%04X label_str=0x%04X at 0x%08X' %
+                            (var, vid, label, addr))
 
     def custom_patch_settings_ivaps(self):
         """Restore firmware-backed iVAPS controls."""
@@ -1890,6 +1964,9 @@ class ASFirmwarePatches(CompiledPayloadMixin):
             ('learn_targets', self.custom_patch_settings_learn_targets),
             # After the backlight page exists: the width's row goes there.
             ('graph_climate', self.custom_patch_settings_graph_width),
+
+            # Last: picks a free g[4] slot after all other claims.
+            ('wrapper_limit_max_pdiff', self.custom_patch_settings_vauto_ps_ramp),
         )
         active = self.applied_payloads | self.enabled_custom_settings_features
         return [feature for source, feature in feature_patches if source in active]
@@ -3088,6 +3165,14 @@ class ASFirmwarePatches(CompiledPayloadMixin):
             replacement = self._encode_thumb_bl(site, target) + bytes.fromhex('af f3 00 80')
             self._replace_bytes_checked(site, expected, replacement, hook)
             details.append(self._hook_detail(hook, self.asf.FLASH_BASE + site, target))
+        # Start PS default, the single source of truth for both the menu
+        # descriptor default and the wrapper's no-menu fallback.
+        addr = self._write_payload_u16(
+            'wrapper_limit_max_pdiff', 'wrapper_limit_max_pdiff_ps_ramp_default',
+            self._vauto_start_ps_raw())
+        details.append('Start PS default: %s at 0x%08X' %
+                       ('off' if self.vauto_start_ps < 0 else '%.1f cmH2O' % self.vauto_start_ps,
+                        addr))
         return PatchOutcome.ok(None, *details)
 
     def patch_lcd_ili9325(self):
@@ -3928,7 +4013,8 @@ def run_patcher(args, detail_log=None):
     repo_dir = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
     build_identity = firmware_build_identity(repo_dir)
     patches = ASFirmwarePatches(asf, target_rh=args.target_rh, graph_width=args.graph_width,
-                                humid_start_min_tube=args.humid_start_min_tube)
+                                humid_start_min_tube=args.humid_start_min_tube,
+                                vauto_start_ps=args.vauto_start_ps)
 
     apply_patch_phases(PATCH_OPTIONS, patches, args, detail_log)
 

@@ -41,6 +41,22 @@ def tube_temperature(value):
         raise argparse.ArgumentTypeError('Whole degrees C from 16 to 30 expected.')
     return degrees
 
+def cmh2o_start_ps(value):
+    """Start PS in cmH2O, or -1 for off."""
+    if str(value).lower() == 'off':
+        return -1.0
+    try:
+        cmh2o = float(value)
+    except ValueError:
+        cmh2o = None
+    if cmh2o is None or not 0 <= cmh2o <= 10 or abs(cmh2o * 5 - round(cmh2o * 5)) > 1e-6:
+        raise argparse.ArgumentTypeError('off, or 0 to 10 cmH2O in steps of 0.2, expected.')
+    return cmh2o
+
+
+def start_ps_text(value):
+    return 'off' if value < 0 else str(value)
+
 
 # Patch order is part of the implementation. Payloads must be present before
 # custom settings patch their ABI slots; all MOP handlers must be registered
@@ -158,9 +174,17 @@ PLATFORM = Platform('air10', categories=(
               requires=('patch-font-repack', 'patch-expand-heap')),
         Patch('patch-fw-asv-wrapper', 'Add backup-rate switch in ASV, ASVAuto',
               False, 'patch_asv_task_wrapper', category='Therapy modifications'),
-        Patch('patch-fw-vauto-wrapper',
-              'Add Custom VAuto: adjustable pressure support and trigger/cycle assist in VAuto',
-              False, 'patch_wrapper_limit_max_pdiff', category='Therapy modifications'),
+        Patch('patch-fw-vauto-wrapper', 'Add Custom VAuto: adjustable pressure support and trigger/cycle assist in VAuto',
+              False, 'patch_wrapper_limit_max_pdiff', category='Therapy modifications',
+              parameters=(
+                  Parameter('vauto-start-ps',
+                            'Start PS (cmH2O): PS at the start of the ramp, rising to the set PS '
+                            'by the end of the ramp. off, or 0..10 in steps of 0.2 (0 ramps from zero '
+                            'support). Also the menu default; the menu row needs a free '
+                            'reclaimed variable. Default: off.',
+                            Value(cmh2o_start_ps, 'CMH2O', format=start_ps_text), -1.0,
+                            off=-1.0, on_default=3.0),
+              )),
     )),
 
     Phase('Custom settings integration', (

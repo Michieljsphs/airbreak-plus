@@ -149,7 +149,7 @@ its behavior is described in
 | `29` | Additive pressure-waveform component relative to the ramped reference | cmH2O | Pressure-waveform publisher; final limiter input |
 | `2A` | Therapy pressure command after waveform addition, upper limiting, and FOT addition | cmH2O | Final pressure limiter output |
 | `2D` | Ramped pressure reference; ramped EPAP in iVAPS | cmH2O | Ramp output; final limiter input |
-| `2E` | Remaining ramp time | Minutes | Ramp state |
+| `2E` | Remaining ramp time; counts down to 0 and is forced to 0 when the stock ramp ends, 0 when no ramp is set (SX567-0401 ramp worker, initial value from the ramp-time setting) | Minutes | Ramp state |
 | `34` | Forced oscillation technique (FOT) pressure excitation | cmH2O | Added after pressure limiting |
 | `49` | Phase reference used to select the leak-estimation history window | Cycle fraction | Leak-history selection |
 | `55` | Stock ASV phase estimate from weighted phase candidates | Cycle fraction | ASV phase estimator |
