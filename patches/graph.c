@@ -119,13 +119,13 @@ STATIC bool bytes_changed(const uint8 *before, const uint8 *after,
 #define TICKS_PER_MINUTE 6000
 #define MIN_WIDTH_MINUTES 10
 #define MAX_WIDTH_MINUTES 720
-/* A new night: the chart was not updated for this long, while the therapy
- * timer advanced by less than SESSION_TIMER_TICKS. Within one night the
- * timer runs on through such a gap (a menu, the screen off); between two
- * nights it stood still while therapy was off.
+/* A new night: the chart was not updated for this long. The therapy task
+ * updates it every 10 ms for as long as therapy runs, the screen off or a
+ * menu shown included, so only a stop of therapy leaves such a gap. The
+ * therapy timer is not used for this: it may go on counting while therapy
+ * is off.
  */
 #define SESSION_GAP_MS 1800000
-#define SESSION_TIMER_TICKS 30000
 
 /* Series, also the scale of a setpoint line. Values are 0 for none,
  * temperatures in half degrees C, RH in percent.
@@ -355,14 +355,11 @@ STATIC void climate_draw_column(const climate_state_t *s, int x) {
  *
  * The therapy screen, and with it this update, is gone while therapy is off,
  * so the stop is rarely seen here. A new night is the timer going back, or
- * a gap of 30 minutes since the last update over which the timer hardly
- * advanced: it then stood still while therapy was off, and the night started
- * where it stopped. A Home hold or a new width starts the chart over from
- * now.
+ * a gap of 30 minutes since the last update: the night then starts now. A
+ * Home hold or a new width starts the chart over from now.
  */
 STATIC void climate_advance(climate_state_t *s) {
 	if (*therapy_mode == MODE_OFF) {
-		s->active = 0;
 		return;
 	}
 	unsigned therapy = *pap_timer;
@@ -379,13 +376,13 @@ STATIC void climate_advance(climate_state_t *s) {
 	bool gap = millisecond_timer_expired(s->seen, SESSION_GAP_MS);
 	millisecond_timer_init(s->seen, 0);
 	bool restarted = therapy < s->last_therapy;
-	if (!s->active || restarted || manual ||
-	    (gap && therapy - s->last_therapy < SESSION_TIMER_TICKS)) {
-		/* From zero after a restart, from now after a manual restart,
-		 * else from where the timer stopped at the end of the last
-		 * night (zero after power-up).
+	if (!s->active || restarted || manual || gap) {
+		/* From zero after a restart, from now after a manual restart or
+		 * after a gap (the timer may have counted on meanwhile), else
+		 * from the timer's last value (zero after power-up).
 		 */
-		s->session_start = restarted ? 0 : manual ? therapy : s->last_therapy;
+		s->session_start = restarted ? 0 :
+			(manual || gap) ? therapy : s->last_therapy;
 		uint8 *p = &s->data[0][0];
 		for (unsigned i = 0; i < sizeof(s->data); i++)
 			p[i] = 0;
@@ -419,7 +416,6 @@ STATIC int climate_column(int *last_pos_x, bool only_if_new, int top, int bottom
 	if (!s)
 		return 0;
 	if (*therapy_mode == MODE_OFF) {
-		s->active = 0;
 		*last_pos_x = -1;
 		return 0;
 	}
