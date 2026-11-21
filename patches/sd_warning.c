@@ -12,9 +12,12 @@
  *
  * This wrapper raises the message (ZKA=0, ZPK bit 0) when the card goes
  * missing, or when Standby is reached if it went missing during therapy.
- * Once OK is pressed it starts a five minute timer and raises the message
- * again when it expires in Standby. Inserting the card clears the message,
- * as in stock, and stops the reminders.
+ * Once the message has been shown (SPM=1) and dismissed again (SPM no longer
+ * 1, which is what OK does), it starts a five minute timer and raises the
+ * message again when that expires in Standby (clearing the condition for one
+ * check first, so the GUI treats it as new). Inserting the card clears the
+ * message, as in stock, and stops the reminders. ZKA is not used to detect
+ * OK: the reminder never came when it did.
  *
  * State lives in a heap block that replaces the status object's vtable
  * pointer with a copy of the stock vtable, allocated once on the first check.
@@ -35,6 +38,7 @@ extern const unsigned short sd_warning_zpk_index;
 
 extern int variable_get_by_id(int var_id);
 extern void variable_set_by_id(int var_id, int raw_value);
+extern void variable_set_member_clear_by_index(int index, int bit);
 extern void *malloc(unsigned size);
 extern void millisecond_timer_init(void *timer, unsigned elapsed);
 extern int millisecond_timer_expired(void *timer, unsigned ms);
@@ -43,16 +47,24 @@ enum {
     VTABLE_SLOTS = 12,
     STATE_MAGIC = 0x53445741,
     REMIND_AFTER_MS = 5 * 60 * 1000,
+    SHOW_TIMEOUT_MS = 10 * 1000,
+    SPM_NO_SD_CARD = 1,
     ZPK_NO_SD_CARD = 0,
+};
+
+enum phase {
+    PHASE_IDLE,      /* card present */
+    PHASE_PENDING,   /* raise the message at the next Standby check */
+    PHASE_RAISED,    /* raised, waiting for the GUI to show it */
+    PHASE_SHOWN,     /* shown, waiting for OK */
+    PHASE_TIMING,    /* dismissed, the reminder timer runs */
 };
 
 struct state {
     method_t methods[VTABLE_SLOTS];
     unsigned magic;
     unsigned timer[3];
-    unsigned char absent;
-    unsigned char pending;   /* raise the message at the next Standby check */
-    unsigned char timing;    /* OK pressed, the reminder timer runs */
+    unsigned char phase;
 };
 
 struct status {
@@ -69,9 +81,7 @@ static struct state *state_of(struct status *ctx)
     for (unsigned i = 0; i < VTABLE_SLOTS; ++i)
         s->methods[i] = sd_warning_vtable[i];
     s->magic = STATE_MAGIC;
-    s->absent = 0;
-    s->pending = 0;
-    s->timing = 0;
+    s->phase = PHASE_IDLE;
     ctx->vptr = s->methods;
     return s;
 }
@@ -87,8 +97,8 @@ static int warning_enabled(void)
 
 static void raise_message(struct state *s)
 {
-    s->pending = 0;
-    s->timing = 0;
+    s->phase = PHASE_RAISED;
+    millisecond_timer_init(s->timer, 0);
     /* An earlier OK would keep the message hidden. */
     variable_set_by_id(VAR_ID_ZKA, 0);
     sd_warning_member_set(sd_warning_zpk_index, ZPK_NO_SD_CARD);
@@ -99,23 +109,37 @@ void sd_warning_check(struct status *ctx, int present, int standby)
     struct state *s = state_of(ctx);
 
     if (s && present) {
-        s->absent = 0;
+        s->phase = PHASE_IDLE;
     } else if (s) {
-        if (!s->absent) {
-            s->absent = 1;
-            s->pending = 1;
-            s->timing = 0;
-        }
+        if (s->phase == PHASE_IDLE)
+            s->phase = PHASE_PENDING;
         if (standby && warning_enabled()) {
-            if (s->pending) {
+            int shown = variable_get_by_id(VAR_ID_SPM) == SPM_NO_SD_CARD;
+            switch (s->phase) {
+            case PHASE_PENDING:
                 raise_message(s);
-            } else if (variable_get_by_id(VAR_ID_ZKA) == 1) {
-                if (!s->timing) {
-                    s->timing = 1;
+                break;
+            case PHASE_RAISED:
+                /* Another message may hold the screen; don't wait forever. */
+                if (shown || millisecond_timer_expired(s->timer, SHOW_TIMEOUT_MS))
+                    s->phase = PHASE_SHOWN;
+                break;
+            case PHASE_SHOWN:
+                if (!shown) {
+                    s->phase = PHASE_TIMING;
                     millisecond_timer_init(s->timer, 0);
-                } else if (millisecond_timer_expired(s->timer, REMIND_AFTER_MS)) {
-                    raise_message(s);
                 }
+                break;
+            case PHASE_TIMING:
+                /* Clear the condition for one check first, so the GUI
+                 * forgets the earlier OK, then raise it again.
+                 */
+                if (millisecond_timer_expired(s->timer, REMIND_AFTER_MS)) {
+                    variable_set_member_clear_by_index(sd_warning_zpk_index,
+                                                       ZPK_NO_SD_CARD);
+                    s->phase = PHASE_PENDING;
+                }
+                break;
             }
         }
     }
