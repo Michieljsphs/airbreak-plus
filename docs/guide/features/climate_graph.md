@@ -67,15 +67,15 @@ settings.
 
 ## When it starts and stops
 
-- **New night:** the chart clears when a new night starts. The therapy timer
-  does not restart at zero every night, so a night is taken to start when
-  therapy has been off for more than 30 minutes: the chart was not updated for
-  30 minutes while the therapy timer advanced less than 5 minutes. It also
-  clears if the timer goes back. Time is counted from the therapy timer, so the
-  left edge is the start of therapy, also when the therapy screen was not shown
-  at first; the minutes before the chart was first shown stay empty. Show the
-  therapy screen within 5 minutes of starting therapy, or the new night is
-  taken as the old one going on.
+- **New night:** the chart clears when a new night starts: when the chart was
+  not updated for 30 minutes (the chart is updated all through therapy, the
+  screen off included, so only a stop of therapy leaves such a gap), or when
+  the therapy timer goes back. A shorter stop, such as a visit to the toilet,
+  keeps the chart. The therapy timer
+  is not used to tell: it does not restart at zero every night and may count
+  while therapy is off. Time is counted from the therapy timer, so the left
+  edge is the start of therapy, also when the therapy screen was not shown at
+  first.
 - **Starting over by hand:** hold the Home button for 5 seconds during therapy
   to clear the chart and start it again from that moment. Without the climate
   chart, or with therapy off, the hold does what it did before.
@@ -99,10 +99,8 @@ settings.
 - **Screen off:** whether the therapy screen keeps updating while the screen is
   off. If it does not, the chart has gaps where it was off. The chart is kept
   across such a gap as long as the therapy timer kept running.
-- **Therapy timer:** that it counts in 10 ms steps only while therapy runs. On a
-  device it kept counting from the previous night instead of restarting at zero,
-  so the chart takes the start of each night from the timer's value then. If it
-  turns out to count while therapy is off as well, a new night is not recognised
-  and the old chart stays.
+- **Therapy timer:** on a device it kept counting from the previous night
+  instead of restarting at zero. A new night no longer depends on it, but it is
+  not checked that the chart is updated all through therapy.
 - **Strip size:** the simple therapy screen leaves a smaller strip than the bar
   screen; the chart scales to whatever strip it gets.
