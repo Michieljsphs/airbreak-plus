@@ -125,7 +125,7 @@ STATIC bool bytes_changed(const uint8 *before, const uint8 *after,
  * therapy timer is not used for this: it may go on counting while therapy
  * is off.
  */
-#define SESSION_GAP_MS 1800000
+#define SESSION_GAP_MS 300000
 
 /* Series, also the scale of a setpoint line. Values are 0 for none,
  * temperatures in half degrees C, RH in percent.
@@ -355,7 +355,7 @@ STATIC void climate_draw_column(const climate_state_t *s, int x) {
  *
  * The therapy screen, and with it this update, is gone while therapy is off,
  * so the stop is rarely seen here. A new night is the timer going back, or
- * a gap of 30 minutes since the last update: the night then starts now. A
+ * a gap of 5 minutes since the last update: the night then starts now. A
  * Home hold or a new width starts the chart over from now.
  */
 STATIC void climate_advance(climate_state_t *s) {
