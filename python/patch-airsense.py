@@ -183,8 +183,9 @@ class ASFirmwarePatches(CompiledPayloadMixin):
     }
         
     def __init__(self, asf, target_rh=85.0, graph_width=60, humid_start_min_tube=16,
-                 vauto_start_ps=-1.0, palette_colors=None):
+                 vauto_start_ps=-1.0, palette_colors=None, humid_start_coupling_row=False):
         self.asf = asf
+        self.humid_start_coupling_row = humid_start_coupling_row  # --humid-start-coupling-row switch
         self.target_rh_percent = target_rh
         self.graph_width_minutes = graph_width  # --graph-width, climate chart width
         self.humid_start_min_tube = humid_start_min_tube  # --humid-start-min-tube, whole degC
@@ -1995,6 +1996,24 @@ class ASFirmwarePatches(CompiledPayloadMixin):
                                            self.humid_start_min_tube)
         return None
 
+    def custom_patch_settings_humid_start(self):
+        """Expose the Humid Start plate coupling as a menu row (testing)."""
+        if not self.humid_start_coupling_row:
+            return
+        # Fixed slot RDM (iVAPS AutoEPAP's Max EPAP: not combined with AutoEPAP).
+        coupling = self.custom_claim_g4_var('RDM', 'humid_start_coupling')
+        dep = self.asf.find_var_table_index(4, 'RGT')
+        label = self.redefine_fw_string(-1, {0: 'Start Coupling'}, 'humid_start_coupling_label')
+        # Raw value is the coupling * 100: 0.10-0.30 in steps of 0.01, default 0.25.
+        self.redefine_g4_var(coupling, 0x0007, 0, dep, label,
+                             25, 30, 10, 2, 100, 1, self.asf.str_id_empty)
+        # RDM is a stock member of the storage group.
+        self.custom_menu_add('accessories', coupling, self.CUSTOM_MENU_MODE_BITS)
+        self.custom_menu_add_condition(coupling, 'HUM', grey=True)
+        vid = self.asf.resolve_var_id(coupling)
+        addr = self._write_payload_u16('humid_start', 'humid_start_coupling_var_id', vid)
+        self._custom_detail('Start Coupling: %s var_id=0x%04X at 0x%08X' % (coupling, vid, addr))
+
     def custom_patch_settings_collect_features(self):
         """Return active custom-settings feature functions."""
         feature_patches = (
@@ -2013,6 +2032,7 @@ class ASFirmwarePatches(CompiledPayloadMixin):
             ('learn_targets', self.custom_patch_settings_learn_targets),
             # After the backlight page exists: the width's row goes there.
             ('graph_climate', self.custom_patch_settings_graph_width),
+            ('humid_start', self.custom_patch_settings_humid_start),
 
             # Last: picks a free g[4] slot after all other claims.
             ('wrapper_limit_max_pdiff', self.custom_patch_settings_vauto_ps_ramp),
@@ -2862,6 +2882,12 @@ class ASFirmwarePatches(CompiledPayloadMixin):
         if graph is not None:
             details.append('Climate chart Min Tube at 0x%08X' % graph)
         return PatchOutcome.ok(None, *details)
+
+    def patch_humid_start_coupling_row(self):
+        """Switch only: custom_patch_settings_humid_start reads humid_start_coupling_row."""
+        if 'humid_start' not in self.applied_payloads:
+            return PatchOutcome.skip("Humid Start not installed")
+        return PatchOutcome.ok("Start Coupling row in the custom settings menu")
 
     def patch_defaults(self):
         defaults = (
@@ -4110,7 +4136,9 @@ def run_patcher(args, detail_log=None):
     patches = ASFirmwarePatches(asf, target_rh=args.target_rh, graph_width=args.graph_width,
                                 humid_start_min_tube=args.humid_start_min_tube,
                                 vauto_start_ps=args.vauto_start_ps,
-                                palette_colors=args.palette_colors)
+                                palette_colors=args.palette_colors,
+                                humid_start_coupling_row=PATCH_OPTIONS.selected(
+                                    args, PATCH_OPTIONS.patch('humid-start-coupling-row')))
 
     apply_patch_phases(PATCH_OPTIONS, patches, args, detail_log)
 

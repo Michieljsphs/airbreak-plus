@@ -199,6 +199,10 @@ PLATFORM = Platform('air10', categories=(
                             'Default: 16.',
                             Value(tube_temperature, 'DEGC'), 16),
               )),
+        Patch('humid-start-coupling-row',
+              'Humid Start: add the Start Coupling row to the custom settings menu (for testing). '
+              'Without it the built-in coupling 0.25 applies. Only used with Humid Start.',
+              False, 'patch_humid_start_coupling_row', category='Quality of life'),
         Patch('patch-past-date', 'Allow setting past date in the menu and over UART',
               True, 'patch_past_date', category='Quality of life'),
         Patch('patch-motor-nagscreen', 'Remove the "Motor life exceeded" nag screen',
