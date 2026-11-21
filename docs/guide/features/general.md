@@ -246,6 +246,11 @@ when therapy starts without a card, from the Start button or from SmartStart.
 Therapy keeps running; press OK to dismiss the message. Inserting a card
 removes it.
 
+When the message appears during therapy, the screen also flashes to full
+brightness three times to get your attention. The flash is part of the
+adaptive backlight patch (`patch-fw-backlight`); with that patch off, only the
+message shows.
+
 The message follows the stock setting that enables the power-up warning, so a
 device with that warning turned off stays silent. There is no menu setting.
 Supported on SX567-0401.
