@@ -68,9 +68,9 @@ settings.
 ## When it starts and stops
 
 - **New night:** the chart clears when a new night starts: when the chart was
-  not updated for 30 minutes (the chart is updated all through therapy, the
+  not updated for 5 minutes (the chart is updated all through therapy, the
   screen off included, so only a stop of therapy leaves such a gap), or when
-  the therapy timer goes back. A shorter stop, such as a visit to the toilet,
+  the therapy timer goes back. A stop shorter than 5 minutes
   keeps the chart. The therapy timer
   is not used to tell: it does not restart at zero every night and may count
   while therapy is off. Time is counted from the therapy timer, so the left
